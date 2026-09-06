@@ -800,6 +800,7 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, notice:
     .map(
       (k: any) => `<tr class="border-b border-border">
         <td class="p-2 text-sm">${escapeHtml(k.name)}</td>
+        <td class="p-2 text-sm text-muted-foreground">${k.scope === 'write' ? 'read + write' : 'read'}</td>
         <td class="p-2 text-sm text-muted-foreground">${timeAgo(k.created_at)}</td>
         <td class="p-2 text-sm text-muted-foreground">${k.last_used_at ? timeAgo(k.last_used_at) : 'never'}</td>
         <td class="p-2 text-right">
@@ -830,15 +831,35 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, notice:
         action: `/admin/projects/${project.slug}/api-keys`,
         children: `
         ${field({ label: 'Name', name: 'name', required: true, placeholder: 'astro-build' })}
+        <label class="flex flex-col gap-1.5">
+          <span class="text-sm font-medium">Scope</span>
+          <select name="scope" class="${SELECT_CLASS}">
+            <option value="read">Read (published content)</option>
+            <option value="write">Read + write (MCP editing tools)</option>
+          </select>
+        </label>
         ${button({ label: 'Create key' })}
       `,
       }))}
-      <p class="text-sm text-muted-foreground">Send as <code>Authorization: Bearer &lt;key&gt;</code>. Read-only access to published content at <code>/api/v1/${escapeHtml(project.slug)}/&lt;collection&gt;</code>.</p>
+      <p class="text-sm text-muted-foreground">Send as <code>Authorization: Bearer &lt;key&gt;</code>. Read scope covers published content at <code>/api/v1/${escapeHtml(project.slug)}/&lt;collection&gt;</code> and MCP read tools; write scope unlocks MCP editing tools.</p>
       ${createdBlock}
       ${tableCard(`<table class="w-full border-collapse">
-        ${tableHead([{ label: 'Name' }, { label: 'Created' }, { label: 'Last used' }, { label: '' }])}
-        <tbody>${rows || '<tr><td colspan="4" class="p-3 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
+        ${tableHead([{ label: 'Name' }, { label: 'Scope' }, { label: 'Created' }, { label: 'Last used' }, { label: '' }])}
+        <tbody>${rows || '<tr><td colspan="5" class="p-3 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
       </table>`)}
+      <div class="${CARD_CLASS} p-4 flex flex-col gap-2">
+        <h2 class="text-sm font-semibold">MCP endpoint</h2>
+        <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>/mcp/${escapeHtml(project.slug)}</code>. Claude Code <code>.mcp.json</code>:</p>
+        <pre class="text-xs bg-muted rounded-md p-3 overflow-x-auto"><code>{
+  "mcpServers": {
+    "${escapeHtml(project.slug)}": {
+      "type": "http",
+      "url": "https://&lt;your-host&gt;/mcp/${escapeHtml(project.slug)}",
+      "headers": { "Authorization": "Bearer &lt;key&gt;" }
+    }
+  }
+}</code></pre>
+      </div>
     `,
   });
 }

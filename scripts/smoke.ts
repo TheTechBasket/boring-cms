@@ -357,7 +357,70 @@ async function main() {
   const afterRe = app.projectDbs.get(slug).prepare('SELECT COUNT(*) AS n FROM entries WHERE collection_id = ?').get(pages.id);
   assert.equal(afterRe.n, 2, 'unique-field re-import should update, not duplicate');
 
-  // 13. Delete the project (requires exact slug confirmation)
+  // 13. MCP: handshake, tool scoping, agent edits with revisions, rate limit
+  const rpc = (key: string, method: string, params: any = {}, id: number | undefined = 1) =>
+    fetch(`${base}/mcp/${slug}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+    });
+
+  const mcpNoAuth = await fetch(`${base}/mcp/${slug}`, { method: 'POST', body: '{}' });
+  assert.equal(mcpNoAuth.status, 401, 'MCP without a key should be 401');
+
+  const init: any = await (await rpc(apiKey, 'initialize')).json();
+  assert.ok(init.result.protocolVersion, 'initialize should return a protocol version');
+  assert.ok(init.result.serverInfo.name.includes('yncms'), 'initialize should name the server');
+
+  const readTools: any = await (await rpc(apiKey, 'tools/list')).json();
+  const readNames = readTools.result.tools.map((t) => t.name);
+  assert.ok(readNames.includes('list_collections'), 'read key should see read tools');
+  assert.ok(!readNames.includes('create_entry'), 'read key should not see write tools');
+
+  const writeDenied: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'create_entry', arguments: { collection: 'blog-posts', data: {} } })
+  ).json();
+  assert.ok(writeDenied.error.message.includes('read-only'), 'write tool with read key should be refused');
+
+  const writeKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'agent', scope: 'write' } });
+  const writeKey = ((await writeKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
+  assert.ok(writeKey, 'write-scope key should be created');
+
+  const writeTools: any = await (await rpc(writeKey, 'tools/list')).json();
+  assert.ok(writeTools.result.tools.some((t) => t.name === 'create_entry'), 'write key should see write tools');
+
+  const created: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'create_entry', arguments: { collection: 'blog-posts', data: { body: 'agent draft' }, publish: true } })
+  ).json();
+  const createdEntry = JSON.parse(created.result.content[0].text);
+  assert.equal(createdEntry.status, 'published', 'create_entry with publish should publish');
+
+  const mcpList: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts' } })
+  ).json();
+  const mcpItems = JSON.parse(mcpList.result.content[0].text);
+  assert.ok(mcpItems.some((i) => i.slug === createdEntry.slug), 'MCP list_entries should include the agent entry');
+
+  await rpc(writeKey, 'tools/call', { name: 'update_entry', arguments: { collection: 'blog-posts', slug: createdEntry.slug, data: { body: 'agent edit' } } });
+  const agentEntry = getEntry(projectDb, collection.id, createdEntry.slug);
+  assert.equal(agentEntry.data.body, 'agent edit', 'update_entry should persist');
+  assert.equal(listRevisions(projectDb, agentEntry.id).length, 1, 'agent edit should record a revision');
+
+  const unpub: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'unpublish_entry', arguments: { collection: 'blog-posts', slug: createdEntry.slug } })
+  ).json();
+  assert.equal(JSON.parse(unpub.result.content[0].text).status, 'draft', 'unpublish_entry should return to draft');
+
+  const badTool: any = await (await rpc(apiKey, 'tools/call', { name: 'nope' })).json();
+  assert.ok(badTool.error, 'unknown tool should be a JSON-RPC error');
+
+  let limited = false;
+  for (let i = 0; i < 70; i++) {
+    if ((await rpc(apiKey, 'ping')).status === 429) { limited = true; break; }
+  }
+  assert.ok(limited, 'per-key rate limit should kick in');
+
+  // 14. Delete the project (requires exact slug confirmation)
   const badDelete = await req('POST', `/admin/projects/${slug}/delete`, {
     form: { confirm: 'not-the-slug' },
   });

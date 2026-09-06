@@ -105,6 +105,31 @@ site repo can be the source of truth and re-applying is always safe.
 To migrate from WordPress, convert the WXR file to JSON with an external
 script and import it here; the CMS has no WordPress-specific code.
 
+## MCP
+
+Each project is an MCP server at `POST /mcp/<project>` (Streamable HTTP,
+plain JSON responses), authenticated with the same Bearer API keys as
+the REST API. Keys have a scope: `read` (default) exposes
+`list_collections`, `list_entries`, `get_entry`; `write` adds
+`create_entry`, `update_entry`, `publish_entry`, `unpublish_entry`.
+Agent edits go through the normal content layer, so every change is a
+revertable revision. Requests are rate limited per key (60/min, `429`
+with `Retry-After`).
+
+Claude Code `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-site": {
+      "type": "http",
+      "url": "https://cms.example.com/mcp/my-site",
+      "headers": { "Authorization": "Bearer yn_..." }
+    }
+  }
+}
+```
+
 ## Smoke check
 
 ```bash

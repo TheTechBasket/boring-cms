@@ -31,7 +31,8 @@ import { exportSchema, exportCollection, exportProject, applySchema, parseImport
 import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
-import { Router, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
+import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
+import { handleMcp, rateLimitOk } from './lib/mcp.ts';
 import {
   FIELD_TYPES,
   contentVersion,
@@ -741,7 +742,7 @@ export function createApp(configOverrides = {}) {
     const form = await readFormBody(req);
     const name = (form.name || '').trim();
     if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
-    const createdKey = createApiKey(db, name);
+    const createdKey = createApiKey(db, name, form.scope);
     html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey }));
   }));
 
@@ -788,6 +789,29 @@ export function createApp(configOverrides = {}) {
     if (!item) return json(req, res, 404, { error: 'not_found' });
     json(req, res, 200, item, { ETag: etag });
   }));
+
+  // ---- MCP endpoint (per project, Bearer key, JSON-RPC over POST) ---------
+
+  router.post('/mcp/:project', async (req, res, params) => {
+    const project = getProjectBySlug(coreDb, params.project);
+    if (!project) return json(req, res, 404, { error: 'not_found' });
+    const db = projectDbs.get(project.slug);
+    const auth = req.headers.authorization || '';
+    const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
+    if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
+    if (!rateLimitOk(`${project.slug}:${apiKey.id}`)) {
+      return json(req, res, 429, { error: 'rate_limited' }, { 'Retry-After': '60' });
+    }
+    let message;
+    try {
+      message = JSON.parse(await readBody(req));
+    } catch {
+      return json(req, res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error.' } });
+    }
+    const response = handleMcp(db, project.name, message, apiKey.scope);
+    if (response === null) return send(req, res, 202, '', {});
+    json(req, res, 200, response);
+  });
 
   // ---- Static files -------------------------------------------------------
 

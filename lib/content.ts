@@ -311,26 +311,27 @@ function hashKey(key) {
 }
 
 // Returns the plaintext key exactly once; only the hash is stored.
-export function createApiKey(db, name) {
+export function createApiKey(db, name, scope = 'read') {
   const key = `yn_${randomToken(24)}`;
-  db.prepare('INSERT INTO api_keys (name, key_hash) VALUES (?, ?)').run(name, hashKey(key));
+  db.prepare('INSERT INTO api_keys (name, key_hash, scope) VALUES (?, ?, ?)').run(name, hashKey(key), scope === 'write' ? 'write' : 'read');
   return key;
 }
 
 export function listApiKeys(db) {
-  return db.prepare('SELECT id, name, created_at, last_used_at FROM api_keys ORDER BY id').all();
+  return db.prepare('SELECT id, name, scope, created_at, last_used_at FROM api_keys ORDER BY id').all();
 }
 
 export function revokeApiKey(db, id) {
   db.prepare('DELETE FROM api_keys WHERE id = ?').run(id);
 }
 
+// Truthy result carries { id, scope } for scope checks and rate limiting.
 export function verifyApiKey(db, key) {
-  if (!key) return false;
-  const row = db.prepare('SELECT id FROM api_keys WHERE key_hash = ?').get(hashKey(key));
-  if (!row) return false;
+  if (!key) return null;
+  const row = db.prepare('SELECT id, scope FROM api_keys WHERE key_hash = ?').get(hashKey(key));
+  if (!row) return null;
   db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
-  return true;
+  return row;
 }
 
 // ---- Published read path (API) -------------------------------------------
