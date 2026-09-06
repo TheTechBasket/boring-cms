@@ -193,8 +193,19 @@ export function createApp(configOverrides = {}) {
     return clientId && clientSecret ? { clientId, clientSecret } : null;
   }
 
+  // Password login can be turned off once a passkey or Google works, killing
+  // the brute-force surface. Self-healing: if both alternatives are gone the
+  // "off" setting is ignored, and FORCE_PASSWORD_RESET always re-enables it,
+  // so the admin can never be locked out.
+  function passwordLoginEnabled() {
+    if (config.forcePasswordReset) return true;
+    const off = getSettingValue(coreDb, config.masterKey, { scope: 'global', key: 'password_login' }) === 'off';
+    if (!off) return true;
+    return !(credentialCount(coreDb) > 0 || googleSettings());
+  }
+
   function loginPageProps(extra = {}) {
-    return { passkeys: credentialCount(coreDb) > 0, google: !!googleSettings(), ...extra };
+    return { passkeys: credentialCount(coreDb) > 0, google: !!googleSettings(), password: passwordLoginEnabled(), ...extra };
   }
 
   // ---- Auth / setup routes ----------------------------------------------
@@ -229,6 +240,9 @@ export function createApp(configOverrides = {}) {
 
   router.post('/login', async (req, res) => {
     if (userCount(coreDb) === 0) return redirect(req, res, '/setup');
+    if (!passwordLoginEnabled()) {
+      return html(req, res, 403, loginPage(loginPageProps({ error: 'Password login is disabled. Use a passkey or Google.' })));
+    }
     const form = await readFormBody(req);
     const email = (form.email || '').trim().toLowerCase();
     const password = form.password || '';
@@ -425,13 +439,35 @@ export function createApp(configOverrides = {}) {
 
   // ---- Account (password + passkeys) --------------------------------------
 
+  function accountProps(user, extra = {}) {
+    return {
+      user,
+      projects: listProjects(coreDb),
+      credentials: listCredentials(coreDb, user.id),
+      google: !!googleSettings(),
+      passwordLogin: passwordLoginEnabled(),
+      ...extra,
+    };
+  }
+
   router.get('/account', requireAdmin((req, res, params, user) => {
-    html(req, res, 200, accountPage({ user, projects: listProjects(coreDb), credentials: listCredentials(coreDb, user.id) }));
+    html(req, res, 200, accountPage(accountProps(user)));
+  }));
+
+  // Turn password login off (only while a passkey or Google works) or back on.
+  router.post('/account/login-methods', requireAdmin(async (req, res, params, user) => {
+    const form = await readFormBody(req);
+    const off = form.password_login === 'off';
+    if (off && !(credentialCount(coreDb) > 0 || googleSettings())) {
+      return html(req, res, 400, accountPage(accountProps(user, { notice: { type: 'error', message: 'Add a passkey or configure Google first, or you would be locked out.' } })));
+    }
+    setSetting(coreDb, config.masterKey, { scope: 'global', key: 'password_login', value: off ? 'off' : 'on' });
+    html(req, res, 200, accountPage(accountProps(user, { notice: { type: 'success', message: off ? 'Password login disabled. The login page now only offers passkeys and Google.' : 'Password login re-enabled.' } })));
   }));
 
   router.post('/account/password', requireAdmin(async (req, res, params, user) => {
     const form = await readFormBody(req);
-    const render = (notice) => html(req, res, notice.type === 'error' ? 400 : 200, accountPage({ user, projects: listProjects(coreDb), credentials: listCredentials(coreDb, user.id), notice }));
+    const render = (notice) => html(req, res, notice.type === 'error' ? 400 : 200, accountPage(accountProps(user, { notice })));
     if (!(await verifyUserPassword(user, form.current_password || ''))) {
       return render({ type: 'error', message: 'Current password is incorrect.' });
     }
@@ -1049,7 +1085,7 @@ export function createApp(configOverrides = {}) {
   // ---- API keys -----------------------------------------------------------
 
   router.get('/admin/projects/:slug/api-keys', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), origin: requestOrigin(req).origin }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), collections: listCollections(db), origin: requestOrigin(req).origin }));
   }));
 
   router.post('/admin/projects/:slug/api-keys', withProject(async (req, res, params, ctx, db) => {
@@ -1057,7 +1093,7 @@ export function createApp(configOverrides = {}) {
     const name = (form.name || '').trim();
     if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
     const createdKey = createApiKey(db, name, form.scope);
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, origin: requestOrigin(req).origin }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, collections: listCollections(db), origin: requestOrigin(req).origin }));
   }));
 
   router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {

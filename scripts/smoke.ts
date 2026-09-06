@@ -196,6 +196,8 @@ async function main() {
   const keyHtml = await keyPage.text();
   const apiKey = (keyHtml.match(/yn_[A-Za-z0-9_-]+/) || [])[0];
   assert.ok(apiKey, 'created API key should appear in the page');
+  assert.ok(keyHtml.includes('REST API'), 'API keys page should carry the REST API docs card');
+  assert.ok(keyHtml.includes(`/api/v1/${slug}/blog-posts`), 'API docs should list live per-collection URLs');
 
   const noAuth = await fetch(`${base}/api/v1/${slug}/blog-posts`);
   assert.equal(noAuth.status, 401, 'API without a key should be 401');
@@ -240,6 +242,8 @@ async function main() {
   const mediaHtml = await mediaPageRes.text();
   const mediaKey = (mediaHtml.match(/\/media\/demo-project\/([a-z0-9-]+\.txt)/) || [])[1];
   assert.ok(mediaKey, 'media page should list the uploaded file');
+  assert.ok(!mediaHtml.includes('<datalist'), 'media page should not use a datalist for group suggestions');
+  assert.ok(!mediaHtml.includes('Projects overview'), 'project switcher should not offer a Projects overview option');
 
   const served = await fetch(`${base}/media/${slug}/${mediaKey}`);
   assert.equal(served.status, 200, 'media serve route should return the file');
@@ -303,6 +307,7 @@ async function main() {
   assert.equal(folderChange.status, 302, 'folder change should redirect');
   foldersHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
   assert.ok(foldersHtml.includes('data-media-folder="logos"'), 'folder change should persist');
+  assert.ok(foldersHtml.includes('data-fill="folder"'), 'upload form should offer existing groups as chips');
 
   const storageSave = await req('POST', '/admin/settings/storage', {
     form: { name: 'R2 Main', endpoint: 'https://acc.r2.cloudflarestorage.com', bucket: 'assets', key: 'AK', secret: 'SK', public_url: 'https://cdn.example.com/' },
@@ -517,6 +522,10 @@ async function main() {
   assert.equal(accountRes.status, 200, 'account page should render');
   assert.ok((await accountRes.text()).includes('Add a passkey'), 'account page should offer passkey registration');
 
+  // Disabling password login without any alternative must be refused.
+  const lockedOut = await req('POST', '/account/login-methods', { form: { password_login: 'off' } });
+  assert.equal(lockedOut.status, 400, 'disabling password login with no passkey/Google should be rejected');
+
   const badPw = await req('POST', '/account/password', { form: { current_password: 'wrong', password: 'newpassword1', password_confirm: 'newpassword1' } });
   assert.equal(badPw.status, 400, 'wrong current password should be rejected');
 
@@ -595,6 +604,20 @@ async function main() {
   assert.ok((googleStart.headers.get('location') || '').startsWith('https://accounts.google.com/'), 'configured Google start should redirect to Google');
   assert.ok(googleStart.headers.get('location').includes('code_challenge='), 'Google start should carry PKCE');
   assert.ok((await (await fetch(`${base}/login`)).text()).includes('Continue with Google'), 'login page should offer Google when configured');
+
+  // With a passkey and Google configured, password login can be turned off.
+  const disableRes = await req('POST', '/account/login-methods', { form: { password_login: 'off' } });
+  assert.equal(disableRes.status, 200, 'disabling password login with alternatives should succeed');
+  const noPwLogin = await (await fetch(`${base}/login`)).text();
+  assert.ok(!noPwLogin.includes('name="password"'), 'login page should hide the password form when disabled');
+  const pwBlocked = await fetch(`${base}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
+  });
+  assert.equal(pwBlocked.status, 403, 'password login should return 403 when disabled');
+  const enableRes = await req('POST', '/account/login-methods', { form: { password_login: 'on' } });
+  assert.equal(enableRes.status, 200, 're-enabling password login should succeed');
 
   // Passkey removal from the account page.
   const credRow = app.coreDb.prepare('SELECT id FROM credentials').get();

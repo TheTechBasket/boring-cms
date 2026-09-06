@@ -47,7 +47,7 @@ function escapeHtml(str: unknown): string {
 // truth for each primitive so templates below never hand-roll utilities.
 
 const BUTTON_BASE =
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ' +
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ' +
   'transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ' +
   'disabled:pointer-events-none disabled:opacity-50 h-9 px-4 py-2 w-fit cursor-pointer';
 
@@ -67,14 +67,14 @@ function button({ label, variant = 'default', type = 'submit', small = false, na
 }
 
 const INPUT_CLASS =
-  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs ' +
+  'flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-xs ' +
   'transition-colors placeholder:text-muted-foreground focus-visible:outline-none ' +
   'focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
 const TEXTAREA_CLASS = INPUT_CLASS.replace('h-9', 'min-h-40 py-2 font-mono leading-relaxed');
 
 const SELECT_CLASS =
-  'flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs ' +
+  'flex h-9 w-full items-center border border-input bg-transparent px-3 py-1 text-sm shadow-xs ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer';
 
 function field({ label, name, type = 'text', required = false, value, placeholder, autofocus = false, minlength, autocomplete }: {
@@ -99,7 +99,44 @@ function field({ label, name, type = 'text', required = false, value, placeholde
 }
 
 const CARD_CLASS =
-  'rounded-lg border border-border bg-card text-card-foreground shadow-xs p-6 flex flex-col gap-4';
+  'border border-border bg-card text-card-foreground shadow-xs p-6 flex flex-col gap-4';
+
+const FILE_INPUT_CLASS =
+  'text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer';
+
+// Labeled <select> matching field(); options: [{value, label, selected?}].
+function selectField({ label, name, options, required = false, help }: {
+  label: string; name: string; required?: boolean; help?: string;
+  options: { value: string; label: string; selected?: boolean }[];
+}): string {
+  const opts = options
+    .map((o) => `<option value="${escapeHtml(o.value)}"${o.selected ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
+    .join('');
+  return `<label class="flex flex-col gap-1.5 text-sm">
+    <span class="font-medium text-foreground">${escapeHtml(label)}</span>
+    <select name="${name}"${required ? ' required' : ''} class="${SELECT_CLASS}">${opts}</select>
+    ${help ? `<span class="text-xs text-muted-foreground">${escapeHtml(help)}</span>` : ''}
+  </label>`;
+}
+
+function checkbox({ name, label, checked = false }: { name: string; label: string; checked?: boolean }): string {
+  return `<label class="flex items-center gap-2 text-sm">
+    <input type="checkbox" name="${name}" value="1"${checked ? ' checked' : ''} class="size-4 accent-primary">
+    <span>${escapeHtml(label)}</span>
+  </label>`;
+}
+
+function preBlock(content: string): string {
+  return `<pre class="text-xs bg-muted p-3 overflow-x-auto m-0"><code>${escapeHtml(content)}</code></pre>`;
+}
+
+// Write-only setting keys list, shared by project and global settings pages.
+function settingsKeyList(settingKeys: any[]): string {
+  const keys = settingKeys
+    .map((s: any) => `<li class="py-1.5 border-b border-border"><code class="text-sm">${escapeHtml(s.key)}</code> <span class="text-muted-foreground text-sm">(updated ${timeAgo(s.updated_at)})</span></li>`)
+    .join('\n');
+  return `<ul class="list-none p-0">${keys || '<li class="py-1.5 text-muted-foreground italic">No settings set.</li>'}</ul>`;
+}
 
 function card({ action, extraClass = 'max-w-md', dataConfirm, children }: {
   action: string; extraClass?: string; dataConfirm?: string; children: string;
@@ -119,7 +156,7 @@ const NOTICE_VARIANTS: Record<string, string> = {
 
 function notice({ type, message }: { type: string; message: string }): string {
   const variant = NOTICE_VARIANTS[type] || NOTICE_VARIANTS.error;
-  return `<p class="rounded-lg border px-4 py-3 text-sm ${variant}">${escapeHtml(message)}</p>`;
+  return `<p class="border px-4 py-3 text-sm ${variant}">${escapeHtml(message)}</p>`;
 }
 
 function sectionHeading(text: string): string {
@@ -137,15 +174,26 @@ function dangerDetails({ summary, description, children }: { summary: string; de
   </details>`;
 }
 
+// One popover primitive for every disclosure: create forms, upload forms,
+// the media browser. summary is a button; panel drops below, right-aligned.
+function popover({ summary, variant = 'default', panelClass = 'w-80 p-5', wrapClass = '', children }: {
+  summary: string; variant?: string; panelClass?: string; wrapClass?: string; children: string;
+}): string {
+  return `<details class="relative ${wrapClass}" data-popover>
+    <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} list-none select-none [&::-webkit-details-marker]:hidden">${summary}</summary>
+    <div class="popover-panel absolute right-0 top-full mt-2 z-10 border border-border bg-popover text-popover-foreground shadow-lg ${panelClass}">
+      ${children}
+    </div>
+  </details>`;
+}
+
 // A "+" button in the page header that opens a small popover form. All
 // create actions use this instead of always-visible forms.
 function addPopover({ label, action, children }: { label: string; action: string; children: string }): string {
-  return `<details class="relative" data-popover>
-    <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} list-none select-none [&::-webkit-details-marker]:hidden">+ ${escapeHtml(label)}</summary>
-    <div class="absolute right-0 top-full mt-2 z-10 w-80 border border-border bg-popover text-popover-foreground shadow-lg p-5">
-      <form method="post" action="${action}" class="flex flex-col gap-4">${children}</form>
-    </div>
-  </details>`;
+  return popover({
+    summary: `+ ${escapeHtml(label)}`,
+    children: `<form method="post" action="${action}" class="flex flex-col gap-4">${children}</form>`,
+  });
 }
 
 function pageHeader(title: string, right = ''): string {
@@ -201,9 +249,11 @@ function layout({ title, body, user = null, projects = [], project = null, notic
       </main>`
     : `<div class="flex min-h-screen">
         ${sidebar({ user: user!, projects, project })}
-        <main class="@container flex-1 min-w-0 px-8 py-8 flex flex-col gap-5">
-          ${pageNotice ? notice(pageNotice) : ''}
-          ${body}
+        <main class="@container flex-1 min-w-0 px-8 py-8">
+          <div class="w-full max-w-6xl flex flex-col gap-5">
+            ${pageNotice ? notice(pageNotice) : ''}
+            ${body}
+          </div>
         </main>
       </div>`;
 
@@ -223,13 +273,13 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 </html>`;
 }
 
-const SIDEBAR_LINK = 'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
+const SIDEBAR_LINK = 'flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
 
 function sidebar({ user, projects, project }: {
   user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
 }): string {
   const options = [
-    `<option value="">Projects overview</option>`,
+    project ? '' : `<option value="" disabled selected hidden>Select a project</option>`,
     ...projects.map(
       (p) =>
         `<option value="${escapeHtml(p.slug)}"${project && p.slug === project.slug ? ' selected' : ''}>${p.icon && !/^(https?:)?\//.test(p.icon) ? `${escapeHtml(p.icon)} ` : ''}${escapeHtml(p.name)}</option>`,
@@ -287,7 +337,9 @@ export function setupPage({ error }: { error?: string } = {}): string {
   });
 }
 
-export function loginPage({ error, passkeys = false, google = false }: { error?: string; passkeys?: boolean; google?: boolean } = {}): string {
+export function loginPage({ error, passkeys = false, google = false, password = true }: {
+  error?: string; passkeys?: boolean; google?: boolean; password?: boolean;
+} = {}): string {
   const alternatives =
     passkeys || google
       ? `<div class="flex flex-col gap-2">
@@ -296,20 +348,23 @@ export function loginPage({ error, passkeys = false, google = false }: { error?:
           <p data-passkey-error class="text-sm text-destructive" hidden></p>
         </div>`
       : '';
-  return layout({
-    title: 'Log in',
-    bare: true,
-    body: `
-      <h1 class="text-2xl font-semibold">Log in</h1>
-      ${error ? notice({ type: 'error', message: error }) : ''}
-      ${card({
+  const passwordForm = password
+    ? card({
         action: '/login',
         children: `
         ${field({ label: 'Email', name: 'email', type: 'email', required: true, autofocus: true })}
         ${field({ label: 'Password', name: 'password', type: 'password', required: true })}
         ${button({ label: 'Log in' })}
       `,
-      })}
+      })
+    : '<p class="text-sm text-muted-foreground">Password login is turned off for this instance. Use a passkey or Google below.</p>';
+  return layout({
+    title: 'Log in',
+    bare: true,
+    body: `
+      <h1 class="text-2xl font-semibold">Log in</h1>
+      ${error ? notice({ type: 'error', message: error }) : ''}
+      ${passwordForm}
       ${alternatives}
     `,
   });
@@ -335,7 +390,27 @@ export function resetPasswordPage({ error }: { error?: string } = {}): string {
   });
 }
 
-export function accountPage({ user, projects, credentials = [], notice: pageNotice }: any): string {
+export function accountPage({ user, projects, credentials = [], google = false, passwordLogin = true, notice: pageNotice }: any): string {
+  const canDisable = credentials.length > 0 || google;
+  const loginMethods = `<div class="${CARD_CLASS} p-4 flex flex-col gap-3 max-w-md">
+    <h2 class="text-sm font-semibold">Login methods</h2>
+    <ul class="list-none p-0 m-0 flex flex-col gap-1 text-sm">
+      <li>Passkeys: ${credentials.length ? `<strong>${credentials.length} registered</strong>` : '<span class="text-muted-foreground">none</span>'}</li>
+      <li>Google: ${google ? '<strong>configured</strong>' : '<span class="text-muted-foreground">not configured (set google_client_id and google_client_secret in Global settings)</span>'}</li>
+      <li>Email + password: ${passwordLogin ? '<strong>enabled</strong>' : '<span class="text-muted-foreground">disabled</span>'}</li>
+    </ul>
+    <form method="post" action="/account/login-methods" class="flex flex-col gap-3">
+      <input type="hidden" name="password_login" value="${passwordLogin ? 'off' : 'on'}">
+      <p class="text-xs text-muted-foreground m-0">${passwordLogin
+        ? 'Turning password login off removes the brute-force surface: only passkeys and Google can sign in. It is only allowed while at least one of those works. Recovery: set FORCE_PASSWORD_RESET=1 in .env and restart, password login comes back for a reset.'
+        : 'Password login is off. The login page only offers passkeys and Google.'}</p>
+      ${passwordLogin
+        ? (canDisable
+          ? button({ label: 'Disable password login', variant: 'outline' })
+          : '<p class="text-xs text-muted-foreground m-0">Add a passkey or configure Google first, then this can be disabled.</p>')
+        : button({ label: 'Re-enable password login', variant: 'outline' })}
+    </form>
+  </div>`;
   const passkeyRows = credentials
     .map(
       (c: any) => `<tr class="border-b border-border">
@@ -369,6 +444,7 @@ export function accountPage({ user, projects, credentials = [], notice: pageNoti
           <p data-passkey-error class="text-sm text-destructive" hidden></p>
         </div>
       </div>
+      ${loginMethods}
       <form method="post" action="/account/password" class="${CARD_CLASS} p-4 flex flex-col gap-3 max-w-md">
         <h2 class="text-sm font-semibold">Change password</h2>
         ${field({ label: 'Current password', name: 'current_password', type: 'password', required: true })}
@@ -387,15 +463,15 @@ export function accountPage({ user, projects, credentials = [], notice: pageNoti
 export function projectAvatar(p: any, size = 'size-7 text-xs'): string {
   const icon = (p.icon || '').trim();
   if (/^(https?:)?\//.test(icon)) {
-    return `<img src="${escapeHtml(icon)}" alt="" class="${size} rounded-md object-cover shrink-0">`;
+    return `<img src="${escapeHtml(icon)}" alt="" class="${size} object-cover shrink-0">`;
   }
   if (icon) {
-    return `<span class="${size} rounded-md flex items-center justify-center shrink-0 text-base">${escapeHtml(icon)}</span>`;
+    return `<span class="${size} flex items-center justify-center shrink-0 text-base">${escapeHtml(icon)}</span>`;
   }
   let hash = 0;
   for (const c of p.slug) hash = (hash * 31 + c.charCodeAt(0)) % 360;
   const initials = p.name.split(/\s+/).slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
-  return `<span class="${size} rounded-md flex items-center justify-center shrink-0 font-semibold text-white" style="background: hsl(${hash} 55% 45%)">${escapeHtml(initials)}</span>`;
+  return `<span class="${size} flex items-center justify-center shrink-0 font-semibold text-white" style="background: hsl(${hash} 55% 45%)">${escapeHtml(initials)}</span>`;
 }
 
 export function projectListPage({ user, projects, notice: pageNotice }: any): string {
@@ -436,10 +512,6 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
 }
 
 export function projectDetailPage({ user, projects, project, settingKeys, storages = [], mediaStorage = '', notice: pageNotice }: any): string {
-  const keys = settingKeys
-    .map((s: any) => `<li class="py-1.5 border-b border-border"><code class="text-sm">${escapeHtml(s.key)}</code> <span class="text-muted-foreground text-sm">(updated ${timeAgo(s.updated_at)})</span></li>`)
-    .join('\n');
-
   return layout({
     title: project.name,
     user,
@@ -469,13 +541,14 @@ export function projectDetailPage({ user, projects, project, settingKeys, storag
             action: `/admin/projects/${encodeURIComponent(project.slug)}/storage`,
             extraClass: '',
             children: `
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="font-medium text-foreground">Storage</span>
-              <select name="storage" class="${SELECT_CLASS}">
-                <option value="local"${!mediaStorage || mediaStorage === 'local' ? ' selected' : ''}>Local disk (default)</option>
-                ${storages.map((s: string) => `<option value="${escapeHtml(s)}"${mediaStorage === s ? ' selected' : ''}>${escapeHtml(s)} (shared S3)</option>`).join('')}
-              </select>
-            </label>
+            ${selectField({
+              label: 'Storage',
+              name: 'storage',
+              options: [
+                { value: 'local', label: 'Local disk (default)', selected: !mediaStorage || mediaStorage === 'local' },
+                ...storages.map((s: string) => ({ value: s, label: `${s} (shared S3)`, selected: mediaStorage === s })),
+              ],
+            })}
             ${storages.length ? '' : '<p class="text-xs text-muted-foreground m-0">No shared storages yet. Add one under Global settings.</p>'}
             ${button({ label: 'Use this storage' })}
           `,
@@ -483,7 +556,7 @@ export function projectDetailPage({ user, projects, project, settingKeys, storag
 
           ${sectionHeading('Project settings')}
           <p class="text-sm text-muted-foreground">Values are write-only and stored encrypted. Only key names are shown.</p>
-          <ul class="list-none p-0">${keys || '<li class="py-1.5 text-muted-foreground italic">No settings set.</li>'}</ul>
+          ${settingsKeyList(settingKeys)}
           ${card({
             action: `/admin/projects/${encodeURIComponent(project.slug)}/settings`,
             extraClass: '',
@@ -515,10 +588,6 @@ export function projectDetailPage({ user, projects, project, settingKeys, storag
 }
 
 export function globalSettingsPage({ user, projects, settingKeys, notice: pageNotice }: any): string {
-  const keys = settingKeys
-    .map((s: any) => `<li class="py-1.5 border-b border-border"><code class="text-sm">${escapeHtml(s.key)}</code> <span class="text-muted-foreground text-sm">(updated ${timeAgo(s.updated_at)})</span></li>`)
-    .join('\n');
-
   return layout({
     title: 'Settings',
     user,
@@ -527,7 +596,7 @@ export function globalSettingsPage({ user, projects, settingKeys, notice: pageNo
     body: `
       <h1 class="text-2xl font-semibold">Global settings</h1>
       <p class="text-sm text-muted-foreground">Values are write-only. Once set, only the key name and last-updated time are shown here, never the value.</p>
-      <ul class="list-none p-0 max-w-2xl">${keys || '<li class="py-1.5 text-muted-foreground italic">No settings set.</li>'}</ul>
+      <div class="max-w-2xl">${settingsKeyList(settingKeys)}</div>
       <div class="grid gap-6 @3xl:grid-cols-2 items-start">
         ${card({
           action: '/admin/settings',
@@ -743,7 +812,7 @@ function statusBadge(status: string): string {
     status === 'published'
       ? 'bg-accent text-accent-foreground border-transparent'
       : 'bg-muted text-muted-foreground border-border';
-  return `<span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(status)}</span>`;
+  return `<span class="inline-flex items-center border px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(status)}</span>`;
 }
 
 // ---- Entry editor ---------------------------------------------------------
@@ -780,7 +849,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         </div>
         <textarea name="field_${f.name}" class="${TEXTAREA_CLASS}" rows="14" ${constraintAttrs}>${escapeHtml(v)}</textarea>
         ${help}
-        <div data-preview class="typeset rounded-md border border-border bg-card p-4 hidden"></div>
+        <div data-preview class="typeset border border-border bg-card p-4 hidden"></div>
       </div>`;
     case 'boolean':
       return `<label class="flex items-center gap-2 text-sm">
@@ -811,16 +880,19 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
         <div class="flex gap-2">
           <input type="text" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
-          <details class="relative shrink-0" data-popover>
-            <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} list-none select-none [&::-webkit-details-marker]:hidden">Browse</summary>
-            <div class="absolute right-0 top-full mt-2 z-10 w-96 max-h-80 overflow-y-auto border border-border bg-popover shadow-lg p-3 flex flex-col gap-2">
+          ${popover({
+            summary: 'Browse',
+            variant: 'outline',
+            wrapClass: 'shrink-0',
+            panelClass: 'w-96 max-h-80 overflow-y-auto p-3 flex flex-col gap-2',
+            children: `
               <input type="search" placeholder="Search images" data-media-search class="${INPUT_CLASS}">
               ${images.length ? `<div class="grid grid-cols-3 gap-2">${pickerCards}</div>` : '<p class="text-xs text-muted-foreground m-0">No images in the media library yet.</p>'}
               <label class="text-xs text-muted-foreground cursor-pointer border-t border-border pt-2">Or upload a new image:
                 <input type="file" accept="image/*" data-image-upload="/admin/projects/${escapeHtml(projectSlug)}/media" class="block mt-1 text-xs">
               </label>
-            </div>
-          </details>
+            `,
+          })}
         </div>
         <img data-image-preview src="${escapeHtml(v)}" alt="" class="max-h-40 w-fit border border-border${v ? '' : ' hidden'}">
         ${help}
@@ -927,7 +999,41 @@ function mcpConfig(origin: string, slug: string, key: string): string {
   }, null, 2);
 }
 
-export function apiKeysPage({ user, projects, project, keys, createdKey, origin = '', notice: pageNotice }: any): string {
+// On-page REST reference: what the API serves, every endpoint, and what a
+// request needs. Uses the live origin and the project's real collections.
+function apiDocs(origin: string, slug: string, collections: any[]): string {
+  const listUrl = (c: string) => `${origin}/api/v1/${slug}/${c}`;
+  const endpointRows = [
+    { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;`, desc: 'List published entries. Query: <code>limit</code> (default 50), <code>offset</code>.' },
+    { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;/&lt;entry-id&gt;`, desc: 'One published entry by its id.' },
+    { method: 'POST', path: `/mcp/${slug}`, desc: 'MCP endpoint (JSON-RPC). Read tools with any key; write tools need write scope.' },
+  ]
+    .map((e) => `<tr class="border-b border-border">
+      <td class="p-2 text-xs font-medium">${e.method}</td>
+      <td class="p-2"><code class="text-xs">${e.path}</code></td>
+      <td class="p-2 text-sm text-muted-foreground">${e.desc}</td>
+    </tr>`)
+    .join('');
+  const collectionLinks = collections.length
+    ? `<p class="text-sm text-muted-foreground m-0">This project's collections:</p>
+      <ul class="list-none p-0 m-0 flex flex-col gap-1">
+        ${collections.map((c: any) => `<li><code class="text-xs">${escapeHtml(listUrl(c.slug))}</code></li>`).join('')}
+      </ul>`
+    : '<p class="text-sm text-muted-foreground m-0">No collections yet. Each collection gets its own endpoint once created.</p>';
+  return `<div class="${CARD_CLASS} p-4 flex flex-col gap-3">
+    <h2 class="text-sm font-semibold">REST API</h2>
+    <p class="text-sm text-muted-foreground m-0">Read-only JSON over HTTPS. It serves <strong>published entries only</strong>: drafts never appear, and publishing materializes a snapshot so reads are cheap. Every request needs a key from this page sent as <code>Authorization: Bearer yn_...</code>. Missing or wrong key: <code>401</code>. Unknown project or collection: <code>404</code>.</p>
+    ${tableCard(`<table class="w-full border-collapse">
+      ${tableHead([{ label: 'Method' }, { label: 'Endpoint' }, { label: 'What it does' }])}
+      <tbody>${endpointRows}</tbody>
+    </table>`)}
+    ${collectionLinks}
+    <p class="text-sm text-muted-foreground m-0">Responses carry an <code>ETag</code> tied to the project's content version; it changes only when something is published or unpublished. Send it back as <code>If-None-Match</code> to get a free <code>304</code>, so repeated static-site builds cost nothing between publishes.</p>
+    ${preBlock(`curl -H "Authorization: Bearer yn_..." \\\n  ${listUrl(collections[0]?.slug || '<collection>')}?limit=10`)}
+  </div>`;
+}
+
+export function apiKeysPage({ user, projects, project, keys, createdKey, origin = '', collections = [], notice: pageNotice }: any): string {
   const rows = keys
     .map(
       (k: any) => `<tr class="border-b border-border">
@@ -946,11 +1052,11 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, origin 
 
   const createdConfig = createdKey ? mcpConfig(origin, project.slug, createdKey) : '';
   const createdBlock = createdKey
-    ? `<div class="rounded-lg border border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 p-4 flex flex-col gap-2">
+    ? `<div class="border border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 p-4 flex flex-col gap-2">
         <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">Key created. Copy it now, it will not be shown again.</p>
         <code class="text-sm break-all select-all">${escapeHtml(createdKey)}</code>
         <p class="text-sm text-emerald-700 dark:text-emerald-400 m-0">Ready-to-paste <code>.mcp.json</code> with this key:</p>
-        <pre class="text-xs bg-muted rounded-md p-3 overflow-x-auto m-0"><code>${escapeHtml(createdConfig)}</code></pre>
+        ${preBlock(createdConfig)}
         <div><button type="button" data-copy="${escapeHtml(createdConfig)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy config</button></div>
       </div>`
     : '';
@@ -967,13 +1073,14 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, origin 
         action: `/admin/projects/${project.slug}/api-keys`,
         children: `
         ${field({ label: 'Name', name: 'name', required: true, placeholder: 'astro-build' })}
-        <label class="flex flex-col gap-1.5">
-          <span class="text-sm font-medium">Scope</span>
-          <select name="scope" class="${SELECT_CLASS}">
-            <option value="read">Read (published content)</option>
-            <option value="write">Read + write (MCP editing tools)</option>
-          </select>
-        </label>
+        ${selectField({
+          label: 'Scope',
+          name: 'scope',
+          options: [
+            { value: 'read', label: 'Read (published content)' },
+            { value: 'write', label: 'Read + write (MCP editing tools)' },
+          ],
+        })}
         ${button({ label: 'Create key' })}
       `,
       }))}
@@ -983,10 +1090,13 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, origin 
         ${tableHead([{ label: 'Name' }, { label: 'Scope' }, { label: 'Created' }, { label: 'Last used' }, { label: '' }])}
         <tbody>${rows || '<tr><td colspan="5" class="p-3 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
       </table>`)}
-      <div class="${CARD_CLASS} p-4 flex flex-col gap-2">
-        <h2 class="text-sm font-semibold">MCP endpoint</h2>
-        <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code>. Claude Code <code>.mcp.json</code> (create a key above to get one with the key filled in):</p>
-        <pre class="text-xs bg-muted rounded-md p-3 overflow-x-auto"><code>${escapeHtml(mcpConfig(origin, project.slug, 'yn_<key>'))}</code></pre>
+      <div class="grid gap-6 @4xl:grid-cols-2 items-start">
+        ${apiDocs(origin, project.slug, collections)}
+        <div class="${CARD_CLASS} p-4 flex flex-col gap-2">
+          <h2 class="text-sm font-semibold">MCP endpoint</h2>
+          <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code>. Claude Code <code>.mcp.json</code> (create a key above to get one with the key filled in):</p>
+          ${preBlock(mcpConfig(origin, project.slug, 'yn_<key>'))}
+        </div>
       </div>
     `,
   });
@@ -1011,8 +1121,12 @@ function mediaPreviewUrl(projectSlug: string, m: any, publicBase: string | null,
 
 export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], notice: pageNotice, report }: any): string {
   const base = `/admin/projects/${project.slug}`;
-  const folderDatalist = folders.length
-    ? `<datalist id="media-folders">${folders.map((f: string) => `<option value="${escapeHtml(f)}">`).join('')}</datalist>`
+  // Existing groups as visible, clickable chips (no datalist): tapping one
+  // fills the group input in the same form.
+  const groupChips = folders.length
+    ? `<div class="flex flex-wrap gap-1.5">${folders
+        .map((f: string) => `<button type="button" data-fill="folder" data-value="${escapeHtml(f)}" class="border border-border bg-muted px-2 py-0.5 text-xs cursor-pointer hover:border-primary hover:text-primary">${escapeHtml(f)}</button>`)
+        .join('')}</div>`
     : '';
   const cards = media
     .map((m: any) => {
@@ -1037,7 +1151,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
           <span class="font-medium truncate" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
           <span class="text-xs text-muted-foreground">${formatSize(m.size)}${m.width ? ` · ${m.width}×${m.height}` : ''}</span>
           <form method="post" action="${base}/media/${m.id}/folder" class="flex items-center gap-1">
-            <input name="folder" value="${escapeHtml(m.folder || '')}" list="media-folders" placeholder="No group" class="${INPUT_CLASS} h-7 text-xs" title="Group this file (featured, logos, temp...)">
+            <input name="folder" value="${escapeHtml(m.folder || '')}" placeholder="No group" class="${INPUT_CLASS} h-7 text-xs" title="Group this file (featured, logos, temp...)">
             ${button({ label: 'Set', variant: 'ghost', small: true })}
           </form>
           ${usedBlock}
@@ -1053,15 +1167,10 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
     .join('\n');
 
   const variantCheckbox = hasSharp && variantsMode !== 'off'
-    ? `<label class="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="variants" value="1"${variantsMode === 'on' ? ' checked' : ''} class="size-4 accent-primary">
-        <span>Generate resized variants (_320, _1024)</span>
-      </label>`
+    ? checkbox({ name: 'variants', label: 'Generate resized variants (_320, _1024)', checked: variantsMode === 'on' })
     : '';
 
-  const reportBlock = report
-    ? `<pre class="text-xs bg-muted p-3 overflow-x-auto m-0">${escapeHtml(JSON.stringify(report, null, 2))}</pre>`
-    : '';
+  const reportBlock = report ? preBlock(JSON.stringify(report, null, 2)) : '';
 
   return layout({
     title: `Media · ${project.name}`,
@@ -1072,26 +1181,24 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
     body: `
       ${pageHeader('Media', `<div class="flex items-center gap-2">
         <form method="post" action="${base}/media/sync" title="Adopt files uploaded outside the CMS; flag rows whose file is gone">${button({ label: 'Sync storage', variant: 'outline' })}</form>
-        <details class="relative" data-popover>
-        <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} list-none select-none [&::-webkit-details-marker]:hidden">+ Upload</summary>
-        <div class="absolute right-0 top-full mt-2 z-10 w-80 border border-border bg-popover text-popover-foreground shadow-lg p-5">
-          <form method="post" action="${base}/media" enctype="multipart/form-data" class="flex flex-col gap-4"${directUpload ? ` data-direct-upload="${base}/media"` : ''}>
+        ${popover({
+          summary: '+ Upload',
+          children: `<form method="post" action="${base}/media" enctype="multipart/form-data" class="flex flex-col gap-4"${directUpload ? ` data-direct-upload="${base}/media"` : ''}>
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">File (50 MB max)</span>
-              <input type="file" name="file" required class="text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer">
+              <input type="file" name="file" required class="${FILE_INPUT_CLASS}">
             </label>
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">Group (optional)</span>
-              <input name="folder" list="media-folders" placeholder="featured, logos, temp..." class="${INPUT_CLASS}">
+              <input name="folder" placeholder="featured, logos, temp..." class="${INPUT_CLASS}">
+              ${groupChips}
             </label>
             ${variantCheckbox}
             ${directUpload ? '<p class="text-xs text-muted-foreground m-0">Uploads go straight from the browser to the bucket (presigned). The bucket needs a CORS rule allowing PUT from this origin.</p>' : ''}
             ${button({ label: 'Upload' })}
-          </form>
-        </div>
-      </details></div>`)}
+          </form>`,
+        })}</div>`)}
       <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field.${publicBase ? ` Links use the storage domain <code>${escapeHtml(publicBase)}</code> directly, so they never depend on this CMS or the project slug. Previews are resized on the fly by wsrv.nl.` : ` Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching. The slug never changes (rename only changes the display name), so links stay stable.`}</p>
-      ${folderDatalist}
       ${reportBlock}
       ${media.length
         ? `<div class="flex items-center gap-2 max-w-md">
@@ -1115,9 +1222,7 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
   const exportLinks = collections
     .map((c: any) => `<li><a class="text-primary hover:underline" href="${base}/collections/${c.slug}/export.json" download>${escapeHtml(c.name)} (JSON)</a></li>`)
     .join('');
-  const reportBlock = report
-    ? `<pre class="text-xs bg-muted p-3 overflow-x-auto m-0">${escapeHtml(JSON.stringify(report, null, 2))}</pre>`
-    : '';
+  const reportBlock = report ? preBlock(JSON.stringify(report, null, 2)) : '';
   return layout({
     title: `Transfer · ${project.name}`,
     user,
@@ -1141,14 +1246,14 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
           <form method="post" action="${base}/import" enctype="multipart/form-data" class="flex flex-col gap-4">
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">File</span>
-              <input type="file" name="file" required accept=".json,.csv,application/json,text/csv" class="text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer">
+              <input type="file" name="file" required accept=".json,.csv,application/json,text/csv" class="${FILE_INPUT_CLASS}">
             </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="font-medium text-foreground">Into collection</span>
-              <select name="collection" required class="${SELECT_CLASS}">
-                ${collections.map((c: any) => `<option value="${c.slug}">${escapeHtml(c.name)}</option>`).join('')}
-              </select>
-            </label>
+            ${selectField({
+              label: 'Into collection',
+              name: 'collection',
+              required: true,
+              options: collections.map((c: any) => ({ value: c.slug, label: c.name })),
+            })}
             ${button({ label: 'Upload and map fields' })}
           </form>
         </div>
@@ -1157,10 +1262,7 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
           <p class="text-xs text-muted-foreground m-0">Round trip: <a class="text-primary hover:underline" href="${base}/schema.json" download>export this project's schema</a>, keep it in your site repo as the source of truth, paste it back here to sync. Missing collections are created, changed ones updated, nothing is deleted unless the checkbox is on. Safe to re-apply.</p>
           <form method="post" action="${base}/schema/apply" class="flex flex-col gap-4">
             <textarea name="schema" rows="10" required spellcheck="false" placeholder='{ "collections": [ { "name": "Posts", "slug": "posts", "fields": [ { "name": "title", "label": "Title", "type": "text" } ] } ] }' class="${TEXTAREA_CLASS}"></textarea>
-            <label class="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="delete_missing" value="1" class="size-4 accent-primary">
-              <span>Delete collections not in the schema (destructive)</span>
-            </label>
+            ${checkbox({ name: 'delete_missing', label: 'Delete collections not in the schema (destructive)' })}
             ${button({ label: 'Apply schema' })}
           </form>
           ${reportBlock}
@@ -1249,7 +1351,7 @@ export function importReportPage({ user, projects, project, collection, importId
           ${failures || '<li class="text-muted-foreground">All values fit their field types.</li>'}
         </ul>
         <span class="text-sm font-medium">Sample</span>
-        <pre class="text-xs bg-muted p-3 overflow-x-auto m-0">${escapeHtml(JSON.stringify(report.sample, null, 2))}</pre>
+        ${preBlock(JSON.stringify(report.sample, null, 2))}
         <form method="post" action="${base}/import/${importId}/apply" class="flex gap-2">
           ${mappingInputs}
           ${button({ label: `Import ${report.total} rows` })}

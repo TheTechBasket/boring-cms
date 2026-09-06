@@ -33,7 +33,8 @@ const switcher = document.getElementById('project-switcher');
 if (switcher) {
   switcher.addEventListener('change', () => {
     const slug = switcher.value;
-    window.location.href = slug ? `/admin/projects/${encodeURIComponent(slug)}/collections` : '/admin/projects';
+    if (!slug) return;
+    window.location.href = `/admin/projects/${encodeURIComponent(slug)}/collections`;
   });
 }
 
@@ -46,6 +47,14 @@ document.addEventListener('click', (event) => {
     btn.textContent = 'Copied';
     setTimeout(() => { btn.textContent = original; }, 1200);
   });
+});
+
+// Suggestion chips: fill the named input in the same form.
+document.addEventListener('click', (event) => {
+  const chip = event.target.closest('[data-fill]');
+  if (!chip) return;
+  const input = chip.closest('form')?.querySelector(`input[name="${chip.dataset.fill}"]`);
+  if (input) input.value = chip.dataset.value;
 });
 
 // "+" popovers are <details data-popover>: close any open one on outside click.

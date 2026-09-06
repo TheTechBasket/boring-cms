@@ -54,7 +54,9 @@ curl -H "Authorization: Bearer yn_..." \
 ```
 
 Responses carry an `ETag` tied to the project's content version; send
-`If-None-Match` to get cheap `304`s until the next publish.
+`If-None-Match` to get cheap `304`s until the next publish. The API keys
+page in the admin documents every endpoint with live URLs for the
+project's collections.
 
 ## Media
 
@@ -134,6 +136,11 @@ in the same signed session cookie:
   Standard code flow with PKCE over plain fetch. Only the admin's email
   may log in; any other Google account gets a clear error. The OAuth
   redirect URI to register is `https://<host>/auth/google/callback`.
+
+Once a passkey or Google is set, password login can be turned off from
+Account (kills the brute-force surface). The switch is self-healing: if
+both alternatives disappear, password login re-enables itself, and
+`FORCE_PASSWORD_RESET=1` always allows it as a break-glass path.
 
 Behind a TLS-terminating proxy set `TRUST_PROXY=1`: `x-forwarded-proto`
 is honored and session cookies become `Secure`.
