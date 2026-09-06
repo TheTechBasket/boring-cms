@@ -37,8 +37,34 @@ CREATE TABLE api_keys (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   key_hash TEXT NOT NULL UNIQUE, -- sha256 hex of the key; plaintext never stored
+  scope TEXT NOT NULL DEFAULT 'read', -- 'read' (published content) | 'write' (MCP mutating tools)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_used_at TEXT
+);
+
+-- Media library per project. Files live in a storage backend (local disk or
+-- S3-compatible); this table is the index. Keys are content-hash prefixed so
+-- serve responses can be cached as immutable.
+CREATE TABLE media (
+  id INTEGER PRIMARY KEY,
+  filename TEXT NOT NULL,           -- original upload name
+  key TEXT NOT NULL UNIQUE,         -- <hash8>-<slug>.<ext>
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  variants TEXT NOT NULL DEFAULT '{}', -- JSON: { thumb: key, medium: key }
+  folder TEXT NOT NULL DEFAULT '',  -- free-text group ("featured", "logos"...). Empty = ungrouped
+  -- Where the file actually lives. NULL = follows the project's current
+  -- storage. On a storage switch existing rows get pinned to the base they
+  -- were uploaded under ('' = app-served local disk) so URLs keep working
+  -- until "Migrate media" copies them over.
+  base_url TEXT,
+  -- After migration the old copy stays on the previous storage. Remember
+  -- where it was ('' = local disk) so cleanup can check it still exists and
+  -- delete it on demand. NULL = no old copy pending.
+  migrated_from TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE meta (
