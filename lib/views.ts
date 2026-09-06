@@ -1,5 +1,7 @@
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
+import { entryLabel } from './content.ts';
+
 function escapeHtml(str: unknown): string {
   return String(str).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;',
@@ -442,7 +444,7 @@ export function collectionPage({ user, projects, project, collection, entries, f
   const entryRows = entries
     .map(
       (e: any) => `<tr class="border-b border-border">
-        <td class="p-2"><a class="text-foreground font-medium no-underline hover:text-primary" href="${base}/${e.slug}">${escapeHtml(e.title)}</a></td>
+        <td class="p-2"><a class="text-foreground font-medium no-underline hover:text-primary" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
         <td class="p-2">${statusBadge(e.status)}</td>
         <td class="p-2 text-sm text-muted-foreground @max-lg:hidden">${escapeHtml(e.updated_at)}</td>
       </tr>`,
@@ -465,7 +467,7 @@ export function collectionPage({ user, projects, project, collection, entries, f
 
       <table class="w-full border-collapse">
         <thead><tr class="border-b border-border">
-          <th class="p-2 text-left font-medium">Title</th>
+          <th class="p-2 text-left font-medium">Entry</th>
           <th class="p-2 text-left font-medium">Status</th>
           <th class="p-2 text-left font-medium @max-lg:hidden">Updated</th>
         </tr></thead>
@@ -474,7 +476,7 @@ export function collectionPage({ user, projects, project, collection, entries, f
 
       <div class="flex flex-col gap-3 mt-4 max-w-2xl">
         ${sectionHeading('Fields')}
-        <p class="text-sm text-muted-foreground">Every entry has a built-in title (it also generates the slug), so only add the extra fields you need.</p>
+        <p class="text-sm text-muted-foreground">Entries have no required fields. The first field's value is used as the entry label in lists; entries with no values show their id.</p>
         <table class="w-full border-collapse">
           <tbody>${fieldRows || '<tr><td class="p-2 text-muted-foreground italic text-sm">No fields yet. Add a markdown body or more below.</td></tr>'}</tbody>
         </table>
@@ -512,7 +514,7 @@ export function collectionPage({ user, projects, project, collection, entries, f
 function statusBadge(status: string): string {
   const cls =
     status === 'published'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-600/30 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-500/30'
+      ? 'bg-accent text-accent-foreground border-transparent'
       : 'bg-muted text-muted-foreground border-border';
   return `<span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(status)}</span>`;
 }
@@ -536,6 +538,13 @@ function fieldInput(f: { name: string; label: string; type: string }, value: unk
         <input type="checkbox" name="field_${f.name}" value="1"${v ? ' checked' : ''} class="size-4 accent-primary">
         <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
       </label>`;
+    case 'json': {
+      const raw = typeof v === 'string' ? v : v === '' ? '' : JSON.stringify(v, null, 2);
+      return `<label class="flex flex-col gap-1.5 text-sm">
+        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        <textarea name="field_${f.name}" class="${TEXTAREA_CLASS}" rows="10" placeholder="{ }" spellcheck="false">${escapeHtml(raw)}</textarea>
+      </label>`;
+    }
     case 'number':
       return field({ label: f.label, name: `field_${f.name}`, type: 'number', value: String(v) });
     case 'date':
@@ -589,7 +598,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
       </div>`;
 
   return layout({
-    title: `${isNew ? 'New entry' : entry.title} · ${project.name}`,
+    title: `${isNew ? 'New entry' : entryLabel(entry, collection)} · ${project.name}`,
     user,
     projects,
     project,
@@ -598,8 +607,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
       <p class="text-sm"><a class="text-primary hover:underline" href="${base}">&larr; ${escapeHtml(collection.name)}</a></p>
       <div class="grid gap-8 @4xl:grid-cols-[minmax(0,1fr)_320px] items-start">
         <form method="post" action="${action}" class="flex flex-col gap-5 min-w-0">
-          ${field({ label: 'Title', name: 'title', required: true, value: entry?.title, autofocus: isNew, placeholder: 'Entry title' })}
-          ${fieldInputs}
+          ${fieldInputs || '<p class="text-sm text-muted-foreground">This collection has no fields yet. Add fields on the collection page.</p>'}
           ${button({ label: isNew ? 'Create entry' : 'Save changes' })}
         </form>
         ${sidePanel}

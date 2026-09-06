@@ -125,27 +125,28 @@ async function main() {
   assert.equal(fieldRes.status, 302, 'adding a field should redirect');
 
   const entryRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, {
-    form: { title: 'Hello World', field_body: '# First draft' },
+    form: { field_body: '# First draft' },
   });
   assert.equal(entryRes.status, 302, 'creating an entry should redirect');
-  assert.equal(entryRes.headers.get('location'), `/admin/projects/${slug}/collections/blog-posts/hello-world`, 'entry slug should be auto-generated');
+  const entrySlug = (entryRes.headers.get('location') || '').split('/').pop() as string;
+  assert.match(entrySlug, /^[0-9a-f-]{36}$/, 'entry slug should be a UUID');
 
   // 8. Edit -> revision with backward delta of only the changed field
-  const editRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/hello-world`, {
-    form: { title: 'Hello World', field_body: '# Second draft' },
+  const editRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`, {
+    form: { field_body: '# Second draft' },
   });
   assert.equal(editRes.status, 302, 'editing an entry should redirect');
 
   const projectDb = app.projectDbs.get(slug);
   const collection = getCollection(projectDb, 'blog-posts');
-  let entry = getEntry(projectDb, collection.id, 'hello-world');
+  let entry = getEntry(projectDb, collection.id, entrySlug);
   assert.equal(entry.data.body, '# Second draft', 'edit should persist');
   const revisions = listRevisions(projectDb, entry.id);
   assert.equal(revisions.length, 1, 'edit should create one revision');
   assert.deepEqual(revisions[0].changed, { body: '# First draft' }, 'revision should hold only the previous value of the changed field');
 
   // 9. Publish, then read through the public API with a Bearer key
-  const publishRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/hello-world/publish`);
+  const publishRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/publish`);
   assert.equal(publishRes.status, 302, 'publish should redirect');
 
   const keyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke' } });
@@ -163,21 +164,21 @@ async function main() {
   assert.ok(etag, 'API response should carry an ETag');
   const list: any = await authed.json();
   assert.equal(list.items.length, 1, 'published list should have one item');
-  assert.equal(list.items[0].slug, 'hello-world');
+  assert.equal(list.items[0].slug, entrySlug);
   assert.equal(list.items[0].body, '# Second draft', 'published snapshot should carry the field value');
 
-  const single = await fetch(`${base}/api/v1/${slug}/blog-posts/hello-world`, { headers: { Authorization: `Bearer ${apiKey}` } });
-  assert.equal(((await single.json()) as any).title, 'Hello World');
+  const single = await fetch(`${base}/api/v1/${slug}/blog-posts/${entrySlug}`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await single.json()) as any).body, '# Second draft');
 
   const cached = await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': etag } });
   assert.equal(cached.status, 304, 'matching If-None-Match should be a 304');
 
   // 10. Atomic revert to the first revision
-  const revertRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/hello-world/revert`, {
+  const revertRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/revert`, {
     form: { revision_id: String(revisions[0].id) },
   });
   assert.equal(revertRes.status, 302, 'revert should redirect');
-  entry = getEntry(projectDb, collection.id, 'hello-world');
+  entry = getEntry(projectDb, collection.id, entrySlug);
   assert.equal(entry.data.body, '# First draft', 'revert should restore the previous field value');
 
   // 11. Delete the project (requires exact slug confirmation)

@@ -1,10 +1,10 @@
 // Query layer over a project database: collections, entries, publish
 // materialization, field-delta revisions with atomic revert, API keys.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 
-export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date'];
+export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'json'];
 
 const REVISIONS_KEEP = 20;
 const REVISIONS_MAX_AGE_DAYS = 90;
@@ -95,8 +95,22 @@ function parseEntry(row) {
 
 export function listEntries(db, collectionId) {
   return db
-    .prepare('SELECT id, slug, title, status, updated_at, published_at FROM entries WHERE collection_id = ? ORDER BY updated_at DESC')
-    .all(collectionId);
+    .prepare('SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE collection_id = ? ORDER BY updated_at DESC')
+    .all(collectionId)
+    .map((r) => ({ ...r, data: JSON.parse(r.data) }));
+}
+
+// Row label: trimmed value of the collection's first field with content,
+// else the entry's UUID. Entries have no built-in title on purpose: the CMS
+// also stores things (wallpapers, stats, arbitrary JSON) that have none.
+export function entryLabel(entry, collection) {
+  for (const f of collection.fields) {
+    const v = entry.data?.[f.name];
+    if (v === undefined || v === null || v === '' || typeof v === 'boolean') continue;
+    const text = (typeof v === 'object' ? JSON.stringify(v) : String(v)).replace(/\s+/g, ' ').trim();
+    if (text) return text.length > 80 ? `${text.slice(0, 80)}\u2026` : text;
+  }
+  return entry.slug;
 }
 
 export function getEntry(db, collectionId, slug) {
@@ -107,22 +121,18 @@ export function getEntryById(db, id) {
   return parseEntry(db.prepare('SELECT * FROM entries WHERE id = ?').get(id));
 }
 
-export function createEntry(db, collection, { title, data }) {
-  const slug = uniqueSlug(slugify(title), (s) =>
-    !!db.prepare('SELECT 1 FROM entries WHERE collection_id = ? AND slug = ?').get(collection.id, s),
-  );
+export function createEntry(db, collection, { data }) {
+  const slug = randomUUID();
   const info = db
-    .prepare('INSERT INTO entries (collection_id, slug, title, data) VALUES (?, ?, ?, ?)')
-    .run(collection.id, slug, title, JSON.stringify(data));
+    .prepare('INSERT INTO entries (collection_id, slug, data) VALUES (?, ?, ?)')
+    .run(collection.id, slug, JSON.stringify(data));
   return getEntryById(db, info.lastInsertRowid);
 }
 
 // Updates an entry, recording a backward field-level delta as a revision:
 // only fields whose value changed are stored, holding the PREVIOUS value.
-// Title is tracked under the reserved delta key "__title".
-export function updateEntry(db, entry, { title, data }) {
+export function updateEntry(db, entry, { data }) {
   const delta: Record<string, any> = {};
-  if (title !== entry.title) delta.__title = entry.title;
   const fieldNames = new Set([...Object.keys(entry.data), ...Object.keys(data)]);
   for (const name of fieldNames) {
     const before = entry.data[name];
@@ -134,8 +144,7 @@ export function updateEntry(db, entry, { title, data }) {
   db.exec('BEGIN');
   try {
     db.prepare('INSERT INTO revisions (entry_id, changed) VALUES (?, ?)').run(entry.id, JSON.stringify(delta));
-    db.prepare("UPDATE entries SET title = ?, data = ?, updated_at = datetime('now') WHERE id = ?").run(
-      title,
+    db.prepare("UPDATE entries SET data = ?, updated_at = datetime('now') WHERE id = ?").run(
       JSON.stringify(data),
       entry.id,
     );
@@ -151,7 +160,7 @@ export function updateEntry(db, entry, { title, data }) {
 export function publishEntry(db, entryId) {
   const entry = getEntryById(db, entryId);
   if (!entry) return null;
-  const snapshot = { title: entry.title, slug: entry.slug, ...entry.data };
+  const snapshot = { slug: entry.slug, ...entry.data };
   db.prepare(
     "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
   ).run(JSON.stringify(snapshot), entryId);
@@ -202,17 +211,16 @@ export function revertToRevision(db, entry, revisionId) {
   if (revisions.length === 0 || revisions[revisions.length - 1].id !== revisionId) {
     throw new Error('Revision not found for this entry.');
   }
-  let title = entry.title;
   const data = { ...entry.data };
   for (const rev of revisions) {
     const changed = JSON.parse(rev.changed);
     for (const [field, previous] of Object.entries(changed)) {
-      if (field === '__title') title = previous;
-      else if (previous === null) delete data[field];
+      if (field === '__title') continue; // legacy key from before titles were removed
+      if (previous === null) delete data[field];
       else data[field] = previous;
     }
   }
-  return updateEntry(db, entry, { title, data });
+  return updateEntry(db, entry, { data });
 }
 
 // ---- API keys ------------------------------------------------------------

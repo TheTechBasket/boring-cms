@@ -35,7 +35,9 @@ committed so deploys never run a build.
 
 Each project has its own SQLite file. Inside a project you create
 collections, each with custom fields (text, markdown, number, boolean,
-date). Slugs are auto-generated everywhere. Edits store backward
+date, json). Entries have no built-in fields: their id is a UUID, and
+lists label each entry with its first field's value. Collection slugs
+are auto-generated from names. Edits store backward
 field-level deltas as revisions (last 20 kept, 90-day cap) with atomic
 revert. Publishing materializes a snapshot served by the API, so reads
 never touch draft data.

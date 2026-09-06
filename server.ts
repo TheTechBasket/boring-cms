@@ -356,6 +356,11 @@ export function createApp(configOverrides = {}) {
       const raw = form[`field_${f.name}`];
       if (f.type === 'boolean') data[f.name] = raw === '1';
       else if (f.type === 'number') data[f.name] = raw === '' || raw === undefined ? null : Number(raw);
+      else if (f.type === 'json') {
+        // Store parsed JSON when valid so the API serves real structures;
+        // keep the raw string otherwise instead of losing the input.
+        try { data[f.name] = raw ? JSON.parse(raw) : null; } catch { data[f.name] = raw; }
+      }
       else data[f.name] = raw ?? '';
     }
     return data;
@@ -417,9 +422,7 @@ export function createApp(configOverrides = {}) {
 
   router.post('/admin/projects/:slug/collections/:cslug/new', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    const title = (form.title || '').trim();
-    if (!title) return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, notice: { type: 'error', message: 'Enter a title.' } }));
-    const entry = createEntry(db, ctx.collection, { title, data: collectFieldValues(ctx.collection, form) });
+    const entry = createEntry(db, ctx.collection, { data: collectFieldValues(ctx.collection, form) });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${entry.slug}`);
   }));
 
@@ -437,8 +440,7 @@ export function createApp(configOverrides = {}) {
 
   router.post('/admin/projects/:slug/collections/:cslug/:eslug', withEntry(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    const title = (form.title || '').trim() || ctx.entry.title;
-    updateEntry(db, ctx.entry, { title, data: collectFieldValues(ctx.collection, form) });
+    updateEntry(db, ctx.entry, { data: collectFieldValues(ctx.collection, form) });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
   }));
 
