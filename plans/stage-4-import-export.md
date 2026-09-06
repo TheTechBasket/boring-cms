@@ -1,8 +1,8 @@
-# Stage 4: Universal export and import
+# Stage 4: Universal export and import (content + schema)
 
 **Goal**
 
-Move content in and out of any platform without per-platform importers. Export a collection or project as JSON. Import JSON or CSV with an in-browser field mapping step and a schema check before anything is written.
+Move content in and out of any platform without per-platform importers. Export a collection or project as JSON. Import JSON or CSV with an in-browser field mapping step and a schema check before anything is written. Schema itself is a first-class export: a full site (all collections and fields) can be written as one JSON file by hand or by code and applied directly, so nothing in the admin needs clicking twice.
 
 **Decisions**
 
@@ -14,10 +14,13 @@ Move content in and out of any platform without per-platform importers. Export a
 - Import writes go through lib/content.ts (createEntry/updateEntry) so revisions stay intact.
 - Pending mapping state held in a temp JSON file under the scratchdir keyed by an id in the form, not in memory, so a restart mid-flow loses nothing important.
 - WordPress migration happens through this path: convert WXR to JSON with a one-off external script, then import. No WXR code in the CMS.
+- Schema-as-code: `GET .../schema.json` exports the project schema (collections, fields, order). Apply route takes the same shape and syncs: create missing collections/fields, update field labels/types/order, never delete anything automatically (removals listed in the report, deleted only with an explicit checkbox). Idempotent, so a schema file in a site repo is the source of truth and re-applying is safe.
+- Content export embeds the schema block, so one file can restore a whole project (schema apply first, then rows).
 
 **Checklist**
 
-- [ ] Export: collection JSON download route + project bundle route, buttons in the admin.
+- [ ] Schema export route + apply route with sync report (create/update, deletions opt-in).
+- [ ] Export: collection JSON download route + project bundle route (schema embedded), buttons in the admin.
 - [ ] Import upload route (JSON + CSV parse, temp file with parsed rows + detected source fields).
 - [ ] Mapping screen: source fields vs target fields, create-new-field option, unique-field select.
 - [ ] Dry-run check + report (counts, coercion failures, sample).
