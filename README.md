@@ -69,6 +69,26 @@ route redirects there instead of proxying. Install `sharp` (optional)
 to pre-generate thumb (320px) and medium (1024px) variants at upload
 time; without it uploads still work. Upload limit is 50 MB.
 
+## Export and import
+
+Each project has a Transfer page (sidebar). Export the whole project,
+the schema only, or one collection as JSON. Import JSON (a yncms export
+or any array of flat objects) or CSV with a header row: upload, map each
+source field to an existing field, a new field, or skip, review the
+dry-run report (row counts, type coercion failures, sample), then
+confirm. Pick a unique field to make re-imports update matching entries
+instead of duplicating. Imports go through the normal content layer, so
+revisions and publish state stay intact.
+
+Schema-as-code: `GET /admin/projects/<slug>/schema.json` exports the
+full schema; paste the same shape into "Apply schema" to sync it.
+Missing collections are created, changed ones updated, and nothing is
+deleted unless the destructive checkbox is on, so a schema file in a
+site repo can be the source of truth and re-applying is always safe.
+
+To migrate from WordPress, convert the WXR file to JSON with an external
+script and import it here; the CMS has no WordPress-specific code.
+
 ## Smoke check
 
 ```bash

@@ -1,6 +1,6 @@
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { createReadStream, existsSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,6 +27,7 @@ import {
   getSettingValue,
 } from './lib/store.ts';
 import { readMultipart } from './lib/multipart.ts';
+import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, createMedia, deleteMedia, findServableMedia } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
@@ -73,6 +74,9 @@ import {
   entryEditorPage,
   apiKeysPage,
   mediaPage,
+  transferPage,
+  importMappingPage,
+  importReportPage,
   errorPage,
 } from './lib/views.ts';
 
@@ -509,6 +513,100 @@ export function createApp(configOverrides = {}) {
     deleteCollection(db, ctx.collection.slug);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections`);
   }));
+
+  // ---- Transfer: export/import + schema-as-code ---------------------------
+
+  const importTmpDir = path.join(config.dataDir, 'tmp');
+
+  function transferCtx(ctx, db) {
+    return { ...ctx, collections: listCollections(db), fieldTypes: FIELD_TYPES };
+  }
+
+  router.get('/admin/projects/:slug/transfer', withProject((req, res, params, ctx, db) => {
+    html(req, res, 200, transferPage(transferCtx(ctx, db)));
+  }));
+
+  router.get('/admin/projects/:slug/schema.json', withProject((req, res, params, ctx, db) => {
+    json(req, res, 200, exportSchema(db), { 'Content-Disposition': `attachment; filename="${ctx.project.slug}-schema.json"` });
+  }));
+
+  router.get('/admin/projects/:slug/export.json', withProject((req, res, params, ctx, db) => {
+    json(req, res, 200, exportProject(db, ctx.project), { 'Content-Disposition': `attachment; filename="${ctx.project.slug}-export.json"` });
+  }));
+
+  router.get('/admin/projects/:slug/collections/:cslug/export.json', withCollection((req, res, params, ctx, db) => {
+    json(req, res, 200, exportCollection(db, ctx.collection), { 'Content-Disposition': `attachment; filename="${ctx.collection.slug}-export.json"` });
+  }));
+
+  router.post('/admin/projects/:slug/schema/apply', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    let report;
+    try {
+      report = applySchema(db, JSON.parse(form.schema || ''), { deleteMissing: form.delete_missing === '1' });
+    } catch (err) {
+      return html(req, res, 400, transferPage({ ...transferCtx(ctx, db), notice: { type: 'error', message: err instanceof SyntaxError ? 'Schema is not valid JSON.' : err.message } }));
+    }
+    html(req, res, 200, transferPage({ ...transferCtx(ctx, db), report, notice: { type: 'success', message: 'Schema applied.' } }));
+  }));
+
+  router.post('/admin/projects/:slug/import', withProject(async (req, res, params, ctx, db) => {
+    let upload;
+    try { upload = await readMultipart(req); } catch (err) {
+      return html(req, res, 400, transferPage({ ...transferCtx(ctx, db), notice: { type: 'error', message: err.message } }));
+    }
+    const file = upload.files.file;
+    const collection = getCollection(db, upload.fields.collection || '');
+    if (!file || !collection) {
+      return html(req, res, 400, transferPage({ ...transferCtx(ctx, db), notice: { type: 'error', message: 'Choose a file and a target collection.' } }));
+    }
+    let parsed;
+    try { parsed = parseImportFile(file.filename, file.data); } catch (err) {
+      return html(req, res, 400, transferPage({ ...transferCtx(ctx, db), notice: { type: 'error', message: err.message } }));
+    }
+    // Pending state lives in a temp file, not memory: a restart mid-flow
+    // costs nothing, and stale files are plain JSON anyone can delete.
+    const importId = randomUUID();
+    mkdirSync(importTmpDir, { recursive: true });
+    writeFileSync(path.join(importTmpDir, `${importId}.json`), JSON.stringify({ collection: collection.slug, ...parsed }));
+    html(req, res, 200, importMappingPage({ ...ctx, collection, importId, sourceFields: parsed.sourceFields, rowCount: parsed.rows.length, fieldTypes: FIELD_TYPES }));
+  }));
+
+  function readPendingImport(id) {
+    if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+    const file = path.join(importTmpDir, `${id}.json`);
+    if (!existsSync(file)) return null;
+    return { file, ...JSON.parse(readFileSync(file, 'utf8')) };
+  }
+
+  function mappingFromForm(form, sourceFields) {
+    const mapping = {};
+    sourceFields.forEach((s, i) => {
+      if (form[`src_${i}`] === s) mapping[s] = form[`map_${i}`] || 'skip';
+    });
+    return mapping;
+  }
+
+  for (const [step, dryRun] of [['check', true], ['apply', false]] as Array<[string, boolean]>) {
+    router.post(`/admin/projects/:slug/import/:id/${step}`, withProject(async (req, res, params, ctx, db) => {
+      const pending = readPendingImport(params.id);
+      const collection = pending && getCollection(db, pending.collection);
+      if (!pending || !collection) {
+        return html(req, res, 404, transferPage({ ...transferCtx(ctx, db), notice: { type: 'error', message: 'Import session not found. Upload the file again.' } }));
+      }
+      const form = await readFormBody(req);
+      let report;
+      try {
+        report = applyImport(db, collection.slug, pending.rows, mappingFromForm(form, pending.sourceFields), form.unique || '', { dryRun });
+      } catch (err) {
+        return html(req, res, 400, importMappingPage({ ...ctx, collection, importId: params.id, sourceFields: pending.sourceFields, rowCount: pending.rows.length, fieldTypes: FIELD_TYPES, notice: { type: 'error', message: err.message } }));
+      }
+      if (dryRun) {
+        return html(req, res, 200, importReportPage({ ...ctx, collection, importId: params.id, report, form }));
+      }
+      unlinkSync(pending.file);
+      html(req, res, 200, transferPage({ ...transferCtx(ctx, db), report, notice: { type: 'success', message: `Imported ${report.created + report.updated} of ${report.total} rows into ${collection.name}.` } }));
+    }));
+  }
 
   router.get('/admin/projects/:slug/collections/:cslug/new', withCollection((req, res, params, ctx, db) => {
     html(req, res, 200, entryEditorPage({ ...ctx, entry: null, media: listMedia(db) }));

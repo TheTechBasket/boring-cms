@@ -9,6 +9,7 @@ const ICONS: Record<string, string> = {
   key: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M22 8.29344C22 11.7692 19.1708 14.5869 15.6807 14.5869C15.0439 14.5869 13.5939 14.4405 12.8885 13.8551L12.0067 14.7333C11.4883 15.2496 11.6283 15.4016 11.8589 15.652C11.9551 15.7565 12.0672 15.8781 12.1537 16.0505C12.1537 16.0505 12.8885 17.075 12.1537 18.0995C11.7128 18.6849 10.4783 19.5045 9.06754 18.0995L8.77362 18.3922C8.77362 18.3922 9.65538 19.4167 8.92058 20.4412C8.4797 21.0267 7.30403 21.6121 6.27531 20.5876L5.2466 21.6121C4.54119 22.3146 3.67905 21.9048 3.33616 21.6121L2.45441 20.7339C1.63143 19.9143 2.1115 19.0264 2.45441 18.6849L10.0963 11.0743C10.0963 11.0743 9.3615 9.90338 9.3615 8.29344C9.3615 4.81767 12.1907 2 15.6807 2C19.1708 2 22 4.81767 22 8.29344Z" clip-rule="evenodd" opacity=".5"/><path d="M17.8853 8.29353C17.8853 9.50601 16.8984 10.4889 15.681 10.4889C14.4635 10.4889 13.4766 9.50601 13.4766 8.29353C13.4766 7.08105 14.4635 6.09814 15.681 6.09814C16.8984 6.09814 17.8853 7.08105 17.8853 8.29353Z"/></g></svg>`,
   settings: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M14.2788 2.15224C13.9085 2 13.439 2 12.5 2C11.561 2 11.0915 2 10.7212 2.15224C10.2274 2.35523 9.83509 2.74458 9.63056 3.23463C9.53719 3.45834 9.50065 3.7185 9.48635 4.09799C9.46534 4.65568 9.17716 5.17189 8.69017 5.45093C8.20318 5.72996 7.60864 5.71954 7.11149 5.45876C6.77318 5.2813 6.52789 5.18262 6.28599 5.15102C5.75609 5.08178 5.22018 5.22429 4.79616 5.5472C4.47814 5.78938 4.24339 6.1929 3.7739 6.99993C3.30441 7.80697 3.06967 8.21048 3.01735 8.60491C2.94758 9.1308 3.09118 9.66266 3.41655 10.0835C3.56506 10.2756 3.77377 10.437 4.0977 10.639C4.57391 10.936 4.88032 11.4419 4.88029 12C4.88026 12.5581 4.57386 13.0639 4.0977 13.3608C3.77372 13.5629 3.56497 13.7244 3.41645 13.9165C3.09108 14.3373 2.94749 14.8691 3.01725 15.395C3.06957 15.7894 3.30432 16.193 3.7738 17C4.24329 17.807 4.47804 18.2106 4.79606 18.4527C5.22008 18.7756 5.75599 18.9181 6.28589 18.8489C6.52778 18.8173 6.77305 18.7186 7.11133 18.5412C7.60852 18.2804 8.2031 18.27 8.69012 18.549C9.17714 18.8281 9.46533 19.3443 9.48635 19.9021C9.50065 20.2815 9.53719 20.5417 9.63056 20.7654C9.83509 21.2554 10.2274 21.6448 10.7212 21.8478C11.0915 22 11.561 22 12.5 22C13.439 22 13.9085 22 14.2788 21.8478C14.7726 21.6448 15.1649 21.2554 15.3694 20.7654C15.4628 20.5417 15.4994 20.2815 15.5137 19.902C15.5347 19.3443 15.8228 18.8281 16.3098 18.549C16.7968 18.2699 17.3914 18.2804 17.8886 18.5412C18.2269 18.7186 18.4721 18.8172 18.714 18.8488C19.2439 18.9181 19.7798 18.7756 20.2038 18.4527C20.5219 18.2105 20.7566 17.807 21.2261 16.9999C21.6956 16.1929 21.9303 15.7894 21.9827 15.395C22.0524 14.8691 21.9088 14.3372 21.5835 13.9164C21.4349 13.7243 21.2262 13.5628 20.9022 13.3608C20.4261 13.0639 20.1197 12.558 20.1197 11.9999C20.1197 11.4418 20.4261 10.9361 20.9022 10.6392C21.2263 10.4371 21.435 10.2757 21.5836 10.0835C21.9089 9.66273 22.0525 9.13087 21.9828 8.60497C21.9304 8.21055 21.6957 7.80703 21.2262 7C20.7567 6.19297 20.522 5.78945 20.2039 5.54727C19.7799 5.22436 19.244 5.08185 18.7141 5.15109C18.4722 5.18269 18.2269 5.28136 17.8887 5.4588C17.3915 5.71959 16.7969 5.73002 16.3099 5.45096C15.8229 5.17191 15.5347 4.65566 15.5136 4.09794C15.4993 3.71848 15.4628 3.45833 15.3694 3.23463C15.1649 2.74458 14.7726 2.35523 14.2788 2.15224Z" clip-rule="evenodd" opacity=".5"/><path d="M15.5227 12C15.5227 13.6569 14.1694 15 12.4999 15C10.8304 15 9.47705 13.6569 9.47705 12C9.47705 10.3431 10.8304 9 12.4999 9C14.1694 9 15.5227 10.3431 15.5227 12Z"/></g></svg>`,
   folder: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M22 14V11.7979C22 9.16554 22 7.84935 21.2305 6.99383C21.1598 6.91514 21.0849 6.84024 21.0062 6.76946C20.1506 6 18.8345 6 16.2021 6H15.8284C14.6747 6 14.0979 6 13.5604 5.84678C13.2651 5.7626 12.9804 5.64471 12.7121 5.49543C12.2237 5.22367 11.8158 4.81578 11 4L10.4497 3.44975C10.1763 3.17633 10.0396 3.03961 9.89594 2.92051C9.27652 2.40704 8.51665 2.09229 7.71557 2.01738C7.52976 2 7.33642 2 6.94975 2C6.06722 2 5.62595 2 5.25839 2.06935C3.64031 2.37464 2.37464 3.64031 2.06935 5.25839C2 5.62595 2 6.06722 2 6.94975V14C2 17.7712 2 19.6569 3.17157 20.8284C4.34315 22 6.22876 22 10 22H14C17.7712 22 19.6569 22 20.8284 20.8284C22 19.6569 22 17.7712 22 14Z" opacity=".5"/><path d="M12.25 10C12.25 9.58579 12.5858 9.25 13 9.25H18C18.4142 9.25 18.75 9.58579 18.75 10C18.75 10.4142 18.4142 10.75 18 10.75H13C12.5858 10.75 12.25 10.4142 12.25 10Z"/></g></svg>`,
+  transfer: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M20 10.25C20.3093 10.25 20.5869 10.0602 20.699 9.77191C20.8111 9.48366 20.7348 9.15614 20.5068 8.94715L14.5068 3.44715C14.2875 3.24617 13.9703 3.19374 13.698 3.3135C13.4258 3.43327 13.25 3.70259 13.25 4.00002L13.25 20C13.25 20.4142 13.5858 20.75 14 20.75C14.4142 20.75 14.75 20.4142 14.75 20L14.75 10.25L20 10.25Z"/><path d="M4.00003 13.75L9.25003 13.75L9.25003 4C9.25003 3.58579 9.58581 3.25 10 3.25C10.4142 3.25 10.75 3.58579 10.75 4V20C10.75 20.2974 10.5743 20.5667 10.302 20.6865C10.0298 20.8063 9.71248 20.7538 9.49323 20.5529L3.49324 15.0529C3.26524 14.8439 3.18892 14.5164 3.30105 14.2281C3.41317 13.9399 3.69074 13.75 4.00003 13.75Z" opacity=".5"/></g></svg>`,
 };
 
 function icon(name: string): string {
@@ -240,6 +241,7 @@ function sidebar({ user, projects, project }: {
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}Content</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}Media</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
+        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}Transfer</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}Project settings</a>
       </div>`
     : '';
@@ -898,6 +900,158 @@ export function mediaPage({ user, projects, project, media, notice: pageNotice }
       ${media.length
         ? `<div class="grid gap-4 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">${cards}</div>`
         : '<p class="text-sm text-muted-foreground italic">No media yet. Upload with the + button.</p>'}
+    `,
+  });
+}
+
+// ---- Transfer (export/import + schema-as-code) ----------------------------
+
+export function transferPage({ user, projects, project, collections, fieldTypes, notice: pageNotice, report }: any): string {
+  const base = `/admin/projects/${project.slug}`;
+  const exportLinks = collections
+    .map((c: any) => `<li><a class="text-primary hover:underline" href="${base}/collections/${c.slug}/export.json" download>${escapeHtml(c.name)} (JSON)</a></li>`)
+    .join('');
+  const reportBlock = report
+    ? `<pre class="text-xs bg-muted p-3 overflow-x-auto m-0">${escapeHtml(JSON.stringify(report, null, 2))}</pre>`
+    : '';
+  return layout({
+    title: `Transfer · ${project.name}`,
+    user,
+    projects,
+    project,
+    notice: pageNotice,
+    body: `
+      ${pageHeader('Transfer')}
+      <div class="grid gap-6 @3xl:grid-cols-2 items-start">
+        <div class="${CARD_CLASS}">
+          <span class="text-sm font-medium">Export</span>
+          <ul class="list-none p-0 m-0 flex flex-col gap-1 text-sm">
+            <li><a class="text-primary hover:underline" href="${base}/export.json" download>Whole project (schema + entries)</a></li>
+            <li><a class="text-primary hover:underline" href="${base}/schema.json" download>Schema only (collections + fields)</a></li>
+            ${exportLinks}
+          </ul>
+        </div>
+        <div class="${CARD_CLASS}">
+          <span class="text-sm font-medium">Import content</span>
+          <p class="text-xs text-muted-foreground m-0">JSON (yncms export or an array of flat objects) or CSV with a header row. Nothing is written until you confirm the mapping and dry-run report.</p>
+          <form method="post" action="${base}/import" enctype="multipart/form-data" class="flex flex-col gap-4">
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">File</span>
+              <input type="file" name="file" required accept=".json,.csv,application/json,text/csv" class="text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer">
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">Into collection</span>
+              <select name="collection" required class="${SELECT_CLASS}">
+                ${collections.map((c: any) => `<option value="${c.slug}">${escapeHtml(c.name)}</option>`).join('')}
+              </select>
+            </label>
+            ${button({ label: 'Upload and map fields' })}
+          </form>
+        </div>
+        <div class="${CARD_CLASS} @3xl:col-span-2">
+          <span class="text-sm font-medium">Apply schema</span>
+          <p class="text-xs text-muted-foreground m-0">Paste a schema JSON (the shape of the schema export). Missing collections are created, changed ones updated, nothing is deleted unless the checkbox is on. Safe to re-apply.</p>
+          <form method="post" action="${base}/schema/apply" class="flex flex-col gap-4">
+            <textarea name="schema" rows="10" required spellcheck="false" placeholder='{ "collections": [ { "name": "Posts", "slug": "posts", "fields": [ { "name": "title", "label": "Title", "type": "text" } ] } ] }' class="${TEXTAREA_CLASS}"></textarea>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="delete_missing" value="1" class="size-4 accent-primary">
+              <span>Delete collections not in the schema (destructive)</span>
+            </label>
+            ${button({ label: 'Apply schema' })}
+          </form>
+          ${reportBlock}
+        </div>
+      </div>
+    `,
+  });
+}
+
+export function importMappingPage({ user, projects, project, collection, importId, sourceFields, rowCount, fieldTypes, notice: pageNotice }: any): string {
+  const base = `/admin/projects/${project.slug}`;
+  const targetOptions = collection.fields
+    .map((f: any) => `<option value="field:${f.name}">${escapeHtml(f.label)} (${f.type})</option>`)
+    .join('');
+  const createOptions = fieldTypes.map((t: string) => `<option value="create:${t}">create new ${t} field</option>`).join('');
+  const rows = sourceFields
+    .map((s: string, i: number) => {
+      // Auto-select an existing field whose name matches the source field.
+      const match = collection.fields.find((f: any) => f.name === s || f.label === s);
+      return `<tr class="border-b border-border">
+        <td class="p-2 text-sm"><code>${escapeHtml(s)}</code><input type="hidden" name="src_${i}" value="${escapeHtml(s)}"></td>
+        <td class="p-2">
+          <select name="map_${i}" class="${SELECT_CLASS}">
+            <option value="skip">skip</option>
+            ${match ? targetOptions.replace(`value="field:${match.name}"`, `value="field:${match.name}" selected`) : targetOptions}
+            ${createOptions}
+          </select>
+        </td>
+      </tr>`;
+    })
+    .join('');
+  const uniqueOptions = collection.fields.map((f: any) => `<option value="${f.name}">${escapeHtml(f.label)}</option>`).join('');
+  return layout({
+    title: `Import mapping · ${project.name}`,
+    user,
+    projects,
+    project,
+    notice: pageNotice,
+    body: `
+      ${pageHeader('Map fields')}
+      <p class="text-sm text-muted-foreground">${rowCount} rows into <strong>${escapeHtml(collection.name)}</strong>. Choose where each source field goes; nothing is written yet.</p>
+      <form method="post" action="${base}/import/${importId}/check" class="flex flex-col gap-5 max-w-2xl">
+        <div class="border border-border bg-card overflow-x-auto">
+          <table class="w-full border-collapse">
+            ${tableHead([{ label: 'Source field' }, { label: 'Maps to' }])}
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <label class="flex flex-col gap-1.5 text-sm max-w-xs">
+          <span class="font-medium text-foreground">Unique field (optional)</span>
+          <select name="unique" class="${SELECT_CLASS}">
+            <option value="">none: every row becomes a new entry</option>
+            ${uniqueOptions}
+          </select>
+          <span class="text-xs text-muted-foreground">Rows matching an existing entry on this field update it instead of duplicating. Makes re-imports safe.</span>
+        </label>
+        ${button({ label: 'Dry run' })}
+      </form>
+    `,
+  });
+}
+
+export function importReportPage({ user, projects, project, collection, importId, report, form, notice: pageNotice }: any): string {
+  const base = `/admin/projects/${project.slug}`;
+  // Replay the confirmed mapping through hidden inputs so apply runs the
+  // exact plan the user saw.
+  const mappingInputs = Object.entries(form)
+    .filter(([k]) => /^(src_|map_)\d+$/.test(k) || k === 'unique')
+    .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}">`)
+    .join('');
+  const failures = Object.entries(report.coercionFailures)
+    .map(([f, n]) => `<li>${escapeHtml(f)}: ${n} value(s) do not fit the field type (kept raw)</li>`)
+    .join('');
+  return layout({
+    title: `Import dry run · ${project.name}`,
+    user,
+    projects,
+    project,
+    notice: pageNotice,
+    body: `
+      ${pageHeader('Dry run report')}
+      <div class="${CARD_CLASS} max-w-2xl">
+        <ul class="list-none p-0 m-0 flex flex-col gap-1 text-sm">
+          <li>${report.total} rows: <strong>${report.created} new</strong>, <strong>${report.updated} updated</strong></li>
+          ${report.newFields.length ? `<li>New fields: ${report.newFields.map((f: any) => `${escapeHtml(f.label)} (${f.type})`).join(', ')}</li>` : ''}
+          ${failures || '<li class="text-muted-foreground">All values fit their field types.</li>'}
+        </ul>
+        <span class="text-sm font-medium">Sample</span>
+        <pre class="text-xs bg-muted p-3 overflow-x-auto m-0">${escapeHtml(JSON.stringify(report.sample, null, 2))}</pre>
+        <form method="post" action="${base}/import/${importId}/apply" class="flex gap-2">
+          ${mappingInputs}
+          ${button({ label: `Import ${report.total} rows` })}
+          <a class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline}" href="${base}/transfer">Cancel</a>
+        </form>
+      </div>
     `,
   });
 }

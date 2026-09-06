@@ -253,7 +253,81 @@ async function main() {
   const servedGone = await fetch(`${base}/media/${slug}/${mediaKey}`);
   assert.equal(servedGone.status, 404, 'deleted media should 404');
 
-  // 12. Delete the project (requires exact slug confirmation)
+  // 12. Transfer: schema export/apply, collection export, CSV import flow
+  const schemaRes = await req('GET', `/admin/projects/${slug}/schema.json`);
+  assert.equal(schemaRes.status, 200, 'schema export should be 200');
+  const schema: any = await schemaRes.json();
+  assert.ok(schema.collections.some((c) => c.slug === 'blog-posts'), 'schema export should include the collection');
+
+  const applyRes = await req('POST', `/admin/projects/${slug}/schema/apply`, {
+    form: {
+      schema: JSON.stringify({
+        collections: [
+          ...schema.collections,
+          { name: 'Pages', slug: 'pages', fields: [{ name: 'title', label: 'Title', type: 'text' }] },
+        ],
+      }),
+    },
+  });
+  assert.equal(applyRes.status, 200, 'schema apply should render a report');
+  assert.ok(getCollection(projectDb, 'pages'), 'schema apply should create the new collection');
+  // Idempotent: applying again changes nothing and deletes nothing.
+  await req('POST', `/admin/projects/${slug}/schema/apply`, {
+    form: { schema: JSON.stringify({ collections: [...schema.collections, { name: 'Pages', slug: 'pages', fields: [{ name: 'title', label: 'Title', type: 'text' }] }] }) },
+  });
+  assert.ok(getCollection(projectDb, 'blog-posts'), 'reapply should not delete anything');
+
+  const exportRes = await req('GET', `/admin/projects/${slug}/collections/blog-posts/export.json`);
+  assert.equal(exportRes.status, 200, 'collection export should be 200');
+  const exported: any = await exportRes.json();
+  assert.equal(exported.entries.length, 1, 'export should carry the entry');
+  assert.equal(exported.entries[0].data.body, '# First draft', 'export should carry field data');
+
+  // CSV import into pages, with a created field and a unique re-import.
+  const csv = 'title,views\r\nHome,10\r\nAbout,twenty\r\n';
+  async function uploadCsv() {
+    const b = 'smokeboundary';
+    const body =
+      `--${b}\r\nContent-Disposition: form-data; name="collection"\r\n\r\npages\r\n` +
+      `--${b}\r\nContent-Disposition: form-data; name="file"; filename="pages.csv"\r\nContent-Type: text/csv\r\n\r\n${csv}\r\n--${b}--\r\n`;
+    return fetch(`${base}/admin/projects/${slug}/import`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: withCookie({ 'Content-Type': `multipart/form-data; boundary=${b}` }),
+      body,
+    });
+  }
+  const importRes = await uploadCsv();
+  assert.equal(importRes.status, 200, 'import upload should render the mapping screen');
+  const mappingHtml = await importRes.text();
+  const importId = (mappingHtml.match(/import\/([0-9a-f-]{36})\/check/) || [])[1];
+  assert.ok(importId, 'mapping screen should carry the import id');
+
+  const importForm = { src_0: 'title', map_0: 'field:title', src_1: 'views', map_1: 'create:number', unique: 'title' };
+  const checkRes = await req('POST', `/admin/projects/${slug}/import/${importId}/check`, { form: importForm });
+  assert.equal(checkRes.status, 200, 'dry run should render a report');
+  const checkHtml = await checkRes.text();
+  assert.ok(checkHtml.includes('2 new'), 'dry run should count new rows');
+  assert.ok(checkHtml.includes('kept raw'), 'dry run should flag the bad number value');
+
+  const applyImportRes = await req('POST', `/admin/projects/${slug}/import/${importId}/apply`, { form: importForm });
+  assert.equal(applyImportRes.status, 200, 'apply should render the result');
+  const pages = getCollection(projectDb, 'pages');
+  assert.ok(pages.fields.some((f) => f.name === 'views' && f.type === 'number'), 'import should create the mapped field');
+  const pageEntries = app.projectDbs.get(slug).prepare('SELECT data FROM entries WHERE collection_id = ?').all(pages.id).map((r) => JSON.parse(r.data));
+  assert.equal(pageEntries.length, 2, 'import should create both rows');
+  assert.equal(pageEntries.find((e) => e.title === 'Home').views, 10, 'number coercion should parse');
+  assert.equal(pageEntries.find((e) => e.title === 'About').views, 'twenty', 'unparseable number should keep the raw value');
+
+  // Re-import with the unique field: updates, no duplicates.
+  const reImport = await uploadCsv();
+  const reId = ((await reImport.text()).match(/import\/([0-9a-f-]{36})\/check/) || [])[1];
+  const reForm = { src_0: 'title', map_0: 'field:title', src_1: 'views', map_1: 'field:views', unique: 'title' };
+  await req('POST', `/admin/projects/${slug}/import/${reId}/apply`, { form: reForm });
+  const afterRe = app.projectDbs.get(slug).prepare('SELECT COUNT(*) AS n FROM entries WHERE collection_id = ?').get(pages.id);
+  assert.equal(afterRe.n, 2, 'unique-field re-import should update, not duplicate');
+
+  // 13. Delete the project (requires exact slug confirmation)
   const badDelete = await req('POST', `/admin/projects/${slug}/delete`, {
     form: { confirm: 'not-the-slug' },
   });
