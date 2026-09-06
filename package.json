@@ -1,0 +1,14 @@
+{
+  "name": "yncms",
+  "version": "0.1.0",
+  "description": "Open-source headless CMS. One deploy, many projects.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "smoke": "node scripts/smoke.mjs"
+  }
+}
