@@ -22,6 +22,10 @@ Open `http://localhost:3000`. With no admin user yet, every route redirects
 to `/setup` to create the single admin account. After that, log in at
 `/login` and manage projects and settings under `/admin`.
 
+`pnpm css` is only needed after editing styles or views: it rebuilds
+`public/admin.css` from `styles/admin.src.css`, and the built file is
+committed so deploys never run a build.
+
 ## Smoke check
 
 ```bash

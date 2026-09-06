@@ -9,6 +9,12 @@
   },
   "scripts": {
     "start": "node server.js",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "css": "tailwindcss -i styles/admin.src.css -o public/admin.css --minify",
+    "css:watch": "tailwindcss -i styles/admin.src.css -o public/admin.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
   }
 }
