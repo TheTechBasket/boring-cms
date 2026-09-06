@@ -48,17 +48,17 @@
 }
 
 /* Palette lifted from the dribbble reference: off-white app ground, white
-   surfaces, near-black primary, lavender accent. */
+   surfaces, lavender primary, black nav. Sharp corners throughout. */
 :root {
-	--radius: 0.75rem;
+	--radius: 0rem;
 	--background: oklch(0.972 0.001 286);
 	--foreground: oklch(0.185 0.005 285);
 	--card: oklch(1 0 0);
 	--card-foreground: oklch(0.185 0.005 285);
 	--popover: oklch(1 0 0);
 	--popover-foreground: oklch(0.185 0.005 285);
-	--primary: oklch(0.205 0.006 285);
-	--primary-foreground: oklch(0.985 0 0);
+	--primary: oklch(0.855 0.065 285);
+	--primary-foreground: oklch(0.205 0.006 285);
 	--secondary: oklch(0.936 0.003 286);
 	--secondary-foreground: oklch(0.205 0.006 285);
 	--muted: oklch(0.936 0.003 286);
@@ -92,7 +92,7 @@
 		--card-foreground: oklch(0.965 0.002 286);
 		--popover: oklch(0.23 0.006 285);
 		--popover-foreground: oklch(0.965 0.002 286);
-		--primary: oklch(0.965 0.002 286);
+		--primary: oklch(0.855 0.065 285);
 		--primary-foreground: oklch(0.205 0.006 285);
 		--secondary: oklch(0.29 0.007 285);
 		--secondary-foreground: oklch(0.965 0.002 286);
@@ -128,7 +128,7 @@
 	--card-foreground: oklch(0.965 0.002 286);
 	--popover: oklch(0.23 0.006 285);
 	--popover-foreground: oklch(0.965 0.002 286);
-	--primary: oklch(0.965 0.002 286);
+	--primary: oklch(0.855 0.065 285);
 	--primary-foreground: oklch(0.205 0.006 285);
 	--secondary: oklch(0.29 0.007 285);
 	--secondary-foreground: oklch(0.965 0.002 286);

@@ -70,6 +70,16 @@ export function addCollectionField(db, collectionSlug, { label, type }) {
   return getCollection(db, collectionSlug);
 }
 
+export function reorderCollectionFields(db, collectionSlug, orderedNames) {
+  const collection = getCollection(db, collectionSlug);
+  if (!collection) return null;
+  const byName = new Map(collection.fields.map((f) => [f.name, f]));
+  const fields = orderedNames.map((n) => byName.get(n)).filter(Boolean);
+  if (fields.length !== collection.fields.length) return collection; // stale client order, ignore
+  db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  return getCollection(db, collectionSlug);
+}
+
 export function removeCollectionField(db, collectionSlug, fieldName) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;

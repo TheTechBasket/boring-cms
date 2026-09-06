@@ -36,6 +36,44 @@ if (switcher) {
   });
 }
 
+// "+" popovers are <details data-popover>: close any open one on outside click.
+document.addEventListener('click', (event) => {
+  document.querySelectorAll('details[data-popover][open]').forEach((d) => {
+    if (!d.contains(event.target)) d.removeAttribute('open');
+  });
+});
+
+// Field reorder: native HTML5 drag and drop on [data-field] rows. Dropping
+// in a new position submits the hidden reorder form with the new order.
+document.querySelectorAll('[data-field-list]').forEach((list) => {
+  let dragged = null;
+  list.querySelectorAll('[data-field]').forEach((row) => {
+    row.addEventListener('dragstart', (event) => {
+      dragged = row;
+      event.dataTransfer.effectAllowed = 'move';
+      row.classList.add('opacity-50');
+    });
+    row.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      if (!dragged || dragged === row) return;
+      const rect = row.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      row.parentNode.insertBefore(dragged, before ? row : row.nextSibling);
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('opacity-50');
+      dragged = null;
+      const form = list.querySelector('[data-reorder-form]');
+      if (!form) return;
+      const order = [...list.querySelectorAll('[data-field]')].map((r) => r.dataset.field).join(',');
+      if (order !== form.dataset.initial) {
+        form.querySelector('input[name="order"]').value = order;
+        form.submit();
+      }
+    });
+  });
+});
+
 // Markdown preview: client-side only, rendered with the vendored marked.js
 // into a typeset container. The server never converts markdown.
 document.querySelectorAll('[data-markdown-field]').forEach((wrap) => {

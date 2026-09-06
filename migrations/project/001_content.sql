@@ -11,8 +11,7 @@ CREATE TABLE collections (
 CREATE TABLE entries (
   id INTEGER PRIMARY KEY,
   collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-  slug TEXT NOT NULL,
-  title TEXT NOT NULL,
+  slug TEXT NOT NULL, -- UUID
   status TEXT NOT NULL DEFAULT 'draft', -- draft | published
   data TEXT NOT NULL DEFAULT '{}',           -- JSON: current field values (markdown source)
   published_data TEXT,                        -- JSON: materialized snapshot served by the API

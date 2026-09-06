@@ -35,6 +35,7 @@ import {
   createCollection,
   addCollectionField,
   removeCollectionField,
+  reorderCollectionFields,
   deleteCollection,
   listEntries,
   getEntry,
@@ -366,15 +367,21 @@ export function createApp(configOverrides = {}) {
     return data;
   }
 
+  function projectStats(db) {
+    const entries = db.prepare("SELECT COUNT(*) AS total, SUM(status = 'published') AS published FROM entries").get();
+    const keys = db.prepare('SELECT COUNT(*) AS total FROM api_keys').get();
+    return { entries: entries.total || 0, published: entries.published || 0, apiKeys: keys.total || 0 };
+  }
+
   router.get('/admin/projects/:slug/collections', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, collectionsPage({ ...ctx, collections: listCollections(db) }));
+    html(req, res, 200, collectionsPage({ ...ctx, collections: listCollections(db), stats: projectStats(db) }));
   }));
 
   router.post('/admin/projects/:slug/collections', withProject(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     const name = (form.name || '').trim();
     if (!name) {
-      return html(req, res, 400, collectionsPage({ ...ctx, collections: listCollections(db), notice: { type: 'error', message: 'Enter a collection name.' } }));
+      return html(req, res, 400, collectionsPage({ ...ctx, collections: listCollections(db), stats: projectStats(db), notice: { type: 'error', message: 'Enter a collection name.' } }));
     }
     const collection = createCollection(db, name);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${collection.slug}`);
@@ -398,6 +405,13 @@ export function createApp(configOverrides = {}) {
     const label = (form.label || '').trim();
     const type = FIELD_TYPES.includes(form.type) ? form.type : 'text';
     if (label) addCollectionField(db, ctx.collection.slug, { label, type });
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/fields/reorder', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const order = (form.order || '').split(',').filter(Boolean);
+    if (order.length) reorderCollectionFields(db, ctx.collection.slug, order);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 

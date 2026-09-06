@@ -124,6 +124,15 @@ async function main() {
   });
   assert.equal(fieldRes.status, 302, 'adding a field should redirect');
 
+  // Field reorder: add a second field, move it first, assert the order.
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, {
+    form: { label: 'Subtitle', type: 'text' },
+  });
+  const reorderRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/reorder`, {
+    form: { order: 'subtitle,body' },
+  });
+  assert.equal(reorderRes.status, 302, 'reorder should redirect');
+
   const entryRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, {
     form: { field_body: '# First draft' },
   });
@@ -139,6 +148,7 @@ async function main() {
 
   const projectDb = app.projectDbs.get(slug);
   const collection = getCollection(projectDb, 'blog-posts');
+  assert.deepEqual(collection.fields.map((f) => f.name), ['subtitle', 'body'], 'reorder should persist field order');
   let entry = getEntry(projectDb, collection.id, entrySlug);
   assert.equal(entry.data.body, '# Second draft', 'edit should persist');
   const revisions = listRevisions(projectDb, entry.id);

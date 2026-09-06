@@ -106,6 +106,42 @@ function dangerDetails({ summary, description, children }: { summary: string; de
   </details>`;
 }
 
+// A "+" button in the page header that opens a small popover form. All
+// create actions use this instead of always-visible forms.
+function addPopover({ label, action, children }: { label: string; action: string; children: string }): string {
+  return `<details class="relative" data-popover>
+    <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} list-none select-none [&::-webkit-details-marker]:hidden">+ ${escapeHtml(label)}</summary>
+    <div class="absolute right-0 top-full mt-2 z-10 w-80 border border-border bg-popover text-popover-foreground shadow-lg p-5">
+      <form method="post" action="${action}" class="flex flex-col gap-4">${children}</form>
+    </div>
+  </details>`;
+}
+
+function pageHeader(title: string, right = ''): string {
+  return `<div class="flex items-center justify-between gap-4 flex-wrap">
+    <h1 class="text-2xl font-semibold">${escapeHtml(title)}</h1>
+    <div class="flex items-center gap-2">${right}</div>
+  </div>`;
+}
+
+// Tables sit on a card surface instead of floating on the page background.
+function tableCard(children: string): string {
+  return `<div class="border border-border bg-card shadow-xs overflow-x-auto">${children}</div>`;
+}
+
+const STAT_TONES: Record<string, string> = {
+  lavender: 'bg-primary text-primary-foreground',
+  black: 'bg-foreground text-background',
+  white: 'bg-card text-card-foreground border border-border',
+};
+
+function statCard({ label, value, tone = 'white' }: { label: string; value: number | string; tone?: string }): string {
+  return `<div class="${STAT_TONES[tone]} p-5 flex flex-col gap-5 shadow-xs">
+    <span class="text-xs font-medium uppercase tracking-wide opacity-70">${escapeHtml(label)}</span>
+    <span class="text-3xl font-semibold tracking-tight">${escapeHtml(value)}</span>
+  </div>`;
+}
+
 // ---- Layout with sidebar ------------------------------------------------
 
 type LayoutOpts = {
@@ -254,10 +290,10 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
   const rows = projects
     .map(
       (p: any) => `<tr class="border-b border-border">
-        <td class="p-2 text-left"><a class="text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${encodeURIComponent(p.slug)}/collections">${escapeHtml(p.name)}</a></td>
-        <td class="p-2 text-left"><code class="text-sm text-muted-foreground">${escapeHtml(p.slug)}</code></td>
-        <td class="p-2 text-left @max-lg:hidden text-sm text-muted-foreground">${escapeHtml(p.created_at)}</td>
-        <td class="p-2 text-right">
+        <td class="p-3 text-left"><a class="text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${encodeURIComponent(p.slug)}/collections">${escapeHtml(p.name)}</a></td>
+        <td class="p-3 text-left"><code class="text-sm text-muted-foreground">${escapeHtml(p.slug)}</code></td>
+        <td class="p-3 text-left @max-lg:hidden text-sm text-muted-foreground">${escapeHtml(p.created_at)}</td>
+        <td class="p-3 text-right">
           <a class="text-primary text-sm hover:underline" href="/admin/projects/${encodeURIComponent(p.slug)}">Settings</a>
         </td>
       </tr>`,
@@ -270,26 +306,24 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
     projects,
     notice: pageNotice,
     body: `
-      <h1 class="text-2xl font-semibold">Projects</h1>
-      <table class="w-full border-collapse">
-        <thead><tr class="border-b border-border">
-          <th class="p-2 text-left font-medium">Name</th>
-          <th class="p-2 text-left font-medium">Slug</th>
-          <th class="p-2 text-left font-medium @max-lg:hidden">Created</th>
-          <th class="p-2"></th>
-        </tr></thead>
-        <tbody>${rows || '<tr><td colspan="4" class="p-2 text-muted-foreground italic">No projects yet.</td></tr>'}</tbody>
-      </table>
-
-      ${sectionHeading('New project')}
-      ${card({
+      ${pageHeader('Projects', addPopover({
+        label: 'New project',
         action: '/admin/projects',
         children: `
         ${field({ label: 'Name', name: 'name', required: true, placeholder: 'My Blog' })}
         <p class="text-xs text-muted-foreground">The URL slug is generated automatically.</p>
         ${button({ label: 'Create project' })}
       `,
-      })}
+      }))}
+      ${tableCard(`<table class="w-full border-collapse">
+        <thead><tr class="border-b border-border">
+          <th class="p-3 text-left font-medium">Name</th>
+          <th class="p-3 text-left font-medium">Slug</th>
+          <th class="p-3 text-left font-medium @max-lg:hidden">Created</th>
+          <th class="p-3"></th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="4" class="p-3 text-muted-foreground italic">No projects yet.</td></tr>'}</tbody>
+      </table>`)}
     `,
   });
 }
@@ -382,16 +416,25 @@ export function globalSettingsPage({ user, projects, settingKeys, notice: pageNo
 
 // ---- Collections ----------------------------------------------------------
 
-export function collectionsPage({ user, projects, project, collections, notice: pageNotice }: any): string {
+export function collectionsPage({ user, projects, project, collections, stats, notice: pageNotice }: any): string {
   const rows = collections
     .map(
       (c: any) => `<tr class="border-b border-border">
-        <td class="p-2"><a class="text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${project.slug}/collections/${c.slug}">${escapeHtml(c.name)}</a></td>
-        <td class="p-2"><code class="text-sm text-muted-foreground">${escapeHtml(c.slug)}</code></td>
-        <td class="p-2 text-sm text-muted-foreground">${c.fields.length} field${c.fields.length === 1 ? '' : 's'}</td>
+        <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${project.slug}/collections/${c.slug}">${escapeHtml(c.name)}</a></td>
+        <td class="p-3"><code class="text-sm text-muted-foreground">${escapeHtml(c.slug)}</code></td>
+        <td class="p-3 text-sm text-muted-foreground">${c.fields.length} field${c.fields.length === 1 ? '' : 's'}</td>
       </tr>`,
     )
     .join('\n');
+
+  const statsRow = stats
+    ? `<div class="grid gap-4 @2xl:grid-cols-2 @4xl:grid-cols-4">
+        ${statCard({ label: 'Collections', value: collections.length, tone: 'white' })}
+        ${statCard({ label: 'Entries', value: stats.entries, tone: 'lavender' })}
+        ${statCard({ label: 'Published', value: stats.published, tone: 'black' })}
+        ${statCard({ label: 'API keys', value: stats.apiKeys, tone: 'white' })}
+      </div>`
+    : '';
 
   return layout({
     title: `Content · ${project.name}`,
@@ -400,24 +443,23 @@ export function collectionsPage({ user, projects, project, collections, notice: 
     project,
     notice: pageNotice,
     body: `
-      <h1 class="text-2xl font-semibold">Content</h1>
-      <table class="w-full border-collapse">
-        <thead><tr class="border-b border-border">
-          <th class="p-2 text-left font-medium">Collection</th>
-          <th class="p-2 text-left font-medium">Slug</th>
-          <th class="p-2 text-left font-medium">Fields</th>
-        </tr></thead>
-        <tbody>${rows || '<tr><td colspan="3" class="p-2 text-muted-foreground italic">No collections yet. Create one below, for example Posts or Pages.</td></tr>'}</tbody>
-      </table>
-
-      ${sectionHeading('New collection')}
-      ${card({
+      ${pageHeader('Content', addPopover({
+        label: 'New collection',
         action: `/admin/projects/${project.slug}/collections`,
         children: `
         ${field({ label: 'Name', name: 'name', required: true, placeholder: 'Posts' })}
         ${button({ label: 'Create collection' })}
       `,
-      })}
+      }))}
+      ${statsRow}
+      ${tableCard(`<table class="w-full border-collapse">
+        <thead><tr class="border-b border-border">
+          <th class="p-3 text-left font-medium">Collection</th>
+          <th class="p-3 text-left font-medium">Slug</th>
+          <th class="p-3 text-left font-medium">Fields</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No collections yet. Create one with the + button, for example Posts or Pages.</td></tr>'}</tbody>
+      </table>`)}
     `,
   });
 }
@@ -425,28 +467,31 @@ export function collectionsPage({ user, projects, project, collections, notice: 
 export function collectionPage({ user, projects, project, collection, entries, fieldTypes, notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
 
+  const gripIcon = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="3" r="1.5"/><circle cx="7.5" cy="3" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/><circle cx="2.5" cy="13" r="1.5"/><circle cx="7.5" cy="13" r="1.5"/></svg>`;
+
   const fieldRows = collection.fields
     .map(
-      (f: any) => `<tr class="border-b border-border">
-        <td class="p-2 text-sm">${escapeHtml(f.label)}</td>
-        <td class="p-2"><code class="text-sm text-muted-foreground">${escapeHtml(f.name)}</code></td>
-        <td class="p-2 text-sm text-muted-foreground">${escapeHtml(f.type)}</td>
-        <td class="p-2 text-right">
-          <form method="post" action="${base}/fields/remove" class="inline">
-            <input type="hidden" name="field" value="${escapeHtml(f.name)}">
-            ${button({ label: 'Remove', variant: 'ghost', small: true })}
-          </form>
-        </td>
-      </tr>`,
+      (f: any) => `<div draggable="true" data-field="${escapeHtml(f.name)}" class="flex items-center gap-3 border-b border-border px-3 py-2 text-sm cursor-grab bg-card">
+        <span class="text-muted-foreground shrink-0" aria-hidden="true">${gripIcon}</span>
+        <span class="font-medium">${escapeHtml(f.label)}</span>
+        <code class="text-muted-foreground">${escapeHtml(f.name)}</code>
+        <span class="text-muted-foreground">${escapeHtml(f.type)}</span>
+        <form method="post" action="${base}/fields/remove" class="ml-auto">
+          <input type="hidden" name="field" value="${escapeHtml(f.name)}">
+          ${button({ label: 'Remove', variant: 'ghost', small: true })}
+        </form>
+      </div>`,
     )
     .join('\n');
+
+  const initialOrder = collection.fields.map((f: any) => f.name).join(',');
 
   const entryRows = entries
     .map(
       (e: any) => `<tr class="border-b border-border">
-        <td class="p-2"><a class="text-foreground font-medium no-underline hover:text-primary" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
-        <td class="p-2">${statusBadge(e.status)}</td>
-        <td class="p-2 text-sm text-muted-foreground @max-lg:hidden">${escapeHtml(e.updated_at)}</td>
+        <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-primary" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
+        <td class="p-3">${statusBadge(e.status)}</td>
+        <td class="p-3 text-sm text-muted-foreground @max-lg:hidden">${escapeHtml(e.updated_at)}</td>
       </tr>`,
     )
     .join('\n');
@@ -460,38 +505,40 @@ export function collectionPage({ user, projects, project, collection, entries, f
     project,
     notice: pageNotice,
     body: `
-      <div class="flex items-center justify-between gap-4 flex-wrap">
-        <h1 class="text-2xl font-semibold">${escapeHtml(collection.name)}</h1>
-        <a href="${base}/new" class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} no-underline">New entry</a>
-      </div>
+      ${pageHeader(collection.name, `<a href="${base}/new" class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} no-underline">+ New entry</a>`)}
 
-      <table class="w-full border-collapse">
+      ${tableCard(`<table class="w-full border-collapse">
         <thead><tr class="border-b border-border">
-          <th class="p-2 text-left font-medium">Entry</th>
-          <th class="p-2 text-left font-medium">Status</th>
-          <th class="p-2 text-left font-medium @max-lg:hidden">Updated</th>
+          <th class="p-3 text-left font-medium">Entry</th>
+          <th class="p-3 text-left font-medium">Status</th>
+          <th class="p-3 text-left font-medium @max-lg:hidden">Updated</th>
         </tr></thead>
-        <tbody>${entryRows || '<tr><td colspan="3" class="p-2 text-muted-foreground italic">No entries yet.</td></tr>'}</tbody>
-      </table>
+        <tbody>${entryRows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No entries yet.</td></tr>'}</tbody>
+      </table>`)}
 
-      <div class="flex flex-col gap-3 mt-4 max-w-2xl">
-        ${sectionHeading('Fields')}
-        <p class="text-sm text-muted-foreground">Entries have no required fields. The first field's value is used as the entry label in lists; entries with no values show their id.</p>
-        <table class="w-full border-collapse">
-          <tbody>${fieldRows || '<tr><td class="p-2 text-muted-foreground italic text-sm">No fields yet. Add a markdown body or more below.</td></tr>'}</tbody>
-        </table>
-        ${card({
-          action: `${base}/fields/add`,
-          extraClass: '',
-          children: `
-          ${field({ label: 'Field label', name: 'label', required: true, placeholder: 'Body' })}
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="font-medium text-foreground">Type</span>
-            <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
-          </label>
-          ${button({ label: 'Add field' })}
-        `,
-        })}
+      <div class="flex flex-col gap-3 mt-16 max-w-2xl">
+        <div class="flex items-center justify-between gap-4">
+          ${sectionHeading('Fields')}
+          ${addPopover({
+            label: 'Add field',
+            action: `${base}/fields/add`,
+            children: `
+            ${field({ label: 'Field label', name: 'label', required: true, placeholder: 'Body' })}
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">Type</span>
+              <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
+            </label>
+            ${button({ label: 'Add field' })}
+          `,
+          })}
+        </div>
+        <p class="text-sm text-muted-foreground">Drag to reorder. The first field's value is the entry label in lists; entries with no values show their id.</p>
+        <div class="border border-border bg-card shadow-xs" data-field-list>
+          ${fieldRows || '<p class="p-3 text-muted-foreground italic text-sm m-0">No fields yet. Add a markdown body or more with the + button.</p>'}
+          <form method="post" action="${base}/fields/reorder" data-reorder-form data-initial="${escapeHtml(initialOrder)}" hidden>
+            <input type="hidden" name="order" value="">
+          </form>
+        </div>
       </div>
 
       ${dangerDetails({
@@ -648,26 +695,25 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, notice:
     project,
     notice: pageNotice,
     body: `
-      <h1 class="text-2xl font-semibold">API keys</h1>
-      <p class="text-sm text-muted-foreground">Send as <code>Authorization: Bearer &lt;key&gt;</code>. Read-only access to published content at <code>/api/v1/${escapeHtml(project.slug)}/&lt;collection&gt;</code>.</p>
-      ${createdBlock}
-      <table class="w-full border-collapse max-w-3xl">
-        <thead><tr class="border-b border-border">
-          <th class="p-2 text-left font-medium">Name</th>
-          <th class="p-2 text-left font-medium">Created</th>
-          <th class="p-2 text-left font-medium">Last used</th>
-          <th class="p-2"></th>
-        </tr></thead>
-        <tbody>${rows || '<tr><td colspan="4" class="p-2 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
-      </table>
-      ${sectionHeading('New key')}
-      ${card({
+      ${pageHeader('API keys', addPopover({
+        label: 'New key',
         action: `/admin/projects/${project.slug}/api-keys`,
         children: `
         ${field({ label: 'Name', name: 'name', required: true, placeholder: 'astro-build' })}
         ${button({ label: 'Create key' })}
       `,
-      })}
+      }))}
+      <p class="text-sm text-muted-foreground">Send as <code>Authorization: Bearer &lt;key&gt;</code>. Read-only access to published content at <code>/api/v1/${escapeHtml(project.slug)}/&lt;collection&gt;</code>.</p>
+      ${createdBlock}
+      ${tableCard(`<table class="w-full border-collapse">
+        <thead><tr class="border-b border-border">
+          <th class="p-3 text-left font-medium">Name</th>
+          <th class="p-3 text-left font-medium">Created</th>
+          <th class="p-3 text-left font-medium">Last used</th>
+          <th class="p-3"></th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="4" class="p-3 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
+      </table>`)}
     `,
   });
 }
