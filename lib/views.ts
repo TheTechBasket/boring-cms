@@ -77,9 +77,9 @@ const SELECT_CLASS =
   'flex h-9 w-full items-center border border-input bg-transparent px-3 py-1 text-sm shadow-xs ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer';
 
-function field({ label, name, type = 'text', required = false, value, placeholder, autofocus = false, minlength, autocomplete }: {
+function field({ label, name, type = 'text', required = false, value, placeholder, autofocus = false, minlength, autocomplete, help }: {
   label: string; name: string; type?: string; required?: boolean; value?: string;
-  placeholder?: string; autofocus?: boolean; minlength?: number; autocomplete?: string;
+  placeholder?: string; autofocus?: boolean; minlength?: number; autocomplete?: string; help?: string;
 }): string {
   const attrs = [
     `type="${type}"`,
@@ -95,6 +95,7 @@ function field({ label, name, type = 'text', required = false, value, placeholde
   return `<label class="flex flex-col gap-1.5 text-sm">
     <span class="font-medium text-foreground">${escapeHtml(label)}</span>
     <input ${attrs} class="${INPUT_CLASS}">
+    ${help ? `<span class="text-xs text-muted-foreground font-normal">${escapeHtml(help)}</span>` : ''}
   </label>`;
 }
 
@@ -616,7 +617,7 @@ export function globalSettingsPage({ user, projects, settingKeys, notice: pageNo
           ${field({ label: 'Name', name: 'name', required: true, placeholder: 'r2-main' })}
           ${field({ label: 'Endpoint', name: 'endpoint', required: true, placeholder: 'https://<account>.r2.cloudflarestorage.com' })}
           ${field({ label: 'Bucket', name: 'bucket', required: true })}
-          ${field({ label: 'Access key', name: 'key', required: true, autocomplete: 'off' })}
+          ${field({ label: 'Access key', name: 'key', required: true, autocomplete: 'off', help: 'Object-level read and write on this one bucket is enough. Never use an account or admin credential. R2: create an API token with the "Object Read & Write" permission scoped to the bucket. AWS/MinIO: a key limited to s3:GetObject, s3:PutObject, s3:DeleteObject and s3:ListBucket on the bucket.' })}
           ${field({ label: 'Secret key', name: 'secret', type: 'password', required: true, autocomplete: 'off' })}
           ${field({ label: 'Region', name: 'region', placeholder: 'auto' })}
           ${field({ label: 'Public URL (custom domain, used in content links)', name: 'public_url', placeholder: 'https://cdn.example.com' })}

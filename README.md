@@ -70,6 +70,13 @@ picks its own. The legacy per-project settings (`media_backend=s3`,
 `s3_public_url`) still work. All S3-compatible backends (R2, MinIO, S3)
 go through the same hand-rolled SigV4 client. Upload limit is 50 MB.
 
+Credential scope: object-level read and write on that one bucket is all
+the CMS needs, never an account or admin credential. On R2 create an
+API token with "Object Read & Write" scoped to the bucket; on AWS or
+MinIO limit the key to `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`
+and `s3:ListBucket` on the bucket (list powers Sync storage, delete
+powers media removal).
+
 Local files are served at `/media/<project>/<key>` with immutable
 caching; keys are content-hash prefixed. The project slug is permanent
 (rename only changes the display name), so these links never break. When
