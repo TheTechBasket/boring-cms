@@ -65,9 +65,25 @@ settings `media_backend=s3`, `s3_endpoint`, `s3_bucket`, `s3_key`,
 S3-compatible bucket (R2, MinIO, S3) via a hand-rolled SigV4 client.
 Files are served at `/media/<project>/<key>` with immutable caching;
 keys are content-hash prefixed. If `s3_public_url` is set, the serve
-route redirects there instead of proxying. Install `sharp` (optional)
-to pre-generate thumb (320px) and medium (1024px) variants at upload
-time; without it uploads still work. Upload limit is 50 MB.
+route redirects there instead of proxying. Upload limit is 50 MB.
+
+Variants are strictly opt-in: check "Create resized variants" on upload
+(needs the optional `sharp` install) to also store 320px and 1024px
+copies under `<key>_320.<ext>` / `<key>_1024.<ext>` suffixed keys. The
+project setting `media_variants` controls the checkbox default: `on`
+pre-checks it, `off` hides it. Nothing is resized unless asked.
+
+With the S3 backend, the browser uploads straight to the bucket via a
+presigned PUT (the server never proxies the bytes); the bucket needs a
+CORS rule allowing PUT from the admin origin. If direct upload fails
+the form falls back to the normal server-side upload. Grid previews use
+the free wsrv.nl image proxy when `s3_public_url` is set, so no local
+copies or variants are needed for thumbnails.
+
+Each image shows a "where used" count, a live scan of entry content
+for the key (no stored relationships). "Sync storage" reconciles the
+bucket against the library: files uploaded outside the CMS are adopted
+as rows, rows whose object is gone are reported as missing.
 
 ## Export and import
 

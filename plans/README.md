@@ -2,11 +2,10 @@
 
 ## Active
 
-- Stage 6: media v2. Variants opt-in only: never generated unless asked, per-upload checkbox and a per-project default; variant identifier is a key suffix (`<hash>-<stem>_320.ext` / `_thumb.ext`); per-project toggle to disable variants entirely. No local copies and no self-hosted resize proxy: previews and galleries go through wsrv.nl (`https://wsrv.nl/?url=<public url>&w=320`) when the file has a public URL, so resizing/format is on the fly with zero server work. With S3 configured, uploads go browser-to-bucket directly via presigned PUT (server signs, never proxies bytes). Image usage search: per-image "where used" scan of entry data for the key with a count and entry list, no stored relationship; same scan powers a simple gallery view of images alongside the content that references them. S3 sync: reconcile button lists bucket objects vs media table, adopts files uploaded outside the CMS as rows, flags rows whose object was deleted outside (remove or re-upload).
 - [Stage 7: MCP per project](stage-6-mcp.md) — Streamable HTTP MCP, scoped API keys, agent read/write tools.
 - [Stage 8: auth extras](stage-5-auth.md) — passkeys, Google OAuth from UI, Secure cookie/trust-proxy. Deprioritized: waits until the rest ships.
 
-Order: 6, 7; 8 last.
+Order: 7; 8 last.
 
 ## Backlog
 
@@ -26,6 +25,7 @@ Order: 6, 7; 8 last.
 
 ## Shipped history
 
+- 2026-09-06 Stage 6 media v2: opt-in variants (per-upload checkbox, `media_variants` project default, `_320`/`_1024` key suffixes, never generated unless asked); wsrv.nl proxy previews when `s3_public_url` set (no local copies); browser-to-bucket presigned PUT upload with SHA-256 hashing and server-side fallback; per-image "where used" LIKE scan with entry links (no stored relationships); Sync storage reconcile (adopt outside uploads, report missing objects); ListObjectsV2 + presign in the SigV4 client; smoke coverage; README section.
 - 2026-09-06 Stage 5 field constraints: full standard field options per field (required, help, placeholder, default, min/max/step, minlength/maxlength, pattern, accept) with an in-row editor, conventional limits as placeholders, blank clears; enforced server-side (400 rerender keeps input) and as native browser attributes; image field type with media picker; options travel in the schema export.
 - 2026-09-06 Stage 4 export/import: collection/project/schema JSON exports; JSON+CSV import with in-browser field mapping (map/create/skip), dry-run report, unique-field idempotent re-import, temp-file pending state; idempotent schema apply (create/update, deletions opt-in); Transfer page in the sidebar; smoke coverage; README section.
 - 2026-09-06 Stage 3 media: multipart parser (buffered, 50 MB), storage backend interface with local disk + hand-rolled S3 SigV4 (R2/MinIO/S3), content-hash keys, optional sharp variants (thumb 320 / medium 1024), media library UI with copy-markdown, public serve route with immutable caching or public-URL redirect, smoke coverage.

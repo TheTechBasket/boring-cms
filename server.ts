@@ -29,7 +29,7 @@ import {
 import { readMultipart } from './lib/multipart.ts';
 import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
-import { listMedia, createMedia, deleteMedia, findServableMedia } from './lib/media.ts';
+import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import {
@@ -417,8 +417,25 @@ export function createApp(configOverrides = {}) {
     return localBackend(path.join(config.dataDir, 'media', project.slug));
   }
 
+  function mediaCtx(ctx, db) {
+    const setting = (key) => getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: ctx.project.id, key });
+    const isS3 = setting('media_backend') === 's3';
+    const media = listMedia(db);
+    // Per-image "where used": a plain scan, no stored relationships.
+    const usage = Object.fromEntries(media.map((m) => [m.key, mediaUsage(db, m.key)]));
+    return {
+      ...ctx,
+      media,
+      usage,
+      publicBase: isS3 ? setting('s3_public_url') || null : null,
+      variantsMode: setting('media_variants') || '',
+      hasSharp,
+      directUpload: isS3,
+    };
+  }
+
   router.get('/admin/projects/:slug/media', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, mediaPage({ ...ctx, media: listMedia(db) }));
+    html(req, res, 200, mediaPage(mediaCtx(ctx, db)));
   }));
 
   router.post('/admin/projects/:slug/media', withProject(async (req, res, params, ctx, db) => {
@@ -426,14 +443,55 @@ export function createApp(configOverrides = {}) {
     try {
       upload = await readMultipart(req);
     } catch (err) {
-      return html(req, res, 400, mediaPage({ ...ctx, media: listMedia(db), notice: { type: 'error', message: err.message } }));
+      return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: err.message } }));
     }
     const file = upload.files.file;
     if (!file) {
-      return html(req, res, 400, mediaPage({ ...ctx, media: listMedia(db), notice: { type: 'error', message: 'Choose a file to upload.' } }));
+      return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: 'Choose a file to upload.' } }));
     }
-    await createMedia(db, mediaBackendFor(ctx.project), file);
+    await createMedia(db, mediaBackendFor(ctx.project), file, { withVariants: upload.fields.variants === '1' });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
+  }));
+
+  // Presigned browser-to-bucket upload: sign, let the browser PUT, then
+  // register the row. Bytes never pass through the server.
+  router.post('/admin/projects/:slug/media/presign', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const backend = mediaBackendFor(ctx.project);
+    if (!/^[0-9a-f]{64}$/.test(form.hash || '') || !form.filename) {
+      return json(req, res, 400, { error: 'hash (sha256 hex) and filename required' });
+    }
+    const { key } = mediaKeyFor(form.hash, form.filename);
+    const url = backend.presignPut(key, form.mime || 'application/octet-stream');
+    if (!url) return json(req, res, 400, { error: 'Direct upload needs the S3 backend.' });
+    json(req, res, 200, { url, key });
+  }));
+
+  router.post('/admin/projects/:slug/media/register', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    if (!/^[A-Za-z0-9._-]+$/.test(form.key || '') || !form.filename) {
+      return json(req, res, 400, { error: 'key and filename required' });
+    }
+    const media = registerMedia(db, {
+      filename: form.filename,
+      key: form.key,
+      mime: form.mime || 'application/octet-stream',
+      size: Number(form.size) || 0,
+      width: Number(form.width) || null,
+      height: Number(form.height) || null,
+    });
+    json(req, res, 200, { id: media.id, key: media.key });
+  }));
+
+  router.post('/admin/projects/:slug/media/sync', withProject(async (req, res, params, ctx, db) => {
+    let report;
+    try {
+      report = await syncMedia(db, mediaBackendFor(ctx.project));
+    } catch (err) {
+      return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: err.message } }));
+    }
+    const summary = `${report.adopted.length} adopted, ${report.missing.length} missing of ${report.total} objects.`;
+    html(req, res, 200, mediaPage({ ...mediaCtx(ctx, db), report, notice: { type: 'success', message: `Storage synced: ${summary}` } }));
   }));
 
   router.post('/admin/projects/:slug/media/:id/delete', withProject(async (req, res, params, ctx, db) => {

@@ -851,24 +851,43 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function mediaPage({ user, projects, project, media, notice: pageNotice }: any): string {
+// Preview URL: with a public base the wsrv.nl proxy resizes on the fly
+// (no local copies, no server work); otherwise a pre-generated variant or
+// the original served through the app.
+function mediaPreviewUrl(projectSlug: string, m: any, publicBase: string | null, width = 320): string {
+  if (publicBase) return `https://wsrv.nl/?url=${encodeURIComponent(`${publicBase.replace(/\/+$/, '')}/${m.key}`)}&w=${width}`;
+  const key = m.variants?.thumb || m.key;
+  return `/media/${projectSlug}/${key}`;
+}
+
+export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, notice: pageNotice, report }: any): string {
+  const base = `/admin/projects/${project.slug}`;
   const cards = media
     .map((m: any) => {
       const url = `/media/${project.slug}/${m.key}`;
-      const thumbUrl = m.variants.thumb ? `/media/${project.slug}/${m.variants.thumb}` : url;
       const isImage = m.mime.startsWith('image/');
       const snippet = isImage ? `![${m.filename}](${url})` : `[${m.filename}](${url})`;
       const preview = isImage
-        ? `<img src="${thumbUrl}" alt="${escapeHtml(m.filename)}" loading="lazy" class="h-36 w-full object-cover bg-muted">`
+        ? `<img src="${mediaPreviewUrl(project.slug, m, publicBase)}" alt="${escapeHtml(m.filename)}" loading="lazy" class="h-36 w-full object-cover bg-muted">`
         : `<div class="h-36 w-full bg-muted flex items-center justify-center text-xs font-medium uppercase tracking-wide text-muted-foreground">${escapeHtml(m.mime)}</div>`;
+      const used = usage[m.key] || [];
+      const usedBlock = used.length
+        ? `<details class="relative" data-popover>
+            <summary class="text-xs text-primary cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden hover:underline">Used in ${used.length} ${used.length === 1 ? 'entry' : 'entries'}</summary>
+            <div class="absolute left-0 top-full mt-1 z-10 w-64 border border-border bg-popover shadow-lg p-2 flex flex-col gap-1">
+              ${used.map((u: any) => `<a class="text-xs text-primary hover:underline truncate" href="${base}/collections/${u.collection}/${u.slug}">${escapeHtml(u.collectionName)}: ${u.slug.slice(0, 8)}…</a>`).join('')}
+            </div>
+          </details>`
+        : '<span class="text-xs text-muted-foreground">Unused</span>';
       return `<div class="border border-border bg-card shadow-xs flex flex-col">
         <a href="${url}" target="_blank" rel="noopener">${preview}</a>
         <div class="p-3 flex flex-col gap-2 text-sm">
           <span class="font-medium truncate" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
           <span class="text-xs text-muted-foreground">${formatSize(m.size)}${m.width ? ` · ${m.width}×${m.height}` : ''}</span>
+          ${usedBlock}
           <div class="flex items-center gap-2">
             <button type="button" data-copy="${escapeHtml(snippet)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy MD</button>
-            <form method="post" action="/admin/projects/${project.slug}/media/${m.id}/delete" data-confirm="delete-media">
+            <form method="post" action="${base}/media/${m.id}/delete" data-confirm="delete-media">
               ${button({ label: 'Delete', variant: 'ghost', small: true })}
             </form>
           </div>
@@ -877,6 +896,17 @@ export function mediaPage({ user, projects, project, media, notice: pageNotice }
     })
     .join('\n');
 
+  const variantCheckbox = hasSharp && variantsMode !== 'off'
+    ? `<label class="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="variants" value="1"${variantsMode === 'on' ? ' checked' : ''} class="size-4 accent-primary">
+        <span>Generate resized variants (_320, _1024)</span>
+      </label>`
+    : '';
+
+  const reportBlock = report
+    ? `<pre class="text-xs bg-muted p-3 overflow-x-auto m-0">${escapeHtml(JSON.stringify(report, null, 2))}</pre>`
+    : '';
+
   return layout({
     title: `Media · ${project.name}`,
     user,
@@ -884,19 +914,24 @@ export function mediaPage({ user, projects, project, media, notice: pageNotice }
     project,
     notice: pageNotice,
     body: `
-      ${pageHeader('Media', `<details class="relative" data-popover>
+      ${pageHeader('Media', `<div class="flex items-center gap-2">
+        <form method="post" action="${base}/media/sync" title="Adopt files uploaded outside the CMS; flag rows whose file is gone">${button({ label: 'Sync storage', variant: 'outline' })}</form>
+        <details class="relative" data-popover>
         <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} list-none select-none [&::-webkit-details-marker]:hidden">+ Upload</summary>
         <div class="absolute right-0 top-full mt-2 z-10 w-80 border border-border bg-popover text-popover-foreground shadow-lg p-5">
-          <form method="post" action="/admin/projects/${project.slug}/media" enctype="multipart/form-data" class="flex flex-col gap-4">
+          <form method="post" action="${base}/media" enctype="multipart/form-data" class="flex flex-col gap-4"${directUpload ? ` data-direct-upload="${base}/media"` : ''}>
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">File (50 MB max)</span>
               <input type="file" name="file" required class="text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer">
             </label>
+            ${variantCheckbox}
+            ${directUpload ? '<p class="text-xs text-muted-foreground m-0">Uploads go straight from the browser to the bucket (presigned). The bucket needs a CORS rule allowing PUT from this origin.</p>' : ''}
             ${button({ label: 'Upload' })}
           </form>
         </div>
-      </details>`)}
-      <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field. Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching.</p>
+      </details></div>`)}
+      <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field. Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching.${publicBase ? ' Previews are resized on the fly by wsrv.nl from the public bucket URL.' : ''}</p>
+      ${reportBlock}
       ${media.length
         ? `<div class="grid gap-4 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">${cards}</div>`
         : '<p class="text-sm text-muted-foreground italic">No media yet. Upload with the + button.</p>'}

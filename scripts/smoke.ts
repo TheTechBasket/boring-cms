@@ -253,6 +253,36 @@ async function main() {
   const servedGone = await fetch(`${base}/media/${slug}/${mediaKey}`);
   assert.equal(servedGone.status, 404, 'deleted media should 404');
 
+  // 11b. Media v2: usage scan + storage sync (local backend)
+  const usageUpload = await fetch(`${base}/admin/projects/${slug}/media`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: withCookie({ 'Content-Type': `multipart/form-data; boundary=${boundary}` }),
+    body: `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pic.txt"\r\nContent-Type: text/plain\r\n\r\nusage target\r\n--${boundary}--\r\n`,
+  });
+  assert.equal(usageUpload.status, 302, 'second media upload should redirect');
+  const usageKey = ((await (await req('GET', `/admin/projects/${slug}/media`)).text()).match(/\/media\/demo-project\/([a-z0-9-]+\.txt)/) || [])[1];
+  assert.ok(usageKey, 'uploaded usage file should be listed');
+
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`, {
+    form: { field_body: `![pic](/media/${slug}/${usageKey})`, field_cover: '' },
+  });
+  const usageHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(usageHtml.includes('Used in 1 entry'), 'usage scan should find the referencing entry');
+
+  const { writeFileSync: wf, unlinkSync: ul } = await import('node:fs');
+  const strayPath = path.join(dataDir, 'media', slug, 'deadbeef-stray.txt');
+  wf(strayPath, 'outside upload');
+  const syncRes = await req('POST', `/admin/projects/${slug}/media/sync`);
+  assert.equal(syncRes.status, 200, 'sync should render a report');
+  const syncHtml = await syncRes.text();
+  assert.ok(syncHtml.includes('deadbeef-stray.txt'), 'sync should adopt the outside file as a media row');
+  assert.ok(syncHtml.includes('1 adopted'), 'sync report should count the adoption');
+
+  ul(strayPath);
+  const sync2Html = await (await req('POST', `/admin/projects/${slug}/media/sync`)).text();
+  assert.ok(sync2Html.includes('1 missing') || sync2Html.includes('missing&quot;: [\n    &quot;deadbeef'), 'sync should flag the row whose file is gone');
+
   // 12. Transfer: schema export/apply, collection export, CSV import flow
   const schemaRes = await req('GET', `/admin/projects/${slug}/schema.json`);
   assert.equal(schemaRes.status, 200, 'schema export should be 200');
@@ -281,7 +311,7 @@ async function main() {
   assert.equal(exportRes.status, 200, 'collection export should be 200');
   const exported: any = await exportRes.json();
   assert.equal(exported.entries.length, 1, 'export should carry the entry');
-  assert.equal(exported.entries[0].data.body, '# First draft', 'export should carry field data');
+  assert.equal(exported.entries[0].data.body, `![pic](/media/${slug}/${usageKey})`, 'export should carry field data');
 
   // CSV import into pages, with a created field and a unique re-import.
   const csv = 'title,views\r\nHome,10\r\nAbout,twenty\r\n';

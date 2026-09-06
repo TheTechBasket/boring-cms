@@ -86,6 +86,46 @@ document.querySelectorAll('[data-field-list]').forEach((list) => {
   });
 });
 
+// Direct-to-bucket upload (S3 backend): hash the file, ask the server for a
+// presigned PUT, upload from the browser, then register the row. Any failure
+// falls back to the normal server-side upload.
+document.querySelectorAll('form[data-direct-upload]').forEach((form) => {
+  form.addEventListener('submit', async (event) => {
+    const input = form.querySelector('input[type="file"]');
+    const file = input && input.files[0];
+    if (!file || !window.crypto || !crypto.subtle) return; // plain submit
+    event.preventDefault();
+    const base = form.dataset.directUpload;
+    const post = (url, params) => fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params),
+    });
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const presign = await post(`${base}/presign`, { hash, filename: file.name, mime: file.type });
+      if (!presign.ok) throw new Error('presign failed');
+      const { url, key } = await presign.json();
+      const put = await fetch(url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      if (!put.ok) throw new Error(`bucket PUT ${put.status}`);
+      let width = '', height = '';
+      if (file.type.startsWith('image/')) {
+        try {
+          const bmp = await createImageBitmap(file);
+          width = bmp.width; height = bmp.height;
+        } catch {} // not decodable, dimensions stay unknown
+      }
+      const reg = await post(`${base}/register`, { key, filename: file.name, mime: file.type, size: file.size, width, height });
+      if (!reg.ok) throw new Error('register failed');
+      window.location.reload();
+    } catch (err) {
+      console.warn('direct upload failed, using server upload:', err);
+      form.submit();
+    }
+  });
+});
+
 // Field options editor: Edit button toggles the hidden editor panel in its row.
 document.addEventListener('click', (event) => {
   const btn = event.target.closest('[data-field-edit]');

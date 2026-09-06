@@ -5,7 +5,7 @@
 //   publicUrl(key) -> string | null (null = serve through the app)
 // Keys are generated server-side as <hash8>-<slug>.<ext>, one path segment.
 
-import { mkdirSync, createReadStream, existsSync } from 'node:fs';
+import { mkdirSync, createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, createHmac } from 'node:crypto';
@@ -30,6 +30,12 @@ export function localBackend(dir) {
     },
     publicUrl() {
       return null;
+    },
+    presignPut() {
+      return null; // local uploads go through the app
+    },
+    async list() {
+      return readdirSync(dir).map((f) => ({ key: f, size: statSync(path.join(dir, f)).size }));
     },
   };
 }
@@ -100,6 +106,70 @@ export function s3Backend({ endpoint, bucket, region = 'auto', accessKey, secret
     },
     publicUrl(key) {
       return publicUrl ? `${publicUrl.replace(/\/+$/, '')}/${key}` : null;
+    },
+    // Presigned PUT (query-string auth) so the browser uploads straight to
+    // the bucket; the server never proxies the bytes. Needs a CORS rule on
+    // the bucket allowing PUT from the admin origin.
+    presignPut(key, mime, expires = 900) {
+      const url = new URL(`${base}/${bucket}/${key}`);
+      const amzDate = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '');
+      const dateStamp = amzDate.slice(0, 8);
+      const scope = `${dateStamp}/${region}/s3/aws4_request`;
+      const params = new URLSearchParams({
+        'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+        'X-Amz-Credential': `${accessKey}/${scope}`,
+        'X-Amz-Date': amzDate,
+        'X-Amz-Expires': String(expires),
+        'X-Amz-SignedHeaders': 'host',
+      });
+      const canonicalQuery = [...params.entries()]
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+        .sort()
+        .join('&');
+      const canonicalRequest = ['PUT', url.pathname, canonicalQuery, `host:${url.host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+      const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256hex(canonicalRequest)].join('\n');
+      let k = hmac(`AWS4${secretKey}`, dateStamp);
+      for (const part of [region, 's3', 'aws4_request']) k = hmac(k, part);
+      params.set('X-Amz-Signature', hmac(k, stringToSign).toString('hex'));
+      return `${url.origin}${url.pathname}?${params.toString()}`;
+    },
+    // ListObjectsV2, XML picked apart with regex (keys are our own slugs,
+    // no entities to worry about).
+    async list() {
+      const keys: Array<{ key: string; size: number }> = [];
+      let token = '';
+      do {
+        const query = `list-type=2${token ? `&continuation-token=${encodeURIComponent(token)}` : ''}`;
+        const url = new URL(`${base}/${bucket}/?${query}`);
+        const amzDate = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '');
+        const dateStamp = amzDate.slice(0, 8);
+        const payloadHash = sha256hex('');
+        const headers = { host: url.host, 'x-amz-content-sha256': payloadHash, 'x-amz-date': amzDate };
+        const sorted = Object.entries(headers).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+        const signedHeaders = sorted.map(([k]) => k).join(';');
+        const canonicalQuery = url.search
+          .slice(1)
+          .split('&')
+          .map((p) => (p.includes('=') ? p : `${p}=`))
+          .sort()
+          .join('&');
+        const canonicalRequest = ['GET', url.pathname, canonicalQuery, sorted.map(([k, v]) => `${k}:${v}\n`).join(''), signedHeaders, payloadHash].join('\n');
+        const scope = `${dateStamp}/${region}/s3/aws4_request`;
+        const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256hex(canonicalRequest)].join('\n');
+        let k = hmac(`AWS4${secretKey}`, dateStamp);
+        for (const part of [region, 's3', 'aws4_request']) k = hmac(k, part);
+        const signature = hmac(k, stringToSign).toString('hex');
+        const res = await fetch(url, {
+          headers: { ...headers, Authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}` },
+        });
+        if (!res.ok) throw new Error(`S3 LIST failed: ${res.status} ${await res.text()}`);
+        const xml = await res.text();
+        for (const m of xml.matchAll(/<Contents>[\s\S]*?<Key>([^<]+)<\/Key>[\s\S]*?<Size>(\d+)<\/Size>[\s\S]*?<\/Contents>/g)) {
+          keys.push({ key: m[1], size: Number(m[2]) });
+        }
+        token = (xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/) || [])[1] || '';
+      } while (token);
+      return keys;
     },
   };
 }
