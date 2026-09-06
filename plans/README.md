@@ -2,7 +2,7 @@
 
 ## Active
 
-- [stage-1-core.md](stage-1-core.md): server, core.db, auth, project CRUD, encrypted settings, admin shell.
+(none)
 
 ## Backlog
 
@@ -20,4 +20,4 @@
 
 ## Shipped history
 
-(empty)
+- 2026-09-06 Stage 1 core: node:http server, node:sqlite (zero deps), scrypt auth, HMAC session cookies, AES-256-GCM settings, per-project DB manager, first-run setup, Server-Timing + slow-query log, smoke script. Note for stage 2: add Secure cookie flag / trust-proxy config.
