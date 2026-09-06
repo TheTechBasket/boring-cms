@@ -283,6 +283,50 @@ async function main() {
   const sync2Html = await (await req('POST', `/admin/projects/${slug}/media/sync`)).text();
   assert.ok(sync2Html.includes('1 missing') || sync2Html.includes('missing&quot;: [\n    &quot;deadbeef'), 'sync should flag the row whose file is gone');
 
+  // 11c. Stage 9: folders, JSON upload, storage registry, icon, MCP snippet
+  const jsonUpload = await fetch(`${base}/admin/projects/${slug}/media`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: withCookie({ 'Content-Type': `multipart/form-data; boundary=${boundary}` }),
+    body: `--${boundary}\r\nContent-Disposition: form-data; name="json"\r\n\r\n1\r\n--${boundary}\r\nContent-Disposition: form-data; name="folder"\r\n\r\nfeatured\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hero.txt"\r\nContent-Type: text/plain\r\n\r\nhero bytes\r\n--${boundary}--\r\n`,
+  });
+  assert.equal(jsonUpload.status, 200, 'json=1 upload should return 200 JSON');
+  const jsonUploadBody: any = await jsonUpload.json();
+  assert.ok(jsonUploadBody.url.startsWith(`/media/${slug}/`), 'json upload should return the serve URL');
+
+  let foldersHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(foldersHtml.includes('data-media-folder="featured"'), 'uploaded file should carry its folder');
+  assert.ok(foldersHtml.includes('data-media-search'), 'media page should have a search box');
+  assert.ok(foldersHtml.includes('data-media-folder-filter'), 'media page should have a folder filter');
+
+  const folderChange = await req('POST', `/admin/projects/${slug}/media/${jsonUploadBody.id}/folder`, { form: { folder: 'logos' } });
+  assert.equal(folderChange.status, 302, 'folder change should redirect');
+  foldersHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(foldersHtml.includes('data-media-folder="logos"'), 'folder change should persist');
+
+  const storageSave = await req('POST', '/admin/settings/storage', {
+    form: { name: 'R2 Main', endpoint: 'https://acc.r2.cloudflarestorage.com', bucket: 'assets', key: 'AK', secret: 'SK', public_url: 'https://cdn.example.com/' },
+  });
+  assert.equal(storageSave.status, 200, 'storage save should render success');
+  assert.ok((await storageSave.text()).includes('r2-main'), 'storage save should confirm the slugified name');
+  const projectPageHtml = await (await req('GET', `/admin/projects/${slug}`)).text();
+  assert.ok(projectPageHtml.includes('r2-main'), 'project page should offer the shared storage');
+
+  const pickStorage = await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'r2-main' } });
+  assert.equal(pickStorage.status, 302, 'storage select should redirect');
+  const s3MediaHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(s3MediaHtml.includes('https://cdn.example.com'), 'media snippets should use the storage public URL');
+  assert.ok(!s3MediaHtml.includes(`https://cdn.example.com/${slug}/`), 'public URLs must not embed the project slug');
+  await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'local' } }); // back to disk for the rest
+
+  const iconRes = await req('POST', `/admin/projects/${slug}/rename`, { form: { name: 'Demo Project', icon: '🚀' } });
+  assert.equal(iconRes.status, 302, 'rename with icon should redirect');
+  const listHtml = await (await req('GET', '/admin/projects')).text();
+  assert.ok(listHtml.includes('🚀'), 'projects list should show the icon');
+
+  const keysHtml = await (await req('GET', `/admin/projects/${slug}/api-keys`)).text();
+  assert.ok(keysHtml.includes(`${base}/mcp/${slug}`), 'MCP snippet should use the live request origin');
+
   // 12. Transfer: schema export/apply, collection export, CSV import flow
   const schemaRes = await req('GET', `/admin/projects/${slug}/schema.json`);
   assert.equal(schemaRes.status, 200, 'schema export should be 200');

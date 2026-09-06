@@ -53,7 +53,7 @@ export function mediaKeyFor(hashHex: string, filename: string) {
 
 // Variants are strictly opt-in (withVariants), identified by a width suffix
 // in the key: <hash>-<stem>_320.ext. Never generated unless asked.
-export async function createMedia(db, backend, { filename, mime, data }, { withVariants = false } = {}) {
+export async function createMedia(db, backend, { filename, mime, data }, { withVariants = false, folder = '' } = {}) {
   const hashHex = createHash('sha256').update(data).digest('hex');
   const { key, hash, stem, ext } = mediaKeyFor(hashHex, filename);
 
@@ -83,19 +83,27 @@ export async function createMedia(db, backend, { filename, mime, data }, { withV
     }
   }
 
-  db.prepare('INSERT INTO media (filename, key, mime, size, width, height, variants) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(filename, key, mime, data.length, width, height, JSON.stringify(variants));
+  db.prepare('INSERT INTO media (filename, key, mime, size, width, height, variants, folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(filename, key, mime, data.length, width, height, JSON.stringify(variants), folder || '');
   return getMediaByKey(db, key);
 }
 
 // Row for a file that already sits in the bucket (presigned browser upload
 // or adopted during sync). No bytes pass through the server.
-export function registerMedia(db, { filename, key, mime, size, width = null, height = null }) {
+export function registerMedia(db, { filename, key, mime, size, width = null, height = null, folder = '' }) {
   const existing = getMediaByKey(db, key);
   if (existing) return existing;
-  db.prepare('INSERT INTO media (filename, key, mime, size, width, height, variants) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(filename, key, mime, size, width, height, '{}');
+  db.prepare('INSERT INTO media (filename, key, mime, size, width, height, variants, folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(filename, key, mime, size, width, height, '{}', folder || '');
   return getMediaByKey(db, key);
+}
+
+export function setMediaFolder(db, id, folder) {
+  db.prepare('UPDATE media SET folder = ? WHERE id = ?').run(folder || '', id);
+}
+
+export function listMediaFolders(db) {
+  return db.prepare("SELECT DISTINCT folder FROM media WHERE folder != '' ORDER BY folder").all().map((r) => r.folder);
 }
 
 const EXT_MIME: Record<string, string> = {

@@ -226,19 +226,19 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 const SIDEBAR_LINK = 'flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
 
 function sidebar({ user, projects, project }: {
-  user: { email: string }; projects: { slug: string; name: string }[]; project: { slug: string; name: string } | null;
+  user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
 }): string {
   const options = [
     `<option value="">Projects overview</option>`,
     ...projects.map(
       (p) =>
-        `<option value="${escapeHtml(p.slug)}"${project && p.slug === project.slug ? ' selected' : ''}>${escapeHtml(p.name)}</option>`,
+        `<option value="${escapeHtml(p.slug)}"${project && p.slug === project.slug ? ' selected' : ''}>${p.icon && !/^(https?:)?\//.test(p.icon) ? `${escapeHtml(p.icon)} ` : ''}${escapeHtml(p.name)}</option>`,
     ),
   ].join('');
 
   const projectNav = project
     ? `<div class="flex flex-col gap-0.5 mt-4">
-        <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">${escapeHtml(project.name)}</span>
+        <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-2">${projectAvatar(project, 'size-5 text-[10px]')}${escapeHtml(project.name)}</span>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}Content</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}Media</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
@@ -382,11 +382,27 @@ export function accountPage({ user, projects, credentials = [], notice: pageNoti
 
 // ---- Projects -------------------------------------------------------------
 
+// Identifiable per-project mark: uploaded logo URL > emoji > auto initials
+// avatar with a hue derived from the slug (stable, no config needed).
+export function projectAvatar(p: any, size = 'size-7 text-xs'): string {
+  const icon = (p.icon || '').trim();
+  if (/^(https?:)?\//.test(icon)) {
+    return `<img src="${escapeHtml(icon)}" alt="" class="${size} rounded-md object-cover shrink-0">`;
+  }
+  if (icon) {
+    return `<span class="${size} rounded-md flex items-center justify-center shrink-0 text-base">${escapeHtml(icon)}</span>`;
+  }
+  let hash = 0;
+  for (const c of p.slug) hash = (hash * 31 + c.charCodeAt(0)) % 360;
+  const initials = p.name.split(/\s+/).slice(0, 2).map((w: string) => w[0]).join('').toUpperCase();
+  return `<span class="${size} rounded-md flex items-center justify-center shrink-0 font-semibold text-white" style="background: hsl(${hash} 55% 45%)">${escapeHtml(initials)}</span>`;
+}
+
 export function projectListPage({ user, projects, notice: pageNotice }: any): string {
   const rows = projects
     .map(
       (p: any) => `<tr class="border-b border-border">
-        <td class="p-3 text-left"><a class="text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${encodeURIComponent(p.slug)}/collections">${escapeHtml(p.name)}</a></td>
+        <td class="p-3 text-left"><a class="flex items-center gap-2 text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${encodeURIComponent(p.slug)}/collections">${projectAvatar(p)}${escapeHtml(p.name)}</a></td>
         <td class="p-3 text-left"><code class="text-sm text-muted-foreground">${escapeHtml(p.slug)}</code></td>
         <td class="p-3 text-left @max-lg:hidden text-sm text-muted-foreground">${timeAgo(p.created_at)}</td>
         <td class="p-3 text-right">
@@ -419,7 +435,7 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
   });
 }
 
-export function projectDetailPage({ user, projects, project, settingKeys, notice: pageNotice }: any): string {
+export function projectDetailPage({ user, projects, project, settingKeys, storages = [], mediaStorage = '', notice: pageNotice }: any): string {
   const keys = settingKeys
     .map((s: any) => `<li class="py-1.5 border-b border-border"><code class="text-sm">${escapeHtml(s.key)}</code> <span class="text-muted-foreground text-sm">(updated ${timeAgo(s.updated_at)})</span></li>`)
     .join('\n');
@@ -442,7 +458,26 @@ export function projectDetailPage({ user, projects, project, settingKeys, notice
             extraClass: '',
             children: `
             ${field({ label: 'Name', name: 'name', value: project.name, required: true })}
-            ${button({ label: 'Rename' })}
+            ${field({ label: 'Icon (an emoji, or paste an image URL from Media)', name: 'icon', value: project.icon || '', placeholder: '🚀 or /media/...' })}
+            ${button({ label: 'Save' })}
+          `,
+          })}
+
+          ${sectionHeading('Media storage')}
+          <p class="text-sm text-muted-foreground">Where this project's uploads go. Shared storages are configured once in Global settings and reusable by every project.</p>
+          ${card({
+            action: `/admin/projects/${encodeURIComponent(project.slug)}/storage`,
+            extraClass: '',
+            children: `
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">Storage</span>
+              <select name="storage" class="${SELECT_CLASS}">
+                <option value="local"${!mediaStorage || mediaStorage === 'local' ? ' selected' : ''}>Local disk (default)</option>
+                ${storages.map((s: string) => `<option value="${escapeHtml(s)}"${mediaStorage === s ? ' selected' : ''}>${escapeHtml(s)} (shared S3)</option>`).join('')}
+              </select>
+            </label>
+            ${storages.length ? '' : '<p class="text-xs text-muted-foreground m-0">No shared storages yet. Add one under Global settings.</p>'}
+            ${button({ label: 'Use this storage' })}
           `,
           })}
 
@@ -493,14 +528,33 @@ export function globalSettingsPage({ user, projects, settingKeys, notice: pageNo
       <h1 class="text-2xl font-semibold">Global settings</h1>
       <p class="text-sm text-muted-foreground">Values are write-only. Once set, only the key name and last-updated time are shown here, never the value.</p>
       <ul class="list-none p-0 max-w-2xl">${keys || '<li class="py-1.5 text-muted-foreground italic">No settings set.</li>'}</ul>
-      ${card({
-        action: '/admin/settings',
-        children: `
-        ${field({ label: 'Key', name: 'key', required: true })}
-        ${field({ label: 'Value', name: 'value', type: 'password', required: true, autocomplete: 'off' })}
-        ${button({ label: 'Save setting' })}
-      `,
-      })}
+      <div class="grid gap-6 @3xl:grid-cols-2 items-start">
+        ${card({
+          action: '/admin/settings',
+          extraClass: '',
+          children: `
+          ${field({ label: 'Key', name: 'key', required: true })}
+          ${field({ label: 'Value', name: 'value', type: 'password', required: true, autocomplete: 'off' })}
+          ${button({ label: 'Save setting' })}
+        `,
+        })}
+        ${card({
+          action: '/admin/settings/storage',
+          extraClass: '',
+          children: `
+          <h2 class="text-sm font-semibold m-0">Add shared S3 storage</h2>
+          <p class="text-xs text-muted-foreground m-0">Configure a bucket (R2, MinIO, S3) once; any project can then select it as its media storage. Saved encrypted as <code>storage_&lt;name&gt;</code>.</p>
+          ${field({ label: 'Name', name: 'name', required: true, placeholder: 'r2-main' })}
+          ${field({ label: 'Endpoint', name: 'endpoint', required: true, placeholder: 'https://<account>.r2.cloudflarestorage.com' })}
+          ${field({ label: 'Bucket', name: 'bucket', required: true })}
+          ${field({ label: 'Access key', name: 'key', required: true, autocomplete: 'off' })}
+          ${field({ label: 'Secret key', name: 'secret', type: 'password', required: true, autocomplete: 'off' })}
+          ${field({ label: 'Region', name: 'region', placeholder: 'auto' })}
+          ${field({ label: 'Public URL (custom domain, used in content links)', name: 'public_url', placeholder: 'https://cdn.example.com' })}
+          ${button({ label: 'Save storage' })}
+        `,
+        })}
+      </div>
     `,
   });
 }
@@ -694,7 +748,13 @@ function statusBadge(status: string): string {
 
 // ---- Entry editor ---------------------------------------------------------
 
-function fieldInput(f: any, value: unknown, { media = [], projectSlug = '' }: any = {}): string {
+// Content-facing media URL: the storage's custom domain when set, the app
+// serve route otherwise. Never couples S3 URLs to the project slug.
+function mediaUrl(projectSlug: string, key: string, publicBase: string | null = null): string {
+  return publicBase ? `${publicBase.replace(/\/+$/, '')}/${key}` : `/media/${projectSlug}/${key}`;
+}
+
+function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publicBase = null }: any = {}): string {
   // New entries prefill the field default; existing values win.
   const v = value ?? f.default ?? '';
   const help = f.help ? `<span class="text-xs text-muted-foreground">${escapeHtml(f.help)}</span>` : '';
@@ -740,9 +800,9 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '' }: an
       const images = media.filter((m: any) => m.mime?.startsWith('image/'));
       const pickerCards = images
         .map((m: any) => {
-          const url = `/media/${projectSlug}/${m.key}`;
-          const thumb = m.variants?.thumb ? `/media/${projectSlug}/${m.variants.thumb}` : url;
-          return `<button type="button" data-image-set="${escapeHtml(url)}" class="border border-border bg-card p-0 cursor-pointer hover:border-primary" title="${escapeHtml(m.filename)}">
+          const url = mediaUrl(projectSlug, m.key, publicBase);
+          const thumb = m.variants?.thumb ? mediaUrl(projectSlug, m.variants.thumb, publicBase) : url;
+          return `<button type="button" data-image-set="${escapeHtml(url)}" data-media-name="${escapeHtml(`${m.filename} ${m.folder || ''}`.toLowerCase())}" class="border border-border bg-card p-0 cursor-pointer hover:border-primary" title="${escapeHtml(m.filename)}">
             <img src="${thumb}" alt="${escapeHtml(m.filename)}" loading="lazy" class="h-20 w-full object-cover">
           </button>`;
         })
@@ -753,8 +813,12 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '' }: an
           <input type="text" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
           <details class="relative shrink-0" data-popover>
             <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} list-none select-none [&::-webkit-details-marker]:hidden">Browse</summary>
-            <div class="absolute right-0 top-full mt-2 z-10 w-96 max-h-80 overflow-y-auto border border-border bg-popover shadow-lg p-3">
+            <div class="absolute right-0 top-full mt-2 z-10 w-96 max-h-80 overflow-y-auto border border-border bg-popover shadow-lg p-3 flex flex-col gap-2">
+              <input type="search" placeholder="Search images" data-media-search class="${INPUT_CLASS}">
               ${images.length ? `<div class="grid grid-cols-3 gap-2">${pickerCards}</div>` : '<p class="text-xs text-muted-foreground m-0">No images in the media library yet.</p>'}
+              <label class="text-xs text-muted-foreground cursor-pointer border-t border-border pt-2">Or upload a new image:
+                <input type="file" accept="image/*" data-image-upload="/admin/projects/${escapeHtml(projectSlug)}/media" class="block mt-1 text-xs">
+              </label>
             </div>
           </details>
         </div>
@@ -783,7 +847,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '' }: an
   }
 }
 
-export function entryEditorPage({ user, projects, project, collection, entry, revisions = [], media = [], draft, notice: pageNotice }: any): string {
+export function entryEditorPage({ user, projects, project, collection, entry, revisions = [], media = [], publicBase = null, draft, notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
   const isNew = !entry;
   const action = isNew ? `${base}/new` : `${base}/${entry.slug}`;
@@ -792,7 +856,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   const blank = isNew && !draft;
 
   const fieldInputs = collection.fields
-    .map((f: any) => fieldInput(f, blank ? undefined : data[f.name] ?? '', { media, projectSlug: project.slug }))
+    .map((f: any) => fieldInput(f, blank ? undefined : data[f.name] ?? '', { media, projectSlug: project.slug, publicBase }))
     .join('\n');
 
   const revisionRows = revisions
@@ -851,7 +915,19 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
 
 // ---- API keys -------------------------------------------------------------
 
-export function apiKeysPage({ user, projects, project, keys, createdKey, notice: pageNotice }: any): string {
+function mcpConfig(origin: string, slug: string, key: string): string {
+  return JSON.stringify({
+    mcpServers: {
+      [slug]: {
+        type: 'http',
+        url: `${origin}/mcp/${slug}`,
+        headers: { Authorization: `Bearer ${key}` },
+      },
+    },
+  }, null, 2);
+}
+
+export function apiKeysPage({ user, projects, project, keys, createdKey, origin = '', notice: pageNotice }: any): string {
   const rows = keys
     .map(
       (k: any) => `<tr class="border-b border-border">
@@ -868,10 +944,14 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, notice:
     )
     .join('\n');
 
+  const createdConfig = createdKey ? mcpConfig(origin, project.slug, createdKey) : '';
   const createdBlock = createdKey
     ? `<div class="rounded-lg border border-emerald-600/30 bg-emerald-50 dark:bg-emerald-950/40 p-4 flex flex-col gap-2">
         <p class="text-sm font-medium text-emerald-700 dark:text-emerald-400">Key created. Copy it now, it will not be shown again.</p>
         <code class="text-sm break-all select-all">${escapeHtml(createdKey)}</code>
+        <p class="text-sm text-emerald-700 dark:text-emerald-400 m-0">Ready-to-paste <code>.mcp.json</code> with this key:</p>
+        <pre class="text-xs bg-muted rounded-md p-3 overflow-x-auto m-0"><code>${escapeHtml(createdConfig)}</code></pre>
+        <div><button type="button" data-copy="${escapeHtml(createdConfig)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy config</button></div>
       </div>`
     : '';
 
@@ -905,16 +985,8 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, notice:
       </table>`)}
       <div class="${CARD_CLASS} p-4 flex flex-col gap-2">
         <h2 class="text-sm font-semibold">MCP endpoint</h2>
-        <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>/mcp/${escapeHtml(project.slug)}</code>. Claude Code <code>.mcp.json</code>:</p>
-        <pre class="text-xs bg-muted rounded-md p-3 overflow-x-auto"><code>{
-  "mcpServers": {
-    "${escapeHtml(project.slug)}": {
-      "type": "http",
-      "url": "https://&lt;your-host&gt;/mcp/${escapeHtml(project.slug)}",
-      "headers": { "Authorization": "Bearer &lt;key&gt;" }
-    }
-  }
-}</code></pre>
+        <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code>. Claude Code <code>.mcp.json</code> (create a key above to get one with the key filled in):</p>
+        <pre class="text-xs bg-muted rounded-md p-3 overflow-x-auto"><code>${escapeHtml(mcpConfig(origin, project.slug, 'yn_<key>'))}</code></pre>
       </div>
     `,
   });
@@ -937,11 +1009,14 @@ function mediaPreviewUrl(projectSlug: string, m: any, publicBase: string | null,
   return `/media/${projectSlug}/${key}`;
 }
 
-export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, notice: pageNotice, report }: any): string {
+export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], notice: pageNotice, report }: any): string {
   const base = `/admin/projects/${project.slug}`;
+  const folderDatalist = folders.length
+    ? `<datalist id="media-folders">${folders.map((f: string) => `<option value="${escapeHtml(f)}">`).join('')}</datalist>`
+    : '';
   const cards = media
     .map((m: any) => {
-      const url = `/media/${project.slug}/${m.key}`;
+      const url = mediaUrl(project.slug, m.key, publicBase);
       const isImage = m.mime.startsWith('image/');
       const snippet = isImage ? `![${m.filename}](${url})` : `[${m.filename}](${url})`;
       const preview = isImage
@@ -956,11 +1031,15 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
             </div>
           </details>`
         : '<span class="text-xs text-muted-foreground">Unused</span>';
-      return `<div class="border border-border bg-card shadow-xs flex flex-col">
+      return `<div class="border border-border bg-card shadow-xs flex flex-col" data-media-item data-media-name="${escapeHtml(`${m.filename} ${m.folder || ''}`.toLowerCase())}" data-media-folder="${escapeHtml(m.folder || '')}">
         <a href="${url}" target="_blank" rel="noopener">${preview}</a>
         <div class="p-3 flex flex-col gap-2 text-sm">
           <span class="font-medium truncate" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
           <span class="text-xs text-muted-foreground">${formatSize(m.size)}${m.width ? ` · ${m.width}×${m.height}` : ''}</span>
+          <form method="post" action="${base}/media/${m.id}/folder" class="flex items-center gap-1">
+            <input name="folder" value="${escapeHtml(m.folder || '')}" list="media-folders" placeholder="No group" class="${INPUT_CLASS} h-7 text-xs" title="Group this file (featured, logos, temp...)">
+            ${button({ label: 'Set', variant: 'ghost', small: true })}
+          </form>
           ${usedBlock}
           <div class="flex items-center gap-2">
             <button type="button" data-copy="${escapeHtml(snippet)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy MD</button>
@@ -1001,16 +1080,29 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
               <span class="font-medium text-foreground">File (50 MB max)</span>
               <input type="file" name="file" required class="text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer">
             </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">Group (optional)</span>
+              <input name="folder" list="media-folders" placeholder="featured, logos, temp..." class="${INPUT_CLASS}">
+            </label>
             ${variantCheckbox}
             ${directUpload ? '<p class="text-xs text-muted-foreground m-0">Uploads go straight from the browser to the bucket (presigned). The bucket needs a CORS rule allowing PUT from this origin.</p>' : ''}
             ${button({ label: 'Upload' })}
           </form>
         </div>
       </details></div>`)}
-      <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field. Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching.${publicBase ? ' Previews are resized on the fly by wsrv.nl from the public bucket URL.' : ''}</p>
+      <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field.${publicBase ? ` Links use the storage domain <code>${escapeHtml(publicBase)}</code> directly, so they never depend on this CMS or the project slug. Previews are resized on the fly by wsrv.nl.` : ` Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching. The slug never changes (rename only changes the display name), so links stay stable.`}</p>
+      ${folderDatalist}
       ${reportBlock}
       ${media.length
-        ? `<div class="grid gap-4 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">${cards}</div>`
+        ? `<div class="flex items-center gap-2 max-w-md">
+            <input type="search" placeholder="Search by name or group" data-media-search class="${INPUT_CLASS}">
+            <select data-media-folder-filter class="${SELECT_CLASS} w-auto" title="Filter by group">
+              <option value="">All groups</option>
+              <option value="__none__">Ungrouped</option>
+              ${folders.map((f: string) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="grid gap-4 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">${cards}</div>`
         : '<p class="text-sm text-muted-foreground italic">No media yet. Upload with the + button.</p>'}
     `,
   });
@@ -1062,7 +1154,7 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
         </div>
         <div class="${CARD_CLASS} @3xl:col-span-2">
           <span class="text-sm font-medium">Apply schema</span>
-          <p class="text-xs text-muted-foreground m-0">Paste a schema JSON (the shape of the schema export). Missing collections are created, changed ones updated, nothing is deleted unless the checkbox is on. Safe to re-apply.</p>
+          <p class="text-xs text-muted-foreground m-0">Round trip: <a class="text-primary hover:underline" href="${base}/schema.json" download>export this project's schema</a>, keep it in your site repo as the source of truth, paste it back here to sync. Missing collections are created, changed ones updated, nothing is deleted unless the checkbox is on. Safe to re-apply.</p>
           <form method="post" action="${base}/schema/apply" class="flex flex-col gap-4">
             <textarea name="schema" rows="10" required spellcheck="false" placeholder='{ "collections": [ { "name": "Posts", "slug": "posts", "fields": [ { "name": "title", "label": "Title", "type": "text" } ] } ] }' class="${TEXTAREA_CLASS}"></textarea>
             <label class="flex items-center gap-2 text-sm">

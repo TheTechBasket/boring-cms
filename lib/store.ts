@@ -112,8 +112,8 @@ export function createProject(db, { slug, name }) {
   return getProjectById(db, info.lastInsertRowid);
 }
 
-export function renameProject(db, slug, name) {
-  db.prepare("UPDATE projects SET name = ?, updated_at = datetime('now') WHERE slug = ?").run(name, slug);
+export function renameProject(db, slug, name, icon = null) {
+  db.prepare("UPDATE projects SET name = ?, icon = COALESCE(?, icon), updated_at = datetime('now') WHERE slug = ?").run(name, icon, slug);
 }
 
 export function deleteProjectRow(db, slug) {

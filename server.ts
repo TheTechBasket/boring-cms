@@ -36,7 +36,7 @@ import { verifyRegistration, verifyAssertion, b64url } from './lib/webauthn.ts';
 import { readMultipart } from './lib/multipart.ts';
 import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
-import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp } from './lib/media.ts';
+import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp, setMediaFolder, listMediaFolders } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import { handleMcp, rateLimitOk } from './lib/mcp.ts';
@@ -484,7 +484,22 @@ export function createApp(configOverrides = {}) {
       const project = getProjectBySlug(coreDb, params.slug);
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id });
-      html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys }));
+      const mediaStorage = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage' }) || '';
+      html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys, storages: listStorages(), mediaStorage }));
+    }),
+  );
+
+  // Pick which shared storage this project uploads to. 'local' (or blank)
+  // means the project's own disk folder / legacy s3_* settings.
+  router.post(
+    '/admin/projects/:slug/storage',
+    requireAdmin(async (req, res, params) => {
+      const project = getProjectBySlug(coreDb, params.slug);
+      if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
+      const form = await readFormBody(req);
+      const choice = (form.storage || 'local').trim();
+      setSetting(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage', value: choice });
+      redirect(req, res, `/admin/projects/${project.slug}`);
     }),
   );
 
@@ -495,7 +510,7 @@ export function createApp(configOverrides = {}) {
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const form = await readFormBody(req);
       const name = (form.name || '').trim();
-      if (name) renameProject(coreDb, project.slug, name);
+      if (name) renameProject(coreDb, project.slug, name, form.icon !== undefined ? form.icon.trim() : null);
       redirect(req, res, `/admin/projects/${project.slug}`);
     }),
   );
@@ -562,6 +577,31 @@ export function createApp(configOverrides = {}) {
     }),
   );
 
+  // Add a shared storage from named fields; stored as one encrypted global
+  // setting storage_<name> holding the JSON blob.
+  router.post(
+    '/admin/settings/storage',
+    requireAdmin(async (req, res, params, user) => {
+      const form = await readFormBody(req);
+      const name = slugify((form.name || '').trim());
+      const render = (notice) =>
+        html(req, res, notice.type === 'error' ? 400 : 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: listSettingKeys(coreDb, { scope: 'global' }), notice }));
+      if (!name || !form.endpoint || !form.bucket || !form.key || !form.secret) {
+        return render({ type: 'error', message: 'Name, endpoint, bucket, access key and secret are required.' });
+      }
+      const blob = {
+        endpoint: form.endpoint.trim(),
+        bucket: form.bucket.trim(),
+        key: form.key.trim(),
+        secret: form.secret,
+        region: (form.region || '').trim() || 'auto',
+        public_url: (form.public_url || '').trim(),
+      };
+      setSetting(coreDb, config.masterKey, { scope: 'global', key: `storage_${name}`, value: JSON.stringify(blob) });
+      render({ type: 'success', message: `Storage "${name}" saved. Select it on any project page.` });
+    }),
+  );
+
   // ---- Content (collections, entries, revisions) -------------------------
 
   // Wraps requireAdmin and resolves the project + its DB from :slug.
@@ -613,26 +653,69 @@ export function createApp(configOverrides = {}) {
 
   // ---- Media --------------------------------------------------------------
 
-  // Backend chosen per project from encrypted settings; local disk default.
-  function mediaBackendFor(project) {
+  // Storage registry: global settings named storage_<name> hold a JSON blob
+  // (endpoint, bucket, key, secret, region, public_url). Configure once,
+  // any project can select one via its media_storage setting.
+  function listStorages() {
+    return listSettingKeys(coreDb, { scope: 'global' })
+      .map((s) => s.key)
+      .filter((k) => k.startsWith('storage_'))
+      .map((k) => k.slice('storage_'.length));
+  }
+
+  function getStorage(name) {
+    const raw = getSettingValue(coreDb, config.masterKey, { scope: 'global', key: `storage_${name}` });
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  }
+
+  // Backend per project: a shared global storage if selected, else the
+  // legacy per-project s3_* settings, else local disk.
+  function mediaConfigFor(project) {
     const setting = (key) =>
       getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key });
-    if (setting('media_backend') === 's3') {
-      return s3Backend({
-        endpoint: setting('s3_endpoint'),
-        bucket: setting('s3_bucket'),
-        region: setting('s3_region') || 'auto',
-        accessKey: setting('s3_key'),
-        secretKey: setting('s3_secret'),
-        publicUrl: setting('s3_public_url'),
-      });
+    const storageName = setting('media_storage');
+    const shared = storageName && storageName !== 'local' ? getStorage(storageName) : null;
+    if (shared) {
+      const publicUrl = (shared.public_url || '').replace(/\/+$/, '') || null;
+      return {
+        backend: s3Backend({
+          endpoint: shared.endpoint,
+          bucket: shared.bucket,
+          region: shared.region || 'auto',
+          accessKey: shared.key,
+          secretKey: shared.secret,
+          publicUrl,
+        }),
+        publicBase: publicUrl,
+        isS3: true,
+      };
     }
-    return localBackend(path.join(config.dataDir, 'media', project.slug));
+    if (setting('media_backend') === 's3') {
+      const publicUrl = (setting('s3_public_url') || '').replace(/\/+$/, '') || null;
+      return {
+        backend: s3Backend({
+          endpoint: setting('s3_endpoint'),
+          bucket: setting('s3_bucket'),
+          region: setting('s3_region') || 'auto',
+          accessKey: setting('s3_key'),
+          secretKey: setting('s3_secret'),
+          publicUrl,
+        }),
+        publicBase: publicUrl,
+        isS3: true,
+      };
+    }
+    return { backend: localBackend(path.join(config.dataDir, 'media', project.slug)), publicBase: null, isS3: false };
+  }
+
+  function mediaBackendFor(project) {
+    return mediaConfigFor(project).backend;
   }
 
   function mediaCtx(ctx, db) {
     const setting = (key) => getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: ctx.project.id, key });
-    const isS3 = setting('media_backend') === 's3';
+    const { publicBase, isS3 } = mediaConfigFor(ctx.project);
     const media = listMedia(db);
     // Per-image "where used": a plain scan, no stored relationships.
     const usage = Object.fromEntries(media.map((m) => [m.key, mediaUsage(db, m.key)]));
@@ -640,7 +723,8 @@ export function createApp(configOverrides = {}) {
       ...ctx,
       media,
       usage,
-      publicBase: isS3 ? setting('s3_public_url') || null : null,
+      folders: listMediaFolders(db),
+      publicBase,
       variantsMode: setting('media_variants') || '',
       hasSharp,
       directUpload: isS3,
@@ -659,10 +743,27 @@ export function createApp(configOverrides = {}) {
       return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: err.message } }));
     }
     const file = upload.files.file;
+    const wantsJson = upload.fields.json === '1';
     if (!file) {
+      if (wantsJson) return json(req, res, 400, { error: 'Choose a file to upload.' });
       return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: 'Choose a file to upload.' } }));
     }
-    await createMedia(db, mediaBackendFor(ctx.project), file, { withVariants: upload.fields.variants === '1' });
+    const media = await createMedia(db, mediaBackendFor(ctx.project), file, {
+      withVariants: upload.fields.variants === '1',
+      folder: (upload.fields.folder || '').trim(),
+    });
+    // json=1: the entry editor uploads from the image picker via fetch and
+    // needs the public URL back instead of a redirect.
+    if (wantsJson) {
+      const { publicBase } = mediaConfigFor(ctx.project);
+      return json(req, res, 200, { id: media.id, key: media.key, url: publicBase ? `${publicBase}/${media.key}` : `/media/${ctx.project.slug}/${media.key}` });
+    }
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
+  }));
+
+  router.post('/admin/projects/:slug/media/:id/folder', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    setMediaFolder(db, Number(params.id), (form.folder || '').trim());
     redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
   }));
 
@@ -692,6 +793,7 @@ export function createApp(configOverrides = {}) {
       size: Number(form.size) || 0,
       width: Number(form.width) || null,
       height: Number(form.height) || null,
+      folder: (form.folder || '').trim(),
     });
     json(req, res, 200, { id: media.id, key: media.key });
   }));
@@ -880,7 +982,7 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/collections/:cslug/new', withCollection((req, res, params, ctx, db) => {
-    html(req, res, 200, entryEditorPage({ ...ctx, entry: null, media: listMedia(db) }));
+    html(req, res, 200, entryEditorPage({ ...ctx, entry: null, media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/new', withCollection(async (req, res, params, ctx, db) => {
@@ -888,7 +990,7 @@ export function createApp(configOverrides = {}) {
     const data = collectFieldValues(ctx.collection, form);
     const errors = validateEntryData(ctx.collection, data);
     if (errors.length) {
-      return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, media: listMedia(db), notice: { type: 'error', message: errors.join(' ') } }));
+      return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase, notice: { type: 'error', message: errors.join(' ') } }));
     }
     const entry = createEntry(db, ctx.collection, { data });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${entry.slug}`);
@@ -903,7 +1005,7 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/collections/:cslug/:eslug', withEntry((req, res, params, ctx, db) => {
-    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db) }));
+    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/:eslug', withEntry(async (req, res, params, ctx, db) => {
@@ -911,7 +1013,7 @@ export function createApp(configOverrides = {}) {
     const data = collectFieldValues(ctx.collection, form);
     const errors = validateEntryData(ctx.collection, data);
     if (errors.length) {
-      return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db), notice: { type: 'error', message: errors.join(' ') } }));
+      return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase, notice: { type: 'error', message: errors.join(' ') } }));
     }
     updateEntry(db, ctx.entry, { data });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
@@ -947,7 +1049,7 @@ export function createApp(configOverrides = {}) {
   // ---- API keys -----------------------------------------------------------
 
   router.get('/admin/projects/:slug/api-keys', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db) }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), origin: requestOrigin(req).origin }));
   }));
 
   router.post('/admin/projects/:slug/api-keys', withProject(async (req, res, params, ctx, db) => {
@@ -955,7 +1057,7 @@ export function createApp(configOverrides = {}) {
     const name = (form.name || '').trim();
     if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
     const createdKey = createApiKey(db, name, form.scope);
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, origin: requestOrigin(req).origin }));
   }));
 
   router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {

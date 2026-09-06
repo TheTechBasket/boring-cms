@@ -59,13 +59,28 @@ Responses carry an `ETag` tied to the project's content version; send
 ## Media
 
 Each project has a media library (sidebar: Media). Files upload to local
-disk (`data/media/<project>/`) by default; set the encrypted project
-settings `media_backend=s3`, `s3_endpoint`, `s3_bucket`, `s3_key`,
-`s3_secret` (optionally `s3_region`, `s3_public_url`) to store in any
-S3-compatible bucket (R2, MinIO, S3) via a hand-rolled SigV4 client.
-Files are served at `/media/<project>/<key>` with immutable caching;
-keys are content-hash prefixed. If `s3_public_url` is set, the serve
-route redirects there instead of proxying. Upload limit is 50 MB.
+disk (`data/media/<project>/`) by default. For buckets, add a shared
+storage once under Global settings (endpoint, bucket, keys, region,
+public URL; stored encrypted as `storage_<name>`), then select it on any
+project's settings page. Multiple storages can coexist and each project
+picks its own. The legacy per-project settings (`media_backend=s3`,
+`s3_endpoint`, `s3_bucket`, `s3_key`, `s3_secret`, `s3_region`,
+`s3_public_url`) still work. All S3-compatible backends (R2, MinIO, S3)
+go through the same hand-rolled SigV4 client. Upload limit is 50 MB.
+
+Local files are served at `/media/<project>/<key>` with immutable
+caching; keys are content-hash prefixed. The project slug is permanent
+(rename only changes the display name), so these links never break. When
+a storage has a public URL (custom domain), every URL the CMS hands out
+(Copy MD, image picker, in-editor uploads) uses that domain directly and
+never depends on the CMS host or the project slug; bucket keys are flat,
+with no project prefix.
+
+Files can be grouped with a free-text group ("featured", "logos",
+"temp"...). The media page and the image-field picker are searchable by
+filename and group, and the media page can filter by group. The image
+field in the entry editor can also upload a new image straight from its
+Browse popover.
 
 Variants are strictly opt-in: check "Create resized variants" on upload
 (needs the optional `sharp` install) to also store 320px and 1024px
@@ -134,7 +149,9 @@ Agent edits go through the normal content layer, so every change is a
 revertable revision. Requests are rate limited per key (60/min, `429`
 with `Retry-After`).
 
-Claude Code `.mcp.json`:
+The API keys page shows a ready-to-paste Claude Code `.mcp.json` using
+the instance's own URL, and creating a key shows the complete config
+with the key filled in:
 
 ```json
 {

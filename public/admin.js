@@ -151,6 +151,61 @@ document.addEventListener('click', (event) => {
   if (popover) popover.removeAttribute('open');
 });
 
+// Media search + group filter: pure client-side show/hide, works both on the
+// media page ([data-media-item] cards) and inside image-field picker popovers
+// ([data-media-name] buttons scoped to the popover).
+function filterMedia(scope) {
+  const search = scope.querySelector('[data-media-search]');
+  const folderSel = document.querySelector('[data-media-folder-filter]');
+  const q = (search?.value || '').trim().toLowerCase();
+  const folder = folderSel?.value || '';
+  const items = scope === document
+    ? document.querySelectorAll('[data-media-item]')
+    : scope.querySelectorAll('[data-media-name]');
+  items.forEach((el) => {
+    const name = el.dataset.mediaName || '';
+    const f = el.dataset.mediaFolder;
+    const folderOk = !folder || (folder === '__none__' ? !f : f === folder);
+    el.hidden = !(name.includes(q) && folderOk);
+  });
+}
+document.addEventListener('input', (event) => {
+  if (!event.target.matches('[data-media-search]')) return;
+  const popover = event.target.closest('details[data-popover]');
+  filterMedia(popover || document);
+});
+document.querySelector('[data-media-folder-filter]')?.addEventListener('change', () => filterMedia(document));
+
+// Upload a new image straight from the image-field picker: multipart fetch
+// with json=1, then set the field to the returned URL.
+document.addEventListener('change', async (event) => {
+  const input = event.target.closest('[data-image-upload]');
+  if (!input || !input.files[0]) return;
+  const wrap = input.closest('[data-image-field]');
+  const body = new FormData();
+  body.append('file', input.files[0]);
+  body.append('json', '1');
+  input.disabled = true;
+  try {
+    const res = await fetch(input.dataset.imageUpload, { method: 'POST', body });
+    if (!res.ok) throw new Error((await res.json()).error || `upload failed (${res.status})`);
+    const { url } = await res.json();
+    const field = wrap.querySelector('input[type="text"]');
+    const preview = wrap.querySelector('[data-image-preview]');
+    field.value = url;
+    if (preview) {
+      preview.src = url;
+      preview.classList.remove('hidden');
+    }
+    wrap.querySelector('details[data-popover]')?.removeAttribute('open');
+  } catch (err) {
+    window.alert(err.message || 'Upload failed.');
+  } finally {
+    input.disabled = false;
+    input.value = '';
+  }
+});
+
 // WebAuthn: passkey registration (account page) and login (login page).
 // Native browser API, no library. Server exchanges are small JSON POSTs.
 const b64uToBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
