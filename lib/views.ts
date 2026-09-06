@@ -93,6 +93,17 @@ function sectionHeading(text: string): string {
   return `<h2 class="text-lg font-semibold mt-2">${escapeHtml(text)}</h2>`;
 }
 
+// Destructive actions live collapsed behind a <details>, not always on screen.
+function dangerDetails({ summary, description, children }: { summary: string; description: string; children: string }): string {
+  return `<details class="mt-6 max-w-md">
+    <summary class="cursor-pointer text-sm font-medium text-destructive select-none">${escapeHtml(summary)}</summary>
+    <div class="mt-3 flex flex-col gap-3">
+      <p class="text-sm text-muted-foreground">${escapeHtml(description)}</p>
+      ${children}
+    </div>
+  </details>`;
+}
+
 // ---- Layout with sidebar ------------------------------------------------
 
 type LayoutOpts = {
@@ -161,14 +172,14 @@ function sidebar({ user, projects, project }: {
     <a class="px-3 py-2 font-bold text-sidebar-foreground no-underline" href="/admin/projects">yncms</a>
     <select id="project-switcher" class="${SELECT_CLASS} bg-sidebar mb-1" title="Switch project">${options}</select>
     ${projectNav}
-    <div class="flex flex-col gap-0.5 mt-4">
+    <div class="mt-auto flex flex-col gap-0.5 border-t border-sidebar-border pt-3">
       <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Instance</span>
       <a class="${SIDEBAR_LINK}" href="/admin/projects">Projects</a>
       <a class="${SIDEBAR_LINK}" href="/admin/settings">Global settings</a>
-    </div>
-    <div class="mt-auto border-t border-sidebar-border pt-3 px-3 flex flex-col gap-2">
-      <span class="text-xs text-muted-foreground truncate">${escapeHtml(user.email)}</span>
-      <form method="post" action="/logout">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
+      <div class="mt-2 border-t border-sidebar-border pt-3 px-3 flex flex-col gap-2">
+        <span class="text-xs text-muted-foreground truncate">${escapeHtml(user.email)}</span>
+        <form method="post" action="/logout">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
+      </div>
     </div>
   </aside>`;
 }
@@ -322,20 +333,21 @@ export function projectDetailPage({ user, projects, project, settingKeys, notice
           })}
         </div>
 
-        <div class="flex flex-col gap-4">
-          <h2 class="text-lg font-semibold mt-2 text-destructive">Delete project</h2>
-          <p class="text-sm text-muted-foreground">This permanently deletes the project database file. This cannot be undone.</p>
-          ${card({
-            action: `/admin/projects/${encodeURIComponent(project.slug)}/delete`,
-            extraClass: 'border-destructive/50',
-            dataConfirm: 'delete-project',
-            children: `
-            ${field({ label: 'Type the project slug to confirm', name: 'confirm', required: true, placeholder: project.slug })}
-            ${button({ label: 'Delete project', variant: 'destructive' })}
-          `,
-          })}
-        </div>
       </div>
+
+      ${dangerDetails({
+        summary: 'Delete project',
+        description: 'This permanently deletes the project database file. This cannot be undone.',
+        children: card({
+          action: `/admin/projects/${encodeURIComponent(project.slug)}/delete`,
+          extraClass: 'border-destructive/50',
+          dataConfirm: 'delete-project',
+          children: `
+          ${field({ label: 'Type the project slug to confirm', name: 'confirm', required: true, placeholder: project.slug })}
+          ${button({ label: 'Delete project', variant: 'destructive' })}
+        `,
+        }),
+      })}
     `,
   });
 }
@@ -460,39 +472,39 @@ export function collectionPage({ user, projects, project, collection, entries, f
         <tbody>${entryRows || '<tr><td colspan="3" class="p-2 text-muted-foreground italic">No entries yet.</td></tr>'}</tbody>
       </table>
 
-      <div class="grid gap-6 @3xl:grid-cols-2 mt-4">
-        <div class="flex flex-col gap-3">
-          ${sectionHeading('Fields')}
-          <table class="w-full border-collapse">
-            <tbody>${fieldRows || '<tr><td class="p-2 text-muted-foreground italic text-sm">No fields yet. Entries always have a title; add a markdown body or more below.</td></tr>'}</tbody>
-          </table>
-          ${card({
-            action: `${base}/fields/add`,
-            extraClass: '',
-            children: `
-            ${field({ label: 'Field label', name: 'label', required: true, placeholder: 'Body' })}
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="font-medium text-foreground">Type</span>
-              <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
-            </label>
-            ${button({ label: 'Add field' })}
-          `,
-          })}
-        </div>
-        <div class="flex flex-col gap-3">
-          <h2 class="text-lg font-semibold mt-2 text-destructive">Delete collection</h2>
-          <p class="text-sm text-muted-foreground">Deletes this collection and every entry in it.</p>
-          ${card({
-            action: `${base}/delete`,
-            extraClass: 'border-destructive/50',
-            dataConfirm: 'delete-collection',
-            children: `
-            ${field({ label: 'Type the collection slug to confirm', name: 'confirm', required: true, placeholder: collection.slug })}
-            ${button({ label: 'Delete collection', variant: 'destructive' })}
-          `,
-          })}
-        </div>
+      <div class="flex flex-col gap-3 mt-4 max-w-2xl">
+        ${sectionHeading('Fields')}
+        <p class="text-sm text-muted-foreground">Every entry has a built-in title (it also generates the slug), so only add the extra fields you need.</p>
+        <table class="w-full border-collapse">
+          <tbody>${fieldRows || '<tr><td class="p-2 text-muted-foreground italic text-sm">No fields yet. Add a markdown body or more below.</td></tr>'}</tbody>
+        </table>
+        ${card({
+          action: `${base}/fields/add`,
+          extraClass: '',
+          children: `
+          ${field({ label: 'Field label', name: 'label', required: true, placeholder: 'Body' })}
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="font-medium text-foreground">Type</span>
+            <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
+          </label>
+          ${button({ label: 'Add field' })}
+        `,
+        })}
       </div>
+
+      ${dangerDetails({
+        summary: 'Delete collection',
+        description: 'Deletes this collection and every entry in it.',
+        children: card({
+          action: `${base}/delete`,
+          extraClass: 'border-destructive/50',
+          dataConfirm: 'delete-collection',
+          children: `
+          ${field({ label: 'Type the collection slug to confirm', name: 'confirm', required: true, placeholder: collection.slug })}
+          ${button({ label: 'Delete collection', variant: 'destructive' })}
+        `,
+        }),
+      })}
     `,
   });
 }

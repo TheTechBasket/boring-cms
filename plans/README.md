@@ -2,14 +2,16 @@
 
 ## Active
 
-(none)
+- [Stage 3: media](stage-3-media.md) — uploads, local + S3-compatible backend, pre-generated variants.
+- [Stage 4: WP migration](stage-4-wp-import.md) — WXR importer, media pull, redirect map, import report.
+- [Stage 5: auth extras](stage-5-auth.md) — passkeys, Google OAuth from UI, Secure cookie/trust-proxy.
+- [Stage 6: MCP per project](stage-6-mcp.md) — Streamable HTTP MCP, scoped API keys, agent read/write tools.
+
+Order: 3 then 4 (importer needs media backend); 5 and 6 independent after that.
 
 ## Backlog
 
-- Stage 3: media (local + S3-compatible backend, sharp resize).
-- Stage 4: WP migration (WXR importer, media pull, redirect map).
-- Stage 5: auth extras (passkey, Google OAuth from UI).
-- Stage 6: MCP per project.
+(none)
 
 ## Rejected findings
 
