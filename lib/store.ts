@@ -60,6 +60,33 @@ export function deleteSession(db, id) {
   db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
 }
 
+// ---- WebAuthn credentials -------------------------------------------------
+
+export function addCredential(db, { userId, name, credentialId, publicKeyJwk, counter, transports = [] }) {
+  db.prepare('INSERT INTO credentials (user_id, name, credential_id, public_key, counter, transports) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(userId, name || 'Passkey', credentialId, JSON.stringify(publicKeyJwk), counter, JSON.stringify(transports));
+}
+
+export function listCredentials(db, userId) {
+  return db.prepare('SELECT * FROM credentials WHERE user_id = ? ORDER BY id').all(userId);
+}
+
+export function credentialCount(db) {
+  return db.prepare('SELECT COUNT(*) AS n FROM credentials').get().n;
+}
+
+export function getCredentialByCredId(db, credentialId) {
+  return db.prepare('SELECT * FROM credentials WHERE credential_id = ?').get(credentialId) ?? null;
+}
+
+export function updateCredentialCounter(db, id, counter) {
+  db.prepare('UPDATE credentials SET counter = ? WHERE id = ?').run(counter, id);
+}
+
+export function deleteCredential(db, userId, id) {
+  db.prepare('DELETE FROM credentials WHERE id = ? AND user_id = ?').run(id, userId);
+}
+
 // ---- Projects ---------------------------------------------------------
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;

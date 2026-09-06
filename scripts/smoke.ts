@@ -420,7 +420,144 @@ async function main() {
   }
   assert.ok(limited, 'per-key rate limit should kick in');
 
-  // 14. Delete the project (requires exact slug confirmation)
+  // 14. Auth extras: passkey register + login against a simulated
+  // authenticator (real crypto, fake device), account page, Google gating.
+  const { generateKeyPairSync, createHash: sha, sign: cryptoSign } = await import('node:crypto');
+
+  // Minimal CBOR encoder, just enough to build authenticator payloads.
+  function cbor(value: any): Buffer {
+    const head = (major: number, len: number) => {
+      if (len < 24) return Buffer.from([(major << 5) | len]);
+      if (len < 256) return Buffer.from([(major << 5) | 24, len]);
+      const b = Buffer.alloc(3);
+      b[0] = (major << 5) | 25;
+      b.writeUInt16BE(len, 1);
+      return b;
+    };
+    if (typeof value === 'number') {
+      return value >= 0 ? head(0, value) : head(1, -1 - value);
+    }
+    if (Buffer.isBuffer(value)) return Buffer.concat([head(2, value.length), value]);
+    if (typeof value === 'string') {
+      const b = Buffer.from(value, 'utf8');
+      return Buffer.concat([head(3, b.length), b]);
+    }
+    if (value instanceof Map) {
+      const parts: Buffer[] = [head(5, value.size)];
+      for (const [k, v] of value) parts.push(cbor(k), cbor(v));
+      return Buffer.concat(parts);
+    }
+    throw new Error('cbor: unsupported');
+  }
+
+  const rpId = '127.0.0.1';
+  const origin = base;
+  const keyPair = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const jwk: any = keyPair.publicKey.export({ format: 'jwk' });
+  const credId = randomBytes(16);
+
+  function makeAuthData(flags: number, counter: number, withCred = false) {
+    const rpIdHash = sha('sha256').update(rpId).digest();
+    const head = Buffer.alloc(37);
+    rpIdHash.copy(head, 0);
+    head[32] = flags;
+    head.writeUInt32BE(counter, 33);
+    if (!withCred) return head;
+    const cose = cbor(new Map<any, any>([[1, 2], [3, -7], [-1, 1], [-2, Buffer.from(jwk.x, 'base64url')], [-3, Buffer.from(jwk.y, 'base64url')]]));
+    const credLen = Buffer.alloc(2);
+    credLen.writeUInt16BE(credId.length);
+    return Buffer.concat([head, Buffer.alloc(16), credLen, credId, cose]);
+  }
+
+  const accountRes = await req('GET', '/account');
+  assert.equal(accountRes.status, 200, 'account page should render');
+  assert.ok((await accountRes.text()).includes('Add a passkey'), 'account page should offer passkey registration');
+
+  const badPw = await req('POST', '/account/password', { form: { current_password: 'wrong', password: 'newpassword1', password_confirm: 'newpassword1' } });
+  assert.equal(badPw.status, 400, 'wrong current password should be rejected');
+
+  // Registration over HTTP: options (challenge cookie) then verify + store.
+  const sessionCookie = cookie;
+  const regOptRes = await fetch(`${base}/webauthn/register/options`, { method: 'POST', headers: { Cookie: sessionCookie } });
+  const regOpt: any = await regOptRes.json();
+  assert.ok(regOpt.challenge, 'register options should carry a challenge');
+  const challengeCookie = regOptRes.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith('yn_challenge='));
+  assert.ok(challengeCookie, 'register options should set the challenge cookie');
+
+  const regClientData = Buffer.from(JSON.stringify({ type: 'webauthn.create', challenge: regOpt.challenge, origin }));
+  const attestationObject = cbor(new Map<any, any>([['fmt', 'none'], ['attStmt', new Map()], ['authData', makeAuthData(0x41, 0, true)]]));
+  const regRes = await fetch(`${base}/webauthn/register`, {
+    method: 'POST',
+    headers: { Cookie: `${sessionCookie}; ${challengeCookie}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: credId.toString('base64url'),
+      attestationObject: attestationObject.toString('base64url'),
+      clientDataJSON: regClientData.toString('base64url'),
+      transports: ['internal'],
+      name: 'smoke device',
+    }),
+  });
+  assert.equal(regRes.status, 200, `passkey registration should verify: ${await regRes.clone().text()}`);
+
+  const loginPageHtml = await (await fetch(`${base}/login`)).text();
+  assert.ok(loginPageHtml.includes('Use a passkey'), 'login page should offer passkeys once one exists');
+
+  // Login over HTTP with a signed assertion, fresh unauthenticated client.
+  const loginOptRes = await fetch(`${base}/webauthn/login/options`, { method: 'POST' });
+  const loginOpt: any = await loginOptRes.json();
+  const loginChallengeCookie = loginOptRes.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith('yn_challenge='));
+  assert.ok(loginOpt.allowCredentials.some((c) => c.id === credId.toString('base64url')), 'login options should list the credential');
+
+  const assertAuthData = makeAuthData(0x01, 7);
+  const loginClientData = Buffer.from(JSON.stringify({ type: 'webauthn.get', challenge: loginOpt.challenge, origin }));
+  const signature = cryptoSign('sha256', Buffer.concat([assertAuthData, sha('sha256').update(loginClientData).digest()]), keyPair.privateKey);
+  const passkeyLogin = await fetch(`${base}/webauthn/login`, {
+    method: 'POST',
+    headers: { Cookie: loginChallengeCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: credId.toString('base64url'),
+      authenticatorData: assertAuthData.toString('base64url'),
+      clientDataJSON: loginClientData.toString('base64url'),
+      signature: signature.toString('base64url'),
+    }),
+  });
+  assert.equal(passkeyLogin.status, 200, `passkey login should verify: ${await passkeyLogin.clone().text()}`);
+  assert.ok(passkeyLogin.headers.getSetCookie().some((c) => c.startsWith('yn_session=')), 'passkey login should issue a session');
+
+  // Replayed counter must be rejected (clone detection).
+  const replayOptRes = await fetch(`${base}/webauthn/login/options`, { method: 'POST' });
+  const replayOpt: any = await replayOptRes.json();
+  const replayCookie = replayOptRes.headers.getSetCookie().map((c) => c.split(';')[0]).find((c) => c.startsWith('yn_challenge='));
+  const replayClientData = Buffer.from(JSON.stringify({ type: 'webauthn.get', challenge: replayOpt.challenge, origin }));
+  const replaySig = cryptoSign('sha256', Buffer.concat([assertAuthData, sha('sha256').update(replayClientData).digest()]), keyPair.privateKey);
+  const replay = await fetch(`${base}/webauthn/login`, {
+    method: 'POST',
+    headers: { Cookie: replayCookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: credId.toString('base64url'),
+      authenticatorData: assertAuthData.toString('base64url'),
+      clientDataJSON: replayClientData.toString('base64url'),
+      signature: replaySig.toString('base64url'),
+    }),
+  });
+  assert.equal(replay.status, 400, 'stale counter should be rejected');
+
+  // Google OAuth is gated on settings: unconfigured start bounces to /login.
+  const noGoogle = await fetch(`${base}/auth/google`, { redirect: 'manual' });
+  assert.equal(noGoogle.headers.get('location'), '/login', 'Google start without settings should bounce');
+  await req('POST', '/admin/settings', { form: { key: 'google_client_id', value: 'id.example' } });
+  await req('POST', '/admin/settings', { form: { key: 'google_client_secret', value: 'shhh' } });
+  const googleStart = await fetch(`${base}/auth/google`, { redirect: 'manual' });
+  assert.ok((googleStart.headers.get('location') || '').startsWith('https://accounts.google.com/'), 'configured Google start should redirect to Google');
+  assert.ok(googleStart.headers.get('location').includes('code_challenge='), 'Google start should carry PKCE');
+  assert.ok((await (await fetch(`${base}/login`)).text()).includes('Continue with Google'), 'login page should offer Google when configured');
+
+  // Passkey removal from the account page.
+  const credRow = app.coreDb.prepare('SELECT id FROM credentials').get();
+  await req('POST', `/account/passkeys/${credRow.id}/delete`);
+  assert.equal(app.coreDb.prepare('SELECT COUNT(*) AS n FROM credentials').get().n, 0, 'passkey removal should delete the row');
+
+  // 15. Delete the project (requires exact slug confirmation)
   const badDelete = await req('POST', `/admin/projects/${slug}/delete`, {
     form: { confirm: 'not-the-slug' },
   });

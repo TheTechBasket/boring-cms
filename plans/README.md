@@ -2,9 +2,7 @@
 
 ## Active
 
-- [Stage 8: auth extras](stage-5-auth.md) — passkeys, Google OAuth from UI, Secure cookie/trust-proxy. Deprioritized: waits until the rest ships.
-
-Order: 8 only.
+(none — all planned stages shipped)
 
 ## Backlog
 
@@ -24,6 +22,7 @@ Order: 8 only.
 
 ## Shipped history
 
+- 2026-09-06 Stage 8 auth extras: hand-rolled WebAuthn passkeys (minimal CBOR decoder, COSE to JWK, ES256/RS256 assertion verify with counter clone check, signed stateless challenge cookies), Account page (passkey list/add/remove, change password), Google OAuth code flow with PKCE via plain fetch gated on encrypted global settings (admin email only), TRUST_PROXY=1 for x-forwarded-proto and Secure session cookies, login page passkey/Google buttons, smoke coverage with a simulated authenticator (real signatures, fake device). Manual browser passkey + live Google flow verification still open.
 - 2026-09-06 Stage 7 MCP per project: hand-rolled JSON-RPC 2.0 endpoint at POST /mcp/:project (initialize, tools/list, tools/call, ping); Bearer API keys gain a scope column (read default, write unlocks create/update/publish/unpublish tools); writes go through the content layer so agent edits are revertable revisions; per-key in-memory token bucket (60/min, 429 Retry-After); scope select and MCP config snippet on the API keys page; smoke coverage; README section. Manual .mcp.json verification against a live Claude Code session still open (stage 3 leftovers style).
 - 2026-09-06 Stage 6 media v2: opt-in variants (per-upload checkbox, `media_variants` project default, `_320`/`_1024` key suffixes, never generated unless asked); wsrv.nl proxy previews when `s3_public_url` set (no local copies); browser-to-bucket presigned PUT upload with SHA-256 hashing and server-side fallback; per-image "where used" LIKE scan with entry links (no stored relationships); Sync storage reconcile (adopt outside uploads, report missing objects); ListObjectsV2 + presign in the SigV4 client; smoke coverage; README section.
 - 2026-09-06 Stage 5 field constraints: full standard field options per field (required, help, placeholder, default, min/max/step, minlength/maxlength, pattern, accept) with an in-row editor, conventional limits as placeholders, blank clears; enforced server-side (400 rerender keeps input) and as native browser attributes; image field type with media picker; options travel in the schema export.

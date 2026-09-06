@@ -151,6 +151,72 @@ document.addEventListener('click', (event) => {
   if (popover) popover.removeAttribute('open');
 });
 
+// WebAuthn: passkey registration (account page) and login (login page).
+// Native browser API, no library. Server exchanges are small JSON POSTs.
+const b64uToBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const bufToB64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+function passkeyFail(err) {
+  const el = document.querySelector('[data-passkey-error]');
+  if (el) {
+    el.textContent = err.message || 'Passkey operation failed.';
+    el.hidden = false;
+  }
+}
+
+const registerBtn = document.querySelector('[data-passkey-register]');
+if (registerBtn) {
+  registerBtn.addEventListener('click', async () => {
+    try {
+      const options = await (await fetch('/webauthn/register/options', { method: 'POST' })).json();
+      options.challenge = b64uToBuf(options.challenge);
+      options.user.id = b64uToBuf(options.user.id);
+      options.excludeCredentials = options.excludeCredentials.map((c) => ({ ...c, id: b64uToBuf(c.id) }));
+      const cred = await navigator.credentials.create({ publicKey: options });
+      const res = await fetch('/webauthn/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: cred.id,
+          attestationObject: bufToB64u(cred.response.attestationObject),
+          clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+          transports: cred.response.getTransports ? cred.response.getTransports() : [],
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      window.location.reload();
+    } catch (err) {
+      passkeyFail(err);
+    }
+  });
+}
+
+const passkeyLoginBtn = document.querySelector('[data-passkey-login]');
+if (passkeyLoginBtn) {
+  passkeyLoginBtn.addEventListener('click', async () => {
+    try {
+      const options = await (await fetch('/webauthn/login/options', { method: 'POST' })).json();
+      options.challenge = b64uToBuf(options.challenge);
+      options.allowCredentials = options.allowCredentials.map((c) => ({ ...c, id: b64uToBuf(c.id) }));
+      const cred = await navigator.credentials.get({ publicKey: options });
+      const res = await fetch('/webauthn/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: cred.id,
+          authenticatorData: bufToB64u(cred.response.authenticatorData),
+          clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+          signature: bufToB64u(cred.response.signature),
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      window.location.href = '/admin/projects';
+    } catch (err) {
+      passkeyFail(err);
+    }
+  });
+}
+
 // Markdown preview: client-side only, rendered with the vendored marked.js
 // into a typeset container. The server never converts markdown.
 document.querySelectorAll('[data-markdown-field]').forEach((wrap) => {

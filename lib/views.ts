@@ -10,6 +10,7 @@ const ICONS: Record<string, string> = {
   settings: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M14.2788 2.15224C13.9085 2 13.439 2 12.5 2C11.561 2 11.0915 2 10.7212 2.15224C10.2274 2.35523 9.83509 2.74458 9.63056 3.23463C9.53719 3.45834 9.50065 3.7185 9.48635 4.09799C9.46534 4.65568 9.17716 5.17189 8.69017 5.45093C8.20318 5.72996 7.60864 5.71954 7.11149 5.45876C6.77318 5.2813 6.52789 5.18262 6.28599 5.15102C5.75609 5.08178 5.22018 5.22429 4.79616 5.5472C4.47814 5.78938 4.24339 6.1929 3.7739 6.99993C3.30441 7.80697 3.06967 8.21048 3.01735 8.60491C2.94758 9.1308 3.09118 9.66266 3.41655 10.0835C3.56506 10.2756 3.77377 10.437 4.0977 10.639C4.57391 10.936 4.88032 11.4419 4.88029 12C4.88026 12.5581 4.57386 13.0639 4.0977 13.3608C3.77372 13.5629 3.56497 13.7244 3.41645 13.9165C3.09108 14.3373 2.94749 14.8691 3.01725 15.395C3.06957 15.7894 3.30432 16.193 3.7738 17C4.24329 17.807 4.47804 18.2106 4.79606 18.4527C5.22008 18.7756 5.75599 18.9181 6.28589 18.8489C6.52778 18.8173 6.77305 18.7186 7.11133 18.5412C7.60852 18.2804 8.2031 18.27 8.69012 18.549C9.17714 18.8281 9.46533 19.3443 9.48635 19.9021C9.50065 20.2815 9.53719 20.5417 9.63056 20.7654C9.83509 21.2554 10.2274 21.6448 10.7212 21.8478C11.0915 22 11.561 22 12.5 22C13.439 22 13.9085 22 14.2788 21.8478C14.7726 21.6448 15.1649 21.2554 15.3694 20.7654C15.4628 20.5417 15.4994 20.2815 15.5137 19.902C15.5347 19.3443 15.8228 18.8281 16.3098 18.549C16.7968 18.2699 17.3914 18.2804 17.8886 18.5412C18.2269 18.7186 18.4721 18.8172 18.714 18.8488C19.2439 18.9181 19.7798 18.7756 20.2038 18.4527C20.5219 18.2105 20.7566 17.807 21.2261 16.9999C21.6956 16.1929 21.9303 15.7894 21.9827 15.395C22.0524 14.8691 21.9088 14.3372 21.5835 13.9164C21.4349 13.7243 21.2262 13.5628 20.9022 13.3608C20.4261 13.0639 20.1197 12.558 20.1197 11.9999C20.1197 11.4418 20.4261 10.9361 20.9022 10.6392C21.2263 10.4371 21.435 10.2757 21.5836 10.0835C21.9089 9.66273 22.0525 9.13087 21.9828 8.60497C21.9304 8.21055 21.6957 7.80703 21.2262 7C20.7567 6.19297 20.522 5.78945 20.2039 5.54727C19.7799 5.22436 19.244 5.08185 18.7141 5.15109C18.4722 5.18269 18.2269 5.28136 17.8887 5.4588C17.3915 5.71959 16.7969 5.73002 16.3099 5.45096C15.8229 5.17191 15.5347 4.65566 15.5136 4.09794C15.4993 3.71848 15.4628 3.45833 15.3694 3.23463C15.1649 2.74458 14.7726 2.35523 14.2788 2.15224Z" clip-rule="evenodd" opacity=".5"/><path d="M15.5227 12C15.5227 13.6569 14.1694 15 12.4999 15C10.8304 15 9.47705 13.6569 9.47705 12C9.47705 10.3431 10.8304 9 12.4999 9C14.1694 9 15.5227 10.3431 15.5227 12Z"/></g></svg>`,
   folder: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M22 14V11.7979C22 9.16554 22 7.84935 21.2305 6.99383C21.1598 6.91514 21.0849 6.84024 21.0062 6.76946C20.1506 6 18.8345 6 16.2021 6H15.8284C14.6747 6 14.0979 6 13.5604 5.84678C13.2651 5.7626 12.9804 5.64471 12.7121 5.49543C12.2237 5.22367 11.8158 4.81578 11 4L10.4497 3.44975C10.1763 3.17633 10.0396 3.03961 9.89594 2.92051C9.27652 2.40704 8.51665 2.09229 7.71557 2.01738C7.52976 2 7.33642 2 6.94975 2C6.06722 2 5.62595 2 5.25839 2.06935C3.64031 2.37464 2.37464 3.64031 2.06935 5.25839C2 5.62595 2 6.06722 2 6.94975V14C2 17.7712 2 19.6569 3.17157 20.8284C4.34315 22 6.22876 22 10 22H14C17.7712 22 19.6569 22 20.8284 20.8284C22 19.6569 22 17.7712 22 14Z" opacity=".5"/><path d="M12.25 10C12.25 9.58579 12.5858 9.25 13 9.25H18C18.4142 9.25 18.75 9.58579 18.75 10C18.75 10.4142 18.4142 10.75 18 10.75H13C12.5858 10.75 12.25 10.4142 12.25 10Z"/></g></svg>`,
   transfer: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M20 10.25C20.3093 10.25 20.5869 10.0602 20.699 9.77191C20.8111 9.48366 20.7348 9.15614 20.5068 8.94715L14.5068 3.44715C14.2875 3.24617 13.9703 3.19374 13.698 3.3135C13.4258 3.43327 13.25 3.70259 13.25 4.00002L13.25 20C13.25 20.4142 13.5858 20.75 14 20.75C14.4142 20.75 14.75 20.4142 14.75 20L14.75 10.25L20 10.25Z"/><path d="M4.00003 13.75L9.25003 13.75L9.25003 4C9.25003 3.58579 9.58581 3.25 10 3.25C10.4142 3.25 10.75 3.58579 10.75 4V20C10.75 20.2974 10.5743 20.5667 10.302 20.6865C10.0298 20.8063 9.71248 20.7538 9.49323 20.5529L3.49324 15.0529C3.26524 14.8439 3.18892 14.5164 3.30105 14.2281C3.41317 13.9399 3.69074 13.75 4.00003 13.75Z" opacity=".5"/></g></svg>`,
+  user: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12Z" opacity=".5"/><path d="M16.807 19.0112C15.4398 19.9504 13.7841 20.5 12 20.5C10.2159 20.5 8.56023 19.9503 7.193 19.0111C6.58915 18.5963 6.33109 17.8062 6.68219 17.1632C7.41001 15.8302 8.90973 15 12 15C15.0903 15 16.59 15.8303 17.3178 17.1632C17.6689 17.8062 17.4108 18.5964 16.807 19.0112Z"/><path d="M12 12C13.6569 12 15 10.6569 15 9C15 7.34315 13.6569 6 12 6C10.3432 6 9.00004 7.34315 9.00004 9C9.00004 10.6569 10.3432 12 12 12Z"/></g></svg>`,
 };
 
 function icon(name: string): string {
@@ -254,6 +255,7 @@ function sidebar({ user, projects, project }: {
       <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Instance</span>
       <a class="${SIDEBAR_LINK}" href="/admin/projects">${icon('folder')}Projects</a>
       <a class="${SIDEBAR_LINK}" href="/admin/settings">${icon('settings')}Global settings</a>
+      <a class="${SIDEBAR_LINK}" href="/account">${icon('user')}Account</a>
       <div class="mt-2 border-t border-sidebar-border pt-3 px-3 flex flex-col gap-2">
         <span class="text-xs text-muted-foreground truncate">${escapeHtml(user.email)}</span>
         <form method="post" action="/logout">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
@@ -285,7 +287,15 @@ export function setupPage({ error }: { error?: string } = {}): string {
   });
 }
 
-export function loginPage({ error }: { error?: string } = {}): string {
+export function loginPage({ error, passkeys = false, google = false }: { error?: string; passkeys?: boolean; google?: boolean } = {}): string {
+  const alternatives =
+    passkeys || google
+      ? `<div class="flex flex-col gap-2">
+          ${passkeys ? `<button type="button" data-passkey-login class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-9 px-4 py-2 w-full">Use a passkey</button>` : ''}
+          ${google ? `<a href="/auth/google" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-9 px-4 py-2 w-full no-underline">Continue with Google</a>` : ''}
+          <p data-passkey-error class="text-sm text-destructive" hidden></p>
+        </div>`
+      : '';
   return layout({
     title: 'Log in',
     bare: true,
@@ -300,6 +310,7 @@ export function loginPage({ error }: { error?: string } = {}): string {
         ${button({ label: 'Log in' })}
       `,
       })}
+      ${alternatives}
     `,
   });
 }
@@ -320,6 +331,51 @@ export function resetPasswordPage({ error }: { error?: string } = {}): string {
         ${button({ label: 'Set password' })}
       `,
       })}
+    `,
+  });
+}
+
+export function accountPage({ user, projects, credentials = [], notice: pageNotice }: any): string {
+  const passkeyRows = credentials
+    .map(
+      (c: any) => `<tr class="border-b border-border">
+        <td class="p-2 text-sm">${escapeHtml(c.name)}</td>
+        <td class="p-2 text-sm text-muted-foreground">${timeAgo(c.created_at)}</td>
+        <td class="p-2 text-right">
+          <form method="post" action="/account/passkeys/${c.id}/delete">
+            ${button({ label: 'Remove', variant: 'ghost', small: true })}
+          </form>
+        </td>
+      </tr>`,
+    )
+    .join('\n');
+
+  return layout({
+    title: 'Account',
+    user,
+    projects,
+    notice: pageNotice,
+    body: `
+      ${pageHeader('Account')}
+      <div class="${CARD_CLASS} p-4 flex flex-col gap-3">
+        <h2 class="text-sm font-semibold">Passkeys</h2>
+        <p class="text-sm text-muted-foreground">Sign in with your device instead of the password. Registered passkeys appear on the login page automatically.</p>
+        ${tableCard(`<table class="w-full border-collapse">
+          ${tableHead([{ label: 'Name' }, { label: 'Added' }, { label: '' }])}
+          <tbody>${passkeyRows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No passkeys yet.</td></tr>'}</tbody>
+        </table>`)}
+        <div class="flex items-center gap-3">
+          <button type="button" data-passkey-register class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-8 px-3 text-sm">Add a passkey</button>
+          <p data-passkey-error class="text-sm text-destructive" hidden></p>
+        </div>
+      </div>
+      <form method="post" action="/account/password" class="${CARD_CLASS} p-4 flex flex-col gap-3 max-w-md">
+        <h2 class="text-sm font-semibold">Change password</h2>
+        ${field({ label: 'Current password', name: 'current_password', type: 'password', required: true })}
+        ${field({ label: 'New password', name: 'password', type: 'password', required: true, minlength: 8 })}
+        ${field({ label: 'Confirm new password', name: 'password_confirm', type: 'password', required: true, minlength: 8 })}
+        <div>${button({ label: 'Change password' })}</div>
+      </form>
     `,
   });
 }

@@ -80,9 +80,10 @@ export function parseCookies(req) {
   return out;
 }
 
-export function setCookie(res, name, value, { maxAgeSeconds, httpOnly = true }: { maxAgeSeconds?: number; httpOnly?: boolean } = {}) {
+export function setCookie(res, name, value, { maxAgeSeconds, httpOnly = true, secure = false }: { maxAgeSeconds?: number; httpOnly?: boolean; secure?: boolean } = {}) {
   let cookie = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=Lax`;
   if (httpOnly) cookie += '; HttpOnly';
+  if (secure) cookie += '; Secure';
   if (typeof maxAgeSeconds === 'number') cookie += `; Max-Age=${maxAgeSeconds}`;
   const prev = res.getHeader('Set-Cookie');
   if (prev) {

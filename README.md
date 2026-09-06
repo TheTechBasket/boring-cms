@@ -105,6 +105,24 @@ site repo can be the source of truth and re-applying is always safe.
 To migrate from WordPress, convert the WXR file to JSON with an external
 script and import it here; the CMS has no WordPress-specific code.
 
+## Auth
+
+Email + password is the fallback; two extras layer on top, both ending
+in the same signed session cookie:
+
+- Passkeys: add one from Account in the sidebar; the login page then
+  shows "Use a passkey". WebAuthn verification is hand-rolled with
+  node:crypto (ES256/RS256, attestation ignored, counter checked for
+  clone detection).
+- Google: set `google_client_id` and `google_client_secret` in Global
+  settings (encrypted at rest) and "Continue with Google" appears.
+  Standard code flow with PKCE over plain fetch. Only the admin's email
+  may log in; any other Google account gets a clear error. The OAuth
+  redirect URI to register is `https://<host>/auth/google/callback`.
+
+Behind a TLS-terminating proxy set `TRUST_PROXY=1`: `x-forwarded-proto`
+is honored and session cookies become `Secure`.
+
 ## MCP
 
 Each project is an MCP server at `POST /mcp/<project>` (Streamable HTTP,

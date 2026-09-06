@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +25,14 @@ import {
   setSetting,
   listSettingKeys,
   getSettingValue,
+  addCredential,
+  listCredentials,
+  credentialCount,
+  getCredentialByCredId,
+  updateCredentialCounter,
+  deleteCredential,
 } from './lib/store.ts';
+import { verifyRegistration, verifyAssertion, b64url } from './lib/webauthn.ts';
 import { readMultipart } from './lib/multipart.ts';
 import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
@@ -78,6 +85,7 @@ import {
   transferPage,
   importMappingPage,
   importReportPage,
+  accountPage,
   errorPage,
 } from './lib/views.ts';
 
@@ -141,11 +149,52 @@ export function createApp(configOverrides = {}) {
     return getUserById(coreDb, session.user_id);
   }
 
+  // Origin/rpId per request; behind TRUST_PROXY=1 the forwarded proto
+  // decides https, which also flips session cookies to Secure.
+  function requestOrigin(req) {
+    const proto = config.trustProxy && req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    const host = (config.trustProxy && req.headers['x-forwarded-host']) || req.headers.host || `localhost:${config.port}`;
+    return { origin: `${proto}://${host}`, rpId: String(host).split(':')[0], secure: proto === 'https' };
+  }
+
   function loginUser(req, res, userId) {
     const sessionId = createSession(coreDb, userId);
     setCookie(res, SESSION_COOKIE, signValue(config.masterKey, sessionId), {
       maxAgeSeconds: 30 * 24 * 60 * 60,
+      secure: requestOrigin(req).secure,
     });
+  }
+
+  // Short-lived signed challenge cookie: stateless, survives no DB write.
+  const CHALLENGE_COOKIE = 'yn_challenge';
+
+  function issueChallenge(req, res) {
+    const challenge = randomBytes(32).toString('base64url');
+    setCookie(res, CHALLENGE_COOKIE, signValue(config.masterKey, `${challenge}.${Date.now()}`), {
+      maxAgeSeconds: 300,
+      secure: requestOrigin(req).secure,
+    });
+    return challenge;
+  }
+
+  function readChallenge(req, res) {
+    const signed = parseCookies(req)[CHALLENGE_COOKIE];
+    const value = signed ? verifySignedValue(config.masterKey, signed) : null;
+    clearCookie(res, CHALLENGE_COOKIE);
+    if (!value) return null;
+    const [challenge, ts] = value.split('.');
+    if (Date.now() - Number(ts) > 5 * 60 * 1000) return null;
+    return challenge;
+  }
+
+  function googleSettings() {
+    const clientId = getSettingValue(coreDb, config.masterKey, { scope: 'global', key: 'google_client_id' });
+    const clientSecret = getSettingValue(coreDb, config.masterKey, { scope: 'global', key: 'google_client_secret' });
+    return clientId && clientSecret ? { clientId, clientSecret } : null;
+  }
+
+  function loginPageProps(extra = {}) {
+    return { passkeys: credentialCount(coreDb) > 0, google: !!googleSettings(), ...extra };
   }
 
   // ---- Auth / setup routes ----------------------------------------------
@@ -175,7 +224,7 @@ export function createApp(configOverrides = {}) {
   router.get('/login', (req, res) => {
     if (userCount(coreDb) === 0) return redirect(req, res, '/setup');
     if (currentUser(req)) return redirect(req, res, '/admin/projects');
-    html(req, res, 200, loginPage());
+    html(req, res, 200, loginPage(loginPageProps()));
   });
 
   router.post('/login', async (req, res) => {
@@ -186,7 +235,7 @@ export function createApp(configOverrides = {}) {
     const user = getUserByEmail(coreDb, email);
     const ok = user && (await verifyUserPassword(user, password));
     if (!ok) {
-      return html(req, res, 401, loginPage({ error: 'Incorrect email or password.' }));
+      return html(req, res, 401, loginPage(loginPageProps({ error: 'Incorrect email or password.' })));
     }
     loginUser(req, res, user.id);
     if (user.must_reset_password) return redirect(req, res, '/reset-password');
@@ -224,6 +273,145 @@ export function createApp(configOverrides = {}) {
     redirect(req, res, '/admin/projects');
   });
 
+  // ---- WebAuthn (passkeys) ------------------------------------------------
+
+  router.post('/webauthn/register/options', (req, res) => {
+    const user = currentUser(req);
+    if (!user) return json(req, res, 401, { error: 'unauthorized' });
+    const { rpId } = requestOrigin(req);
+    json(req, res, 200, {
+      challenge: issueChallenge(req, res),
+      rp: { id: rpId, name: 'yncms' },
+      user: { id: b64url(Buffer.from(String(user.id))), name: user.email, displayName: user.email },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      excludeCredentials: listCredentials(coreDb, user.id).map((c) => ({ type: 'public-key', id: c.credential_id })),
+      authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+    });
+  });
+
+  router.post('/webauthn/register', async (req, res) => {
+    const user = currentUser(req);
+    if (!user) return json(req, res, 401, { error: 'unauthorized' });
+    const challenge = readChallenge(req, res);
+    if (!challenge) return json(req, res, 400, { error: 'Challenge expired, try again.' });
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+      const { origin, rpId } = requestOrigin(req);
+      const cred = verifyRegistration(body, { challenge, origin, rpId });
+      addCredential(coreDb, {
+        userId: user.id,
+        name: (body.name || '').trim() || 'Passkey',
+        credentialId: cred.credentialId,
+        publicKeyJwk: cred.publicKeyJwk,
+        counter: cred.counter,
+        transports: body.transports || [],
+      });
+    } catch (err) {
+      return json(req, res, 400, { error: err.message });
+    }
+    json(req, res, 200, { ok: true });
+  });
+
+  router.post('/webauthn/login/options', (req, res) => {
+    if (credentialCount(coreDb) === 0) return json(req, res, 400, { error: 'No passkeys registered.' });
+    const { rpId } = requestOrigin(req);
+    json(req, res, 200, {
+      challenge: issueChallenge(req, res),
+      rpId,
+      allowCredentials: coreDb.prepare('SELECT credential_id FROM credentials').all()
+        .map((c) => ({ type: 'public-key', id: c.credential_id })),
+      userVerification: 'preferred',
+    });
+  });
+
+  router.post('/webauthn/login', async (req, res) => {
+    const challenge = readChallenge(req, res);
+    if (!challenge) return json(req, res, 400, { error: 'Challenge expired, try again.' });
+    try {
+      const body = JSON.parse(await readBody(req));
+      const cred = getCredentialByCredId(coreDb, body.id);
+      if (!cred) return json(req, res, 400, { error: 'Unknown passkey.' });
+      const { origin, rpId } = requestOrigin(req);
+      const { counter } = verifyAssertion(body, {
+        publicKeyJwk: JSON.parse(cred.public_key),
+        challenge,
+        origin,
+        rpId,
+        counter: cred.counter,
+      });
+      updateCredentialCounter(coreDb, cred.id, counter);
+      loginUser(req, res, cred.user_id);
+    } catch (err) {
+      return json(req, res, 400, { error: err.message });
+    }
+    json(req, res, 200, { ok: true });
+  });
+
+  // ---- Google OAuth (code flow with PKCE, plain fetch) --------------------
+
+  const OAUTH_COOKIE = 'yn_oauth';
+
+  router.get('/auth/google', (req, res) => {
+    const g = googleSettings();
+    if (!g) return redirect(req, res, '/login');
+    const { origin, secure } = requestOrigin(req);
+    const verifier = randomBytes(32).toString('base64url');
+    const state = randomBytes(16).toString('base64url');
+    setCookie(res, OAUTH_COOKIE, signValue(config.masterKey, `${verifier}.${state}`), { maxAgeSeconds: 600, secure });
+    const params = new URLSearchParams({
+      client_id: g.clientId,
+      redirect_uri: `${origin}/auth/google/callback`,
+      response_type: 'code',
+      scope: 'openid email',
+      state,
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+      code_challenge_method: 'S256',
+    });
+    redirect(req, res, `https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+  });
+
+  router.get('/auth/google/callback', async (req, res) => {
+    const g = googleSettings();
+    const url = new URL(req.url, 'http://localhost');
+    const stored = parseCookies(req)[OAUTH_COOKIE];
+    clearCookie(res, OAUTH_COOKIE);
+    const value = stored ? verifySignedValue(config.masterKey, stored) : null;
+    const [verifier, state] = (value || '').split('.');
+    const fail = (message) => html(req, res, 401, loginPage(loginPageProps({ error: message })));
+    if (!g || !verifier || url.searchParams.get('state') !== state) return fail('Google sign-in failed, try again.');
+    const code = url.searchParams.get('code');
+    if (!code) return fail('Google sign-in was cancelled.');
+    try {
+      const { origin } = requestOrigin(req);
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: g.clientId,
+          client_secret: g.clientSecret,
+          redirect_uri: `${origin}/auth/google/callback`,
+          grant_type: 'authorization_code',
+          code_verifier: verifier,
+        }),
+      });
+      const token: any = await tokenRes.json();
+      if (!token.access_token) return fail('Google token exchange failed.');
+      const infoRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+        headers: { Authorization: `Bearer ${token.access_token}` },
+      });
+      const info: any = await infoRes.json();
+      const email = (info.email || '').toLowerCase();
+      const user = email ? getUserByEmail(coreDb, email) : null;
+      if (!user) return fail(`${email || 'That Google account'} is not the admin account.`);
+      loginUser(req, res, user.id);
+      redirect(req, res, '/admin/projects');
+    } catch {
+      fail('Google sign-in failed, try again.');
+    }
+  });
+
   // ---- Admin routes (session-guarded) ------------------------------------
 
   function requireAdmin(handler) {
@@ -234,6 +422,30 @@ export function createApp(configOverrides = {}) {
       return handler(req, res, params, user);
     };
   }
+
+  // ---- Account (password + passkeys) --------------------------------------
+
+  router.get('/account', requireAdmin((req, res, params, user) => {
+    html(req, res, 200, accountPage({ user, projects: listProjects(coreDb), credentials: listCredentials(coreDb, user.id) }));
+  }));
+
+  router.post('/account/password', requireAdmin(async (req, res, params, user) => {
+    const form = await readFormBody(req);
+    const render = (notice) => html(req, res, notice.type === 'error' ? 400 : 200, accountPage({ user, projects: listProjects(coreDb), credentials: listCredentials(coreDb, user.id), notice }));
+    if (!(await verifyUserPassword(user, form.current_password || ''))) {
+      return render({ type: 'error', message: 'Current password is incorrect.' });
+    }
+    const password = form.password || '';
+    if (password.length < 8) return render({ type: 'error', message: 'New password must be at least 8 characters.' });
+    if (password !== form.password_confirm) return render({ type: 'error', message: 'Passwords do not match.' });
+    await setUserPassword(coreDb, user.id, password);
+    render({ type: 'success', message: 'Password changed.' });
+  }));
+
+  router.post('/account/passkeys/:credId/delete', requireAdmin((req, res, params, user) => {
+    deleteCredential(coreDb, user.id, Number.parseInt(params.credId, 10));
+    redirect(req, res, '/account');
+  }));
 
   router.get(
     '/admin/projects',

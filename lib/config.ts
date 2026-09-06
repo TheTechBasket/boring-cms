@@ -50,5 +50,9 @@ export function loadConfig(cwd = process.cwd()) {
 
   const dataDir = get('YNCMS_DATA_DIR', path.join(cwd, 'data'));
 
-  return { masterKey, port, forcePasswordReset, dataDir };
+  // Behind a TLS-terminating proxy: honor x-forwarded-proto and mark
+  // session cookies Secure on https requests.
+  const trustProxy = get('TRUST_PROXY', '0') === '1';
+
+  return { masterKey, port, forcePasswordReset, dataDir, trustProxy };
 }
