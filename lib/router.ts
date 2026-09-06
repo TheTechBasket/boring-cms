@@ -1,6 +1,8 @@
 // Tiny hand-written router for node:http. No Express, no dependencies.
 
 export class Router {
+  routes: any[];
+
   constructor() {
     this.routes = []; // { method, pattern: RegExp, keys: string[], handler }
   }
@@ -78,7 +80,7 @@ export function parseCookies(req) {
   return out;
 }
 
-export function setCookie(res, name, value, { maxAgeSeconds, httpOnly = true } = {}) {
+export function setCookie(res, name, value, { maxAgeSeconds, httpOnly = true }: { maxAgeSeconds?: number; httpOnly?: boolean } = {}) {
   let cookie = `${name}=${encodeURIComponent(value)}; Path=/; SameSite=Lax`;
   if (httpOnly) cookie += '; HttpOnly';
   if (typeof maxAgeSeconds === 'number') cookie += `; Max-Age=${maxAgeSeconds}`;

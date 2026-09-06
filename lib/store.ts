@@ -1,6 +1,6 @@
 // Query layer over core.db: users, sessions, projects, settings.
 
-import { hashPassword, verifyPassword, encryptSetting, decryptSetting, randomToken } from './crypto.js';
+import { hashPassword, verifyPassword, encryptSetting, decryptSetting, randomToken } from './crypto.ts';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 

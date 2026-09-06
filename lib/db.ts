@@ -99,11 +99,18 @@ function runMigrations(db, migrationsDir) {
 // slug, and closes handles untouched for IDLE_MS.
 
 export class ProjectDbManager {
-  constructor(dataDir, { onSlowQuery } = {}) {
+  projectsDir: string;
+  handles: Map<string, { db: any; lastUsed: number }>;
+  onSlowQuery: any;
+  migrationsDir: string | undefined;
+  timer: any;
+
+  constructor(dataDir, { onSlowQuery, migrationsDir }: { onSlowQuery?: any; migrationsDir?: string } = {}) {
     this.projectsDir = path.join(dataDir, 'projects');
     mkdirSync(this.projectsDir, { recursive: true });
     this.handles = new Map(); // slug -> { db, lastUsed }
     this.onSlowQuery = onSlowQuery;
+    this.migrationsDir = migrationsDir; // migrations/project/*.sql, applied on open
     this.timer = setInterval(() => this.closeIdle(), 60 * 1000);
     this.timer.unref?.();
   }
@@ -117,6 +124,7 @@ export class ProjectDbManager {
     if (!entry) {
       const db = new DatabaseSync(this.dbPath(slug));
       applyPragmas(db);
+      if (this.migrationsDir) runMigrations(db, this.migrationsDir);
       instrument(db, `project:${slug}`, this.onSlowQuery);
       entry = { db, lastUsed: Date.now() };
       this.handles.set(slug, entry);

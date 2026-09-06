@@ -8,7 +8,7 @@
 import { scrypt, randomBytes, timingSafeEqual, hkdfSync, createHmac, createCipheriv, createDecipheriv } from 'node:crypto';
 import { promisify } from 'node:util';
 
-const scryptAsync = promisify(scrypt);
+const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keylen: number, options?: object) => Promise<Buffer>;
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_N = 16384;

@@ -1,10 +1,11 @@
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadConfig } from './lib/config.js';
-import { openCoreDb, ProjectDbManager } from './lib/db.js';
+import { loadConfig } from './lib/config.ts';
+import { openCoreDb, ProjectDbManager } from './lib/db.ts';
 import {
   userCount,
   getUserByEmail,
@@ -23,9 +24,36 @@ import {
   deleteProjectRow,
   setSetting,
   listSettingKeys,
-} from './lib/store.js';
-import { signValue, verifySignedValue } from './lib/crypto.js';
-import { Router, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.js';
+} from './lib/store.ts';
+import { signValue, verifySignedValue } from './lib/crypto.ts';
+import { Router, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
+import {
+  FIELD_TYPES,
+  contentVersion,
+  listCollections,
+  getCollection,
+  createCollection,
+  addCollectionField,
+  removeCollectionField,
+  deleteCollection,
+  listEntries,
+  getEntry,
+  createEntry,
+  updateEntry,
+  publishEntry,
+  unpublishEntry,
+  deleteEntry,
+  listRevisions,
+  revertToRevision,
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+  verifyApiKey,
+  listPublished,
+  getPublished,
+  slugify,
+  uniqueSlug,
+} from './lib/content.ts';
 import {
   setupPage,
   loginPage,
@@ -33,8 +61,12 @@ import {
   projectListPage,
   projectDetailPage,
   globalSettingsPage,
+  collectionsPage,
+  collectionPage,
+  entryEditorPage,
+  apiKeysPage,
   errorPage,
-} from './lib/views.js';
+} from './lib/views.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_COOKIE = 'yn_session';
@@ -42,15 +74,17 @@ const SESSION_COOKIE = 'yn_session';
 export function createApp(configOverrides = {}) {
   const config = { ...loadConfig(__dirname), ...configOverrides };
   if (!config.masterKey || config.masterKey.length < 32) {
+    const suggested = randomBytes(32).toString('base64url');
     throw new Error(
-      'MASTER_KEY missing or shorter than 32 characters. yncms refuses to start without it.\n' +
-        'Generate one:  node -e "console.log(require(\'node:crypto\').randomBytes(32).toString(\'base64url\'))"\n' +
-        'Then put MASTER_KEY=<value> in .env (see .env.example). Changing it later makes existing encrypted settings unreadable.',
+      'SECRET_KEY missing or shorter than 32 characters. yncms refuses to start without it.\n' +
+        `Suggested key, paste this line into .env:\n\nSECRET_KEY=${suggested}\n\n` +
+        'Changing it later makes existing encrypted settings unreadable. (MASTER_KEY is accepted as a legacy alias.)',
     );
   }
   const migrationsDir = path.join(__dirname, 'migrations');
   const coreDb = openCoreDb(config.dataDir, migrationsDir);
   const projectDbs = new ProjectDbManager(config.dataDir, {
+    migrationsDir: path.join(migrationsDir, 'project'),
     onSlowQuery: (dbName, sql, ms) => {
       try {
         coreDb.prepare('INSERT INTO slow_queries (db, sql, duration_ms) VALUES (?, ?, ?)').run(dbName, sql, ms);
@@ -200,8 +234,7 @@ export function createApp(configOverrides = {}) {
     requireAdmin(async (req, res, params, user) => {
       const form = await readFormBody(req);
       const name = (form.name || '').trim();
-      const slug = (form.slug || '').trim().toLowerCase();
-      if (!name || !isValidSlug(slug)) {
+      if (!name) {
         return html(
           req,
           res,
@@ -209,22 +242,11 @@ export function createApp(configOverrides = {}) {
           projectListPage({
             user,
             projects: listProjects(coreDb),
-            notice: { type: 'error', message: 'Enter a name and a valid slug (lowercase letters, numbers, hyphens).' },
+            notice: { type: 'error', message: 'Enter a project name.' },
           }),
         );
       }
-      if (getProjectBySlug(coreDb, slug)) {
-        return html(
-          req,
-          res,
-          409,
-          projectListPage({
-            user,
-            projects: listProjects(coreDb),
-            notice: { type: 'error', message: `Slug "${slug}" is already in use.` },
-          }),
-        );
-      }
+      const slug = uniqueSlug(slugify(name), (s) => !!getProjectBySlug(coreDb, s));
       createProject(coreDb, { slug, name });
       projectDbs.get(slug); // create the project DB file now
       redirect(req, res, '/admin/projects');
@@ -237,7 +259,7 @@ export function createApp(configOverrides = {}) {
       const project = getProjectBySlug(coreDb, params.slug);
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id });
-      html(req, res, 200, projectDetailPage({ user, project, settingKeys }));
+      html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys }));
     }),
   );
 
@@ -282,6 +304,7 @@ export function createApp(configOverrides = {}) {
           400,
           projectDetailPage({
             user,
+            projects: listProjects(coreDb),
             project,
             settingKeys,
             notice: { type: 'error', message: 'Type the project slug exactly to confirm deletion.' },
@@ -297,7 +320,7 @@ export function createApp(configOverrides = {}) {
   router.get(
     '/admin/settings',
     requireAdmin((req, res, params, user) => {
-      html(req, res, 200, globalSettingsPage({ user, settingKeys: listSettingKeys(coreDb, { scope: 'global' }) }));
+      html(req, res, 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: listSettingKeys(coreDb, { scope: 'global' }) }));
     }),
   );
 
@@ -313,6 +336,196 @@ export function createApp(configOverrides = {}) {
       redirect(req, res, '/admin/settings');
     }),
   );
+
+  // ---- Content (collections, entries, revisions) -------------------------
+
+  // Wraps requireAdmin and resolves the project + its DB from :slug.
+  function withProject(handler) {
+    return requireAdmin((req, res, params, user) => {
+      const project = getProjectBySlug(coreDb, params.slug);
+      if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
+      const db = projectDbs.get(project.slug);
+      const ctx = { user, projects: listProjects(coreDb), project };
+      return handler(req, res, params, ctx, db);
+    });
+  }
+
+  function collectFieldValues(collection, form) {
+    const data = {};
+    for (const f of collection.fields) {
+      const raw = form[`field_${f.name}`];
+      if (f.type === 'boolean') data[f.name] = raw === '1';
+      else if (f.type === 'number') data[f.name] = raw === '' || raw === undefined ? null : Number(raw);
+      else data[f.name] = raw ?? '';
+    }
+    return data;
+  }
+
+  router.get('/admin/projects/:slug/collections', withProject((req, res, params, ctx, db) => {
+    html(req, res, 200, collectionsPage({ ...ctx, collections: listCollections(db) }));
+  }));
+
+  router.post('/admin/projects/:slug/collections', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const name = (form.name || '').trim();
+    if (!name) {
+      return html(req, res, 400, collectionsPage({ ...ctx, collections: listCollections(db), notice: { type: 'error', message: 'Enter a collection name.' } }));
+    }
+    const collection = createCollection(db, name);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${collection.slug}`);
+  }));
+
+  // Resolves the collection too.
+  function withCollection(handler) {
+    return withProject((req, res, params, ctx, db) => {
+      const collection = getCollection(db, params.cslug);
+      if (!collection) return html(req, res, 404, errorPage({ status: 404, message: 'Collection not found.' }));
+      return handler(req, res, params, { ...ctx, collection }, db);
+    });
+  }
+
+  router.get('/admin/projects/:slug/collections/:cslug', withCollection((req, res, params, ctx, db) => {
+    html(req, res, 200, collectionPage({ ...ctx, entries: listEntries(db, ctx.collection.id), fieldTypes: FIELD_TYPES }));
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const label = (form.label || '').trim();
+    const type = FIELD_TYPES.includes(form.type) ? form.type : 'text';
+    if (label) addCollectionField(db, ctx.collection.slug, { label, type });
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/fields/remove', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    if (form.field) removeCollectionField(db, ctx.collection.slug, form.field);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/delete', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    if (form.confirm !== ctx.collection.slug) {
+      return html(req, res, 400, collectionPage({ ...ctx, entries: listEntries(db, ctx.collection.id), fieldTypes: FIELD_TYPES, notice: { type: 'error', message: 'Type the collection slug exactly to confirm deletion.' } }));
+    }
+    deleteCollection(db, ctx.collection.slug);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections`);
+  }));
+
+  router.get('/admin/projects/:slug/collections/:cslug/new', withCollection((req, res, params, ctx) => {
+    html(req, res, 200, entryEditorPage({ ...ctx, entry: null }));
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/new', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const title = (form.title || '').trim();
+    if (!title) return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, notice: { type: 'error', message: 'Enter a title.' } }));
+    const entry = createEntry(db, ctx.collection, { title, data: collectFieldValues(ctx.collection, form) });
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${entry.slug}`);
+  }));
+
+  function withEntry(handler) {
+    return withCollection((req, res, params, ctx, db) => {
+      const entry = getEntry(db, ctx.collection.id, params.eslug);
+      if (!entry) return html(req, res, 404, errorPage({ status: 404, message: 'Entry not found.' }));
+      return handler(req, res, params, { ...ctx, entry }, db);
+    });
+  }
+
+  router.get('/admin/projects/:slug/collections/:cslug/:eslug', withEntry((req, res, params, ctx, db) => {
+    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id) }));
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/:eslug', withEntry(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const title = (form.title || '').trim() || ctx.entry.title;
+    updateEntry(db, ctx.entry, { title, data: collectFieldValues(ctx.collection, form) });
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
+  }));
+
+  const entryActions: Array<[string, (db: any, ctx: any) => void]> = [
+    ['publish', (db, ctx) => publishEntry(db, ctx.entry.id)],
+    ['unpublish', (db, ctx) => unpublishEntry(db, ctx.entry.id)],
+  ];
+  for (const [actionName, fn] of entryActions) {
+    router.post(`/admin/projects/:slug/collections/:cslug/:eslug/${actionName}`, withEntry(async (req, res, params, ctx, db) => {
+      fn(db, ctx);
+      redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
+    }));
+  }
+
+  router.post('/admin/projects/:slug/collections/:cslug/:eslug/delete', withEntry(async (req, res, params, ctx, db) => {
+    deleteEntry(db, ctx.entry.id);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/:eslug/revert', withEntry(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const revisionId = Number.parseInt(form.revision_id, 10);
+    try {
+      revertToRevision(db, ctx.entry, revisionId);
+    } catch (err) {
+      return html(req, res, 400, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), notice: { type: 'error', message: err.message } }));
+    }
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
+  }));
+
+  // ---- API keys -----------------------------------------------------------
+
+  router.get('/admin/projects/:slug/api-keys', withProject((req, res, params, ctx, db) => {
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db) }));
+  }));
+
+  router.post('/admin/projects/:slug/api-keys', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const name = (form.name || '').trim();
+    if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
+    const createdKey = createApiKey(db, name);
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey }));
+  }));
+
+  router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {
+    revokeApiKey(db, Number.parseInt(params.keyId, 10));
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
+  }));
+
+  // ---- Public content API (hot path: no sessions, Bearer key only) --------
+
+  function json(req, res, status, payload, headers = {}) {
+    send(req, res, status, JSON.stringify(payload), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+  }
+
+  function apiHandler(handler) {
+    return (req, res, params) => {
+      const project = getProjectBySlug(coreDb, params.project);
+      if (!project) return json(req, res, 404, { error: 'not_found' });
+      const db = projectDbs.get(project.slug);
+      const auth = req.headers.authorization || '';
+      const key = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+      if (!verifyApiKey(db, key)) return json(req, res, 401, { error: 'unauthorized' });
+
+      // ETag from the project's content version: publish bumps it, so
+      // repeat static-site builds get 304s without touching entries.
+      const etag = `"v${contentVersion(db)}"`;
+      if (req.headers['if-none-match'] === etag) return send(req, res, 304, '', { ETag: etag });
+
+      const collection = getCollection(db, params.collection);
+      if (!collection) return json(req, res, 404, { error: 'not_found' });
+      return handler(req, res, params, { db, collection, etag });
+    };
+  }
+
+  router.get('/api/v1/:project/:collection', apiHandler((req, res, params, { db, collection, etag }) => {
+    const url = new URL(req.url, 'http://localhost');
+    const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50;
+    const offset = Number.parseInt(url.searchParams.get('offset') ?? '0', 10) || 0;
+    json(req, res, 200, { items: listPublished(db, collection.id, { limit, offset }) }, { ETag: etag });
+  }));
+
+  router.get('/api/v1/:project/:collection/:entry', apiHandler((req, res, params, { db, collection, etag }) => {
+    const item = getPublished(db, collection.id, params.entry);
+    if (!item) return json(req, res, 404, { error: 'not_found' });
+    json(req, res, 200, item, { ETag: etag });
+  }));
 
   // ---- Static files -------------------------------------------------------
 
@@ -334,7 +547,7 @@ export function createApp(configOverrides = {}) {
 
   // ---- Dispatch -------------------------------------------------------------
 
-  const server = http.createServer((req, res) => {
+  const server: any = http.createServer((req: any, res) => {
     req._start = performance.now();
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;

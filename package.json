@@ -8,13 +8,16 @@
     "node": ">=22"
   },
   "scripts": {
-    "start": "node server.js",
-    "smoke": "node scripts/smoke.mjs",
+    "start": "node server.ts",
+    "smoke": "node scripts/smoke.ts",
     "css": "tailwindcss -i styles/admin.src.css -o public/admin.css --minify",
     "css:watch": "tailwindcss -i styles/admin.src.css -o public/admin.css --watch"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.3",
-    "tailwindcss": "^4.3.3"
+    "@types/node": "^26.4.1",
+    "marked": "^18.0.11",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
   }
 }
