@@ -43,6 +43,7 @@ import { handleMcp, rateLimitOk } from './lib/mcp.ts';
 import {
   FIELD_TYPES,
   contentVersion,
+  bumpContentVersion,
   listCollections,
   getCollection,
   createCollection,
@@ -534,7 +535,16 @@ export function createApp(configOverrides = {}) {
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const form = await readFormBody(req);
       const choice = (form.storage || 'local').trim();
+      // Pin unpinned rows to the base they live under right now, so their
+      // URLs keep working after the switch. "Migrate media" moves them later.
+      const oldBase = mediaConfigFor(project).publicBase || '';
+      const db = projectDbs.get(project.slug);
+      db.prepare('UPDATE media SET base_url = ? WHERE base_url IS NULL').run(oldBase);
       setSetting(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage', value: choice });
+      // Rows already on the new storage's base unpin again (no-op switches,
+      // or switching back).
+      const newBase = mediaConfigFor(project).publicBase || '';
+      db.prepare('UPDATE media SET base_url = NULL WHERE base_url = ?').run(newBase);
       redirect(req, res, `/admin/projects/${project.slug}`);
     }),
   );
@@ -633,8 +643,15 @@ export function createApp(configOverrides = {}) {
         region: (form.region || '').trim() || 'auto',
         public_url: (form.public_url || '').trim(),
       };
+      // Test before saving: a probe PUT + LIST + DELETE proves the
+      // credentials, bucket and endpoint actually work with the exact
+      // permissions the CMS needs.
+      if (form.skip_test !== '1') {
+        const err = await probeStorage(blob);
+        if (err) return render({ type: 'error', message: `Storage test failed, nothing saved: ${err}` });
+      }
       setSetting(coreDb, config.masterKey, { scope: 'global', key: `storage_${name}`, value: JSON.stringify(blob) });
-      render({ type: 'success', message: `Storage "${name}" saved. Select it on any project page.` });
+      render({ type: 'success', message: `Storage "${name}" ${form.skip_test === '1' ? 'saved without testing' : 'tested and saved'}. Select it on any project page.` });
     }),
   );
 
@@ -699,6 +716,27 @@ export function createApp(configOverrides = {}) {
       .map((k) => k.slice('storage_'.length));
   }
 
+  // Write, list and delete a probe object: the three permissions the CMS
+  // needs. Returns an error string, or null when the storage works.
+  async function probeStorage(blob) {
+    const backend = s3Backend({
+      endpoint: blob.endpoint,
+      bucket: blob.bucket,
+      region: blob.region || 'auto',
+      accessKey: blob.key,
+      secretKey: blob.secret,
+    });
+    const probeKey = `yncms-probe-${randomBytes(4).toString('hex')}.txt`;
+    try {
+      await backend.put(probeKey, Buffer.from('yncms storage probe'), 'text/plain');
+      await backend.list();
+      await backend.remove(probeKey);
+      return null;
+    } catch (err) {
+      return String(err.message || err).slice(0, 300);
+    }
+  }
+
   function getStorage(name) {
     const raw = getSettingValue(coreDb, config.masterKey, { scope: 'global', key: `storage_${name}` });
     if (!raw) return null;
@@ -749,22 +787,43 @@ export function createApp(configOverrides = {}) {
     return mediaConfigFor(project).backend;
   }
 
+  // Effective URL per row: pinned rows (base_url set on a storage switch)
+  // keep serving from where the file actually lives; unpinned rows follow
+  // the project's current storage. stale = pinned somewhere else.
+  function mediaUrlFor(m, project, publicBase) {
+    const base = m.base_url === null || m.base_url === undefined ? publicBase || '' : m.base_url;
+    return (key) => (base ? `${base}/${key}` : `/media/${project.slug}/${key}`);
+  }
+
+  function decorateMedia(m, project, publicBase) {
+    const urlFor = mediaUrlFor(m, project, publicBase);
+    const stale = m.base_url !== null && m.base_url !== undefined && m.base_url !== (publicBase || '');
+    return { ...m, url: urlFor(m.key), stale };
+  }
+
   function mediaCtx(ctx, db) {
     const setting = (key) => getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: ctx.project.id, key });
     const { publicBase, isS3 } = mediaConfigFor(ctx.project);
-    const media = listMedia(db);
+    const media = listMedia(db).map((m) => decorateMedia(m, ctx.project, publicBase));
     // Per-image "where used": a plain scan, no stored relationships.
     const usage = Object.fromEntries(media.map((m) => [m.key, mediaUsage(db, m.key)]));
     return {
       ...ctx,
       media,
       usage,
+      staleCount: media.filter((m) => m.stale).length,
       folders: listMediaFolders(db),
       publicBase,
       variantsMode: setting('media_variants') || '',
       hasSharp,
       directUpload: isS3,
     };
+  }
+
+  // Media props for the entry editor's image picker: same decorated rows.
+  function editorMedia(ctx, db) {
+    const { publicBase } = mediaConfigFor(ctx.project);
+    return { media: listMedia(db).map((m) => decorateMedia(m, ctx.project, publicBase)), publicBase };
   }
 
   router.get('/admin/projects/:slug/media', withProject((req, res, params, ctx, db) => {
@@ -850,6 +909,69 @@ export function createApp(configOverrides = {}) {
     redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
   }));
 
+  // Copy pinned rows to the current storage, then rewrite every entry URL
+  // to the new base. Never overwrites an existing object in the destination
+  // and never deletes from the source, so the old bucket stays intact until
+  // the admin removes it themselves.
+  router.post('/admin/projects/:slug/media/migrate', withProject(async (req, res, params, ctx, db) => {
+    const { backend, publicBase } = mediaConfigFor(ctx.project);
+    const stale = listMedia(db)
+      .map((m) => decorateMedia(m, ctx.project, publicBase))
+      .filter((m) => m.stale);
+    const localDir = path.join(config.dataDir, 'media', ctx.project.slug);
+    const lines = [];
+    let moved = 0;
+    let failed = 0;
+    let rewrote = 0;
+
+    async function readSource(m, key) {
+      if (m.base_url === '') {
+        const p = path.join(localDir, key);
+        return existsSync(p) ? readFileSync(p) : null;
+      }
+      const res = await fetch(`${m.base_url}/${key}`);
+      if (!res.ok) return null;
+      return Buffer.from(await res.arrayBuffer());
+    }
+
+    for (const m of stale) {
+      const keys = [m.key, ...Object.values(m.variants)];
+      try {
+        for (const key of keys) {
+          // No overwrite: if the destination already has the object, keep it.
+          if (await backend.stream(key)) continue;
+          const buf = await readSource(m, key);
+          if (!buf) throw new Error(`source object missing: ${key}`);
+          await backend.put(key, buf, m.mime);
+        }
+        const oldFor = mediaUrlFor(m, ctx.project, publicBase);
+        const newFor = mediaUrlFor({ base_url: null }, ctx.project, publicBase);
+        for (const key of keys) {
+          const oldUrl = oldFor(key);
+          const newUrl = newFor(key);
+          if (oldUrl === newUrl) continue;
+          const changed = db.prepare(
+            "UPDATE entries SET data = replace(data, ?, ?), published_data = CASE WHEN published_data IS NULL THEN NULL ELSE replace(published_data, ?, ?) END WHERE data LIKE ? OR published_data LIKE ?",
+          ).run(oldUrl, newUrl, oldUrl, newUrl, `%${oldUrl}%`, `%${oldUrl}%`);
+          rewrote += changed.changes;
+        }
+        db.prepare('UPDATE media SET base_url = NULL WHERE id = ?').run(m.id);
+        moved += 1;
+        lines.push(`moved ${m.key}`);
+      } catch (err) {
+        failed += 1;
+        lines.push(`FAILED ${m.key}: ${String(err.message || err).slice(0, 200)}`);
+      }
+    }
+    if (rewrote > 0) bumpContentVersion(db);
+    const summary = `${moved} moved, ${failed} failed, ${rewrote} entry rewrites. Source objects were not deleted.`;
+    html(req, res, 200, mediaPage({
+      ...mediaCtx(ctx, db),
+      report: lines.join('\n'),
+      notice: { type: failed ? 'error' : 'success', message: `Migration finished: ${summary}` },
+    }));
+  }));
+
   // Public serve route. Keys are content-hashed, so responses are immutable.
   router.get('/media/:slug/:key', async (req, res, params) => {
     const project = getProjectBySlug(coreDb, params.slug);
@@ -859,7 +981,12 @@ export function createApp(configOverrides = {}) {
     const db = projectDbs.get(project.slug);
     const found = findServableMedia(db, params.key);
     if (!found) return send(req, res, 404, 'Not found');
-    const backend = mediaBackendFor(project);
+    // Pinned rows serve from where the file actually lives, not from the
+    // project's current storage (which may not have the object yet).
+    if (found.media.base_url) return redirect(req, res, `${found.media.base_url}/${params.key}`);
+    const backend = found.media.base_url === ''
+      ? localBackend(path.join(config.dataDir, 'media', project.slug))
+      : mediaBackendFor(project);
     const publicUrl = backend.publicUrl(params.key);
     if (publicUrl) return redirect(req, res, publicUrl);
     const stream = await backend.stream(params.key);
@@ -1018,7 +1145,7 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/collections/:cslug/new', withCollection((req, res, params, ctx, db) => {
-    html(req, res, 200, entryEditorPage({ ...ctx, entry: null, media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase }));
+    html(req, res, 200, entryEditorPage({ ...ctx, entry: null, ...editorMedia(ctx, db) }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/new', withCollection(async (req, res, params, ctx, db) => {
@@ -1026,7 +1153,7 @@ export function createApp(configOverrides = {}) {
     const data = collectFieldValues(ctx.collection, form);
     const errors = validateEntryData(ctx.collection, data);
     if (errors.length) {
-      return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase, notice: { type: 'error', message: errors.join(' ') } }));
+      return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, ...editorMedia(ctx, db), notice: { type: 'error', message: errors.join(' ') } }));
     }
     const entry = createEntry(db, ctx.collection, { data });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${entry.slug}`);
@@ -1041,7 +1168,7 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/collections/:cslug/:eslug', withEntry((req, res, params, ctx, db) => {
-    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase }));
+    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), ...editorMedia(ctx, db) }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/:eslug', withEntry(async (req, res, params, ctx, db) => {
@@ -1049,7 +1176,7 @@ export function createApp(configOverrides = {}) {
     const data = collectFieldValues(ctx.collection, form);
     const errors = validateEntryData(ctx.collection, data);
     if (errors.length) {
-      return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db), publicBase: mediaConfigFor(ctx.project).publicBase, notice: { type: 'error', message: errors.join(' ') } }));
+      return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), ...editorMedia(ctx, db), notice: { type: 'error', message: errors.join(' ') } }));
     }
     updateEntry(db, ctx.entry, { data });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);

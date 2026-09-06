@@ -621,7 +621,8 @@ export function globalSettingsPage({ user, projects, settingKeys, notice: pageNo
           ${field({ label: 'Secret key', name: 'secret', type: 'password', required: true, autocomplete: 'off' })}
           ${field({ label: 'Region', name: 'region', placeholder: 'auto' })}
           ${field({ label: 'Public URL (custom domain, used in content links)', name: 'public_url', placeholder: 'https://cdn.example.com' })}
-          ${button({ label: 'Save storage' })}
+          ${checkbox({ name: 'skip_test', label: 'Save without testing (skip the write/list/delete probe)' })}
+          ${button({ label: 'Test and save storage' })}
         `,
         })}
       </div>
@@ -870,8 +871,8 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
       const images = media.filter((m: any) => m.mime?.startsWith('image/'));
       const pickerCards = images
         .map((m: any) => {
-          const url = mediaUrl(projectSlug, m.key, publicBase);
-          const thumb = m.variants?.thumb ? mediaUrl(projectSlug, m.variants.thumb, publicBase) : url;
+          const url = m.url ?? mediaUrl(projectSlug, m.key, publicBase);
+          const thumb = m.variants?.thumb ? url.replace(m.key, m.variants.thumb) : url;
           return `<button type="button" data-image-set="${escapeHtml(url)}" data-media-name="${escapeHtml(`${m.filename} ${m.folder || ''}`.toLowerCase())}" class="border border-border bg-card p-0 cursor-pointer hover:border-primary" title="${escapeHtml(m.filename)}">
             <img src="${thumb}" alt="${escapeHtml(m.filename)}" loading="lazy" class="h-20 w-full object-cover">
           </button>`;
@@ -1115,12 +1116,14 @@ function formatSize(bytes: number): string {
 // (no local copies, no server work); otherwise a pre-generated variant or
 // the original served through the app.
 function mediaPreviewUrl(projectSlug: string, m: any, publicBase: string | null, width = 320): string {
-  if (publicBase) return `https://wsrv.nl/?url=${encodeURIComponent(`${publicBase.replace(/\/+$/, '')}/${m.key}`)}&w=${width}`;
+  // Pinned rows preview from where they actually live.
+  const url = m.url ?? mediaUrl(projectSlug, m.key, publicBase);
+  if (url.startsWith('http')) return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=${width}`;
   const key = m.variants?.thumb || m.key;
   return `/media/${projectSlug}/${key}`;
 }
 
-export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], notice: pageNotice, report }: any): string {
+export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], staleCount = 0, notice: pageNotice, report }: any): string {
   const base = `/admin/projects/${project.slug}`;
   // Existing groups as visible, clickable chips (no datalist): tapping one
   // fills the group input in the same form.
@@ -1131,8 +1134,11 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
     : '';
   const cards = media
     .map((m: any) => {
-      const url = mediaUrl(project.slug, m.key, publicBase);
+      const url = m.url ?? mediaUrl(project.slug, m.key, publicBase);
       const isImage = m.mime.startsWith('image/');
+      const staleBadge = m.stale
+        ? '<span class="inline-flex w-fit items-center bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground" title="Still served from the previous storage. Use Migrate media to move it.">old storage</span>'
+        : '';
       const snippet = isImage ? `![${m.filename}](${url})` : `[${m.filename}](${url})`;
       const preview = isImage
         ? `<img src="${mediaPreviewUrl(project.slug, m, publicBase)}" alt="${escapeHtml(m.filename)}" loading="lazy" class="h-36 w-full object-cover bg-muted">`
@@ -1151,6 +1157,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
         <div class="p-3 flex flex-col gap-2 text-sm">
           <span class="font-medium truncate" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
           <span class="text-xs text-muted-foreground">${formatSize(m.size)}${m.width ? ` · ${m.width}×${m.height}` : ''}</span>
+          ${staleBadge}
           <form method="post" action="${base}/media/${m.id}/folder" class="flex items-center gap-1">
             <input name="folder" value="${escapeHtml(m.folder || '')}" placeholder="No group" class="${INPUT_CLASS} h-7 text-xs" title="Group this file (featured, logos, temp...)">
             ${button({ label: 'Set', variant: 'ghost', small: true })}
@@ -1171,7 +1178,16 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
     ? checkbox({ name: 'variants', label: 'Generate resized variants (_320, _1024)', checked: variantsMode === 'on' })
     : '';
 
-  const reportBlock = report ? preBlock(JSON.stringify(report, null, 2)) : '';
+  const reportBlock = report ? preBlock(typeof report === 'string' ? report : JSON.stringify(report, null, 2)) : '';
+
+  // Rows still on a previous storage: their links keep working, and this
+  // banner offers the safe move (copy, rewrite entry URLs, never delete).
+  const migrateBanner = staleCount
+    ? `<div class="border border-border bg-card shadow-xs p-4 flex flex-wrap items-center gap-3">
+        <p class="text-sm m-0 flex-1 min-w-64">${staleCount} file${staleCount === 1 ? ' is' : 's are'} still served from a previous storage. Links keep working. Migrating copies them to the current storage (existing objects are never overwritten), rewrites every entry to the new URLs, and leaves the old copies in place so you can delete the old bucket later.</p>
+        <form method="post" action="${base}/media/migrate">${button({ label: 'Migrate media to current storage' })}</form>
+      </div>`
+    : '';
 
   return layout({
     title: `Media · ${project.name}`,
@@ -1200,6 +1216,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
           </form>`,
         })}</div>`)}
       <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field.${publicBase ? ` Links use the storage domain <code>${escapeHtml(publicBase)}</code> directly, so they never depend on this CMS or the project slug. Previews are resized on the fly by wsrv.nl.` : ` Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching. The slug never changes (rename only changes the display name), so links stay stable.`}</p>
+      ${migrateBanner}
       ${reportBlock}
       ${media.length
         ? `<div class="flex items-center gap-2 max-w-md">

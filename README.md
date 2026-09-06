@@ -75,7 +75,17 @@ the CMS needs, never an account or admin credential. On R2 create an
 API token with "Object Read & Write" scoped to the bucket; on AWS or
 MinIO limit the key to `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`
 and `s3:ListBucket` on the bucket (list powers Sync storage, delete
-powers media removal).
+powers media removal). Saving a storage tests it first: a probe object is
+written, listed and deleted, and any failure is reported with nothing
+saved ("Save without testing" skips the probe).
+
+Switching a project's storage never breaks existing files: rows uploaded
+under the previous storage keep serving from where they actually live
+(badged "old storage" on the media page). "Migrate media to current
+storage" copies them over (existing destination objects are never
+overwritten), rewrites every entry to the new URLs, and leaves the old
+copies untouched, so the old bucket can be deleted once migration is
+clean. For S3 sources the copy reads through the storage's public URL.
 
 Local files are served at `/media/<project>/<key>` with immutable
 caching; keys are content-hash prefixed. The project slug is permanent

@@ -309,20 +309,43 @@ async function main() {
   assert.ok(foldersHtml.includes('data-media-folder="logos"'), 'folder change should persist');
   assert.ok(foldersHtml.includes('data-fill="folder"'), 'upload form should offer existing groups as chips');
 
-  const storageSave = await req('POST', '/admin/settings/storage', {
+  // Unreachable storage must fail the probe and save nothing.
+  const badStorage = await req('POST', '/admin/settings/storage', {
     form: { name: 'R2 Main', endpoint: 'https://acc.r2.cloudflarestorage.com', bucket: 'assets', key: 'AK', secret: 'SK', public_url: 'https://cdn.example.com/' },
   });
-  assert.equal(storageSave.status, 200, 'storage save should render success');
+  assert.equal(badStorage.status, 400, 'storage save should fail the probe with bad credentials');
+  assert.ok((await badStorage.text()).includes('Storage test failed'), 'probe failure should be reported');
+
+  const storageSave = await req('POST', '/admin/settings/storage', {
+    form: { name: 'R2 Main', endpoint: 'https://acc.r2.cloudflarestorage.com', bucket: 'assets', key: 'AK', secret: 'SK', public_url: 'https://cdn.example.com/', skip_test: '1' },
+  });
+  assert.equal(storageSave.status, 200, 'storage save with skip_test should render success');
   assert.ok((await storageSave.text()).includes('r2-main'), 'storage save should confirm the slugified name');
   const projectPageHtml = await (await req('GET', `/admin/projects/${slug}`)).text();
   assert.ok(projectPageHtml.includes('r2-main'), 'project page should offer the shared storage');
 
+  // Switching storage pins existing rows to where they live: links keep
+  // working from the old storage and the page offers a migration.
   const pickStorage = await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'r2-main' } });
   assert.equal(pickStorage.status, 302, 'storage select should redirect');
   const s3MediaHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
-  assert.ok(s3MediaHtml.includes('https://cdn.example.com'), 'media snippets should use the storage public URL');
+  assert.ok(s3MediaHtml.includes(`/media/${slug}/`), 'pinned rows should keep their old app-served URLs');
+  assert.ok(s3MediaHtml.includes('old storage'), 'pinned rows should be badged');
+  assert.ok(s3MediaHtml.includes('Migrate media to current storage'), 'media page should offer migration');
   assert.ok(!s3MediaHtml.includes(`https://cdn.example.com/${slug}/`), 'public URLs must not embed the project slug');
+
+  // Migration against the fake bucket fails per row, gracefully: nothing is
+  // rewritten and rows stay pinned to the working old URLs.
+  const migrateRes = await req('POST', `/admin/projects/${slug}/media/migrate`);
+  assert.equal(migrateRes.status, 200, 'migration should render a report even on failure');
+  const migrateHtml = await migrateRes.text();
+  assert.ok(migrateHtml.includes('failed'), 'migration report should count failures');
+  assert.ok(migrateHtml.includes('old storage'), 'failed rows should stay pinned');
+
+  // Switching back unpins rows whose base matches again: nothing stale.
   await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'local' } }); // back to disk for the rest
+  const backLocalHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(!backLocalHtml.includes('old storage'), 'switching back to the original storage should unpin rows');
 
   const iconRes = await req('POST', `/admin/projects/${slug}/rename`, { form: { name: 'Demo Project', icon: '🚀' } });
   assert.equal(iconRes.status, 302, 'rename with icon should redirect');
