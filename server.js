@@ -41,6 +41,13 @@ const SESSION_COOKIE = 'yn_session';
 
 export function createApp(configOverrides = {}) {
   const config = { ...loadConfig(__dirname), ...configOverrides };
+  if (!config.masterKey || config.masterKey.length < 32) {
+    throw new Error(
+      'MASTER_KEY missing or shorter than 32 characters. yncms refuses to start without it.\n' +
+        'Generate one:  node -e "console.log(require(\'node:crypto\').randomBytes(32).toString(\'base64url\'))"\n' +
+        'Then put MASTER_KEY=<value> in .env (see .env.example). Changing it later makes existing encrypted settings unreadable.',
+    );
+  }
   const migrationsDir = path.join(__dirname, 'migrations');
   const coreDb = openCoreDb(config.dataDir, migrationsDir);
   const projectDbs = new ProjectDbManager(config.dataDir, {
