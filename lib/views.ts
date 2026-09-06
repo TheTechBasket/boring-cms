@@ -201,6 +201,7 @@ function sidebar({ user, projects, project }: {
     ? `<div class="flex flex-col gap-0.5 mt-4">
         <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">${escapeHtml(project.name)}</span>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">Content</a>
+        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">Media</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">API keys</a>
         <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">Project settings</a>
       </div>`
@@ -714,6 +715,67 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, notice:
         </tr></thead>
         <tbody>${rows || '<tr><td colspan="4" class="p-3 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
       </table>`)}
+    `,
+  });
+}
+
+// ---- Media library --------------------------------------------------------
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+export function mediaPage({ user, projects, project, media, notice: pageNotice }: any): string {
+  const cards = media
+    .map((m: any) => {
+      const url = `/media/${project.slug}/${m.key}`;
+      const thumbUrl = m.variants.thumb ? `/media/${project.slug}/${m.variants.thumb}` : url;
+      const isImage = m.mime.startsWith('image/');
+      const snippet = isImage ? `![${m.filename}](${url})` : `[${m.filename}](${url})`;
+      const preview = isImage
+        ? `<img src="${thumbUrl}" alt="${escapeHtml(m.filename)}" loading="lazy" class="h-36 w-full object-cover bg-muted">`
+        : `<div class="h-36 w-full bg-muted flex items-center justify-center text-xs font-medium uppercase tracking-wide text-muted-foreground">${escapeHtml(m.mime)}</div>`;
+      return `<div class="border border-border bg-card shadow-xs flex flex-col">
+        <a href="${url}" target="_blank" rel="noopener">${preview}</a>
+        <div class="p-3 flex flex-col gap-2 text-sm">
+          <span class="font-medium truncate" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
+          <span class="text-xs text-muted-foreground">${formatSize(m.size)}${m.width ? ` · ${m.width}×${m.height}` : ''}</span>
+          <div class="flex items-center gap-2">
+            <button type="button" data-copy="${escapeHtml(snippet)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy MD</button>
+            <form method="post" action="/admin/projects/${project.slug}/media/${m.id}/delete" data-confirm="delete-media">
+              ${button({ label: 'Delete', variant: 'ghost', small: true })}
+            </form>
+          </div>
+        </div>
+      </div>`;
+    })
+    .join('\n');
+
+  return layout({
+    title: `Media · ${project.name}`,
+    user,
+    projects,
+    project,
+    notice: pageNotice,
+    body: `
+      ${pageHeader('Media', `<details class="relative" data-popover>
+        <summary class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} list-none select-none [&::-webkit-details-marker]:hidden">+ Upload</summary>
+        <div class="absolute right-0 top-full mt-2 z-10 w-80 border border-border bg-popover text-popover-foreground shadow-lg p-5">
+          <form method="post" action="/admin/projects/${project.slug}/media" enctype="multipart/form-data" class="flex flex-col gap-4">
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">File (50 MB max)</span>
+              <input type="file" name="file" required class="text-sm file:mr-3 file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:cursor-pointer">
+            </label>
+            ${button({ label: 'Upload' })}
+          </form>
+        </div>
+      </details>`)}
+      <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field. Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching.</p>
+      ${media.length
+        ? `<div class="grid gap-4 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">${cards}</div>`
+        : '<p class="text-sm text-muted-foreground italic">No media yet. Upload with the + button.</p>'}
     `,
   });
 }

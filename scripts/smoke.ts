@@ -191,7 +191,37 @@ async function main() {
   entry = getEntry(projectDb, collection.id, entrySlug);
   assert.equal(entry.data.body, '# First draft', 'revert should restore the previous field value');
 
-  // 11. Delete the project (requires exact slug confirmation)
+  // 11. Media: upload to the local backend, serve it back, delete it
+  const fileData = 'hello media';
+  const boundary = 'smokeboundary';
+  const multipartBody =
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="note.txt"\r\nContent-Type: text/plain\r\n\r\n${fileData}\r\n--${boundary}--\r\n`;
+  const uploadRes = await fetch(`${base}/admin/projects/${slug}/media`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: withCookie({ 'Content-Type': `multipart/form-data; boundary=${boundary}` }),
+    body: multipartBody,
+  });
+  assert.equal(uploadRes.status, 302, 'media upload should redirect');
+
+  const mediaPageRes = await req('GET', `/admin/projects/${slug}/media`);
+  const mediaHtml = await mediaPageRes.text();
+  const mediaKey = (mediaHtml.match(/\/media\/demo-project\/([a-z0-9-]+\.txt)/) || [])[1];
+  assert.ok(mediaKey, 'media page should list the uploaded file');
+
+  const served = await fetch(`${base}/media/${slug}/${mediaKey}`);
+  assert.equal(served.status, 200, 'media serve route should return the file');
+  assert.equal(await served.text(), fileData, 'served bytes should match the upload');
+  assert.ok((served.headers.get('cache-control') || '').includes('immutable'), 'media should be cached as immutable');
+
+  const mediaId = (mediaHtml.match(/media\/(\d+)\/delete/) || [])[1];
+  assert.ok(mediaId, 'media card should include a delete form');
+  const mediaDelete = await req('POST', `/admin/projects/${slug}/media/${mediaId}/delete`);
+  assert.equal(mediaDelete.status, 302, 'media delete should redirect');
+  const servedGone = await fetch(`${base}/media/${slug}/${mediaKey}`);
+  assert.equal(servedGone.status, 404, 'deleted media should 404');
+
+  // 12. Delete the project (requires exact slug confirmation)
   const badDelete = await req('POST', `/admin/projects/${slug}/delete`, {
     form: { confirm: 'not-the-slug' },
   });

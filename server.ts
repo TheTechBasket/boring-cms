@@ -24,7 +24,11 @@ import {
   deleteProjectRow,
   setSetting,
   listSettingKeys,
+  getSettingValue,
 } from './lib/store.ts';
+import { readMultipart } from './lib/multipart.ts';
+import { localBackend, s3Backend } from './lib/storage.ts';
+import { listMedia, createMedia, deleteMedia, findServableMedia } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import {
@@ -66,6 +70,7 @@ import {
   collectionPage,
   entryEditorPage,
   apiKeysPage,
+  mediaPage,
   errorPage,
 } from './lib/views.ts';
 
@@ -386,6 +391,70 @@ export function createApp(configOverrides = {}) {
     const collection = createCollection(db, name);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${collection.slug}`);
   }));
+
+  // ---- Media --------------------------------------------------------------
+
+  // Backend chosen per project from encrypted settings; local disk default.
+  function mediaBackendFor(project) {
+    const setting = (key) =>
+      getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key });
+    if (setting('media_backend') === 's3') {
+      return s3Backend({
+        endpoint: setting('s3_endpoint'),
+        bucket: setting('s3_bucket'),
+        region: setting('s3_region') || 'auto',
+        accessKey: setting('s3_key'),
+        secretKey: setting('s3_secret'),
+        publicUrl: setting('s3_public_url'),
+      });
+    }
+    return localBackend(path.join(config.dataDir, 'media', project.slug));
+  }
+
+  router.get('/admin/projects/:slug/media', withProject((req, res, params, ctx, db) => {
+    html(req, res, 200, mediaPage({ ...ctx, media: listMedia(db) }));
+  }));
+
+  router.post('/admin/projects/:slug/media', withProject(async (req, res, params, ctx, db) => {
+    let upload;
+    try {
+      upload = await readMultipart(req);
+    } catch (err) {
+      return html(req, res, 400, mediaPage({ ...ctx, media: listMedia(db), notice: { type: 'error', message: err.message } }));
+    }
+    const file = upload.files.file;
+    if (!file) {
+      return html(req, res, 400, mediaPage({ ...ctx, media: listMedia(db), notice: { type: 'error', message: 'Choose a file to upload.' } }));
+    }
+    await createMedia(db, mediaBackendFor(ctx.project), file);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
+  }));
+
+  router.post('/admin/projects/:slug/media/:id/delete', withProject(async (req, res, params, ctx, db) => {
+    await deleteMedia(db, mediaBackendFor(ctx.project), Number(params.id));
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
+  }));
+
+  // Public serve route. Keys are content-hashed, so responses are immutable.
+  router.get('/media/:slug/:key', async (req, res, params) => {
+    const project = getProjectBySlug(coreDb, params.slug);
+    if (!project || !/^[A-Za-z0-9._-]+$/.test(params.key)) {
+      return send(req, res, 404, 'Not found');
+    }
+    const db = projectDbs.get(project.slug);
+    const found = findServableMedia(db, params.key);
+    if (!found) return send(req, res, 404, 'Not found');
+    const backend = mediaBackendFor(project);
+    const publicUrl = backend.publicUrl(params.key);
+    if (publicUrl) return redirect(req, res, publicUrl);
+    const stream = await backend.stream(params.key);
+    if (!stream) return send(req, res, 404, 'Not found');
+    res.writeHead(200, {
+      'Content-Type': found.media.mime,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    });
+    stream.pipe(res);
+  });
 
   // Resolves the collection too.
   function withCollection(handler) {

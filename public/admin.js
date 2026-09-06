@@ -7,6 +7,7 @@ const CONFIRM_MESSAGES = {
   'delete-project': 'This permanently deletes the project database. Continue?',
   'delete-collection': 'This deletes the collection and every entry in it. Continue?',
   'delete-entry': 'Delete this entry? Its revisions go with it.',
+  'delete-media': 'Delete this file? Anything embedding it will break.',
 };
 
 document.addEventListener('submit', (event) => {
@@ -35,6 +36,17 @@ if (switcher) {
     window.location.href = slug ? `/admin/projects/${encodeURIComponent(slug)}/collections` : '/admin/projects';
   });
 }
+
+// Copy-to-clipboard buttons (media markdown snippets).
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-copy]');
+  if (!btn) return;
+  navigator.clipboard.writeText(btn.dataset.copy).then(() => {
+    const original = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  });
+});
 
 // "+" popovers are <details data-popover>: close any open one on outside click.
 document.addEventListener('click', (event) => {

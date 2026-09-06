@@ -16,14 +16,14 @@ Upload, store, and serve media per project. Local disk by default, S3-compatible
 
 **Checklist**
 
-- [ ] Multipart form parser in lib (single file + fields, streaming to temp file).
-- [ ] Storage backend interface + local implementation.
-- [ ] S3 SigV4 client (PUT/GET/DELETE) + backend implementation; settings read from encrypted project settings.
-- [ ] migrations/project/002_media.sql; lib/media.ts (create, list, delete, variant generation via optional sharp).
-- [ ] Serve route with immutable caching; S3 public-URL redirect path.
-- [ ] Media library UI: grid, upload, delete (behind confirm), copy-markdown-snippet.
-- [ ] Smoke: upload a file to local backend, fetch it back, delete it.
-- [ ] pnpm css rebuild, README media section.
+- [x] Multipart form parser in lib (buffered, 50 MB cap; streaming deferred).
+- [x] Storage backend interface + local implementation (lib/storage.ts).
+- [x] S3 SigV4 client (PUT/GET/DELETE) + backend implementation; settings read from encrypted project settings.
+- [x] migrations/project/002_media.sql; lib/media.ts (create, list, delete, variant generation via optional sharp).
+- [x] Serve route with immutable caching; S3 public-URL redirect path.
+- [x] Media library UI: grid, upload popover, delete behind confirm, Copy MD snippet button.
+- [x] Smoke: upload to local backend, serve back with immutable cache, delete, 404.
+- [x] pnpm css rebuild, README media section.
 
 **Verification**
 

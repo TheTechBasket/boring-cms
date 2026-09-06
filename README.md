@@ -56,6 +56,19 @@ curl -H "Authorization: Bearer yn_..." \
 Responses carry an `ETag` tied to the project's content version; send
 `If-None-Match` to get cheap `304`s until the next publish.
 
+## Media
+
+Each project has a media library (sidebar: Media). Files upload to local
+disk (`data/media/<project>/`) by default; set the encrypted project
+settings `media_backend=s3`, `s3_endpoint`, `s3_bucket`, `s3_key`,
+`s3_secret` (optionally `s3_region`, `s3_public_url`) to store in any
+S3-compatible bucket (R2, MinIO, S3) via a hand-rolled SigV4 client.
+Files are served at `/media/<project>/<key>` with immutable caching;
+keys are content-hash prefixed. If `s3_public_url` is set, the serve
+route redirects there instead of proxying. Install `sharp` (optional)
+to pre-generate thumb (320px) and medium (1024px) variants at upload
+time; without it uploads still work. Upload limit is 50 MB.
+
 ## Smoke check
 
 ```bash
