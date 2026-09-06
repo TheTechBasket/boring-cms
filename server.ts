@@ -812,6 +812,7 @@ export function createApp(configOverrides = {}) {
       media,
       usage,
       staleCount: media.filter((m) => m.stale).length,
+      oldCopyCount: media.filter((m) => m.migrated_from !== null && m.migrated_from !== undefined).length,
       folders: listMediaFolders(db),
       publicBase,
       variantsMode: setting('media_variants') || '',
@@ -955,7 +956,7 @@ export function createApp(configOverrides = {}) {
           ).run(oldUrl, newUrl, oldUrl, newUrl, `%${oldUrl}%`, `%${oldUrl}%`);
           rewrote += changed.changes;
         }
-        db.prepare('UPDATE media SET base_url = NULL WHERE id = ?').run(m.id);
+        db.prepare('UPDATE media SET base_url = NULL, migrated_from = ? WHERE id = ?').run(m.base_url, m.id);
         moved += 1;
         lines.push(`moved ${m.key}`);
       } catch (err) {
@@ -964,11 +965,86 @@ export function createApp(configOverrides = {}) {
       }
     }
     if (rewrote > 0) bumpContentVersion(db);
-    const summary = `${moved} moved, ${failed} failed, ${rewrote} entry rewrites. Source objects were not deleted.`;
+    const summary = `${moved} moved, ${failed} failed, ${rewrote} entry rewrites. Old copies were kept; delete them from the media page when ready.`;
     html(req, res, 200, mediaPage({
       ...mediaCtx(ctx, db),
       report: lines.join('\n'),
       notice: { type: failed ? 'error' : 'success', message: `Migration finished: ${summary}` },
+    }));
+  }));
+
+  // Delete the old copies left behind by a migration, on demand. Checks
+  // each object still exists first and reports what it found. Rows whose
+  // old storage credentials are gone are skipped, retryable later.
+  router.post('/admin/projects/:slug/media/cleanup', withProject(async (req, res, params, ctx, db) => {
+    const rows = listMedia(db).filter((m) => m.migrated_from !== null && m.migrated_from !== undefined);
+    const localDir = path.join(config.dataDir, 'media', ctx.project.slug);
+    const lines = [];
+    let deleted = 0;
+    let gone = 0;
+    let skipped = 0;
+
+    // Old base -> a backend with delete rights: local disk, or the shared
+    // storage whose public URL matches.
+    function backendForBase(base) {
+      if (base === '') return localBackend(localDir);
+      for (const name of listStorages()) {
+        const s = getStorage(name);
+        if (s && (s.public_url || '').replace(/\/+$/, '') === base) {
+          return s3Backend({ endpoint: s.endpoint, bucket: s.bucket, region: s.region || 'auto', accessKey: s.key, secretKey: s.secret });
+        }
+      }
+      return null;
+    }
+
+    async function existsAt(base, key) {
+      if (base === '') return existsSync(path.join(localDir, key));
+      try {
+        return (await fetch(`${base}/${key}`, { method: 'HEAD' })).ok;
+      } catch {
+        return false;
+      }
+    }
+
+    const currentBase = mediaConfigFor(ctx.project).publicBase || '';
+    for (const m of rows) {
+      // Never delete the copy the row currently serves from (e.g. after
+      // switching back to the old storage).
+      const servingBase = m.base_url === null || m.base_url === undefined ? currentBase : m.base_url;
+      if (servingBase === m.migrated_from) {
+        skipped += 1;
+        lines.push(`SKIPPED ${m.key}: the old copy is the one currently in use`);
+        continue;
+      }
+      const backend = backendForBase(m.migrated_from);
+      if (!backend) {
+        skipped += 1;
+        lines.push(`SKIPPED ${m.key}: no storage configured for ${m.migrated_from}, cannot delete there`);
+        continue;
+      }
+      const keys = [m.key, ...Object.values(m.variants)];
+      try {
+        for (const key of keys) {
+          if (await existsAt(m.migrated_from, key)) {
+            await backend.remove(key);
+            deleted += 1;
+            lines.push(`deleted ${key} from ${m.migrated_from || 'local disk'}`);
+          } else {
+            gone += 1;
+            lines.push(`already gone: ${key}`);
+          }
+        }
+        db.prepare('UPDATE media SET migrated_from = NULL WHERE id = ?').run(m.id);
+      } catch (err) {
+        skipped += 1;
+        lines.push(`FAILED ${m.key}: ${String(err.message || err).slice(0, 200)}`);
+      }
+    }
+    const summary = `${deleted} deleted, ${gone} already gone, ${skipped} skipped.`;
+    html(req, res, 200, mediaPage({
+      ...mediaCtx(ctx, db),
+      report: lines.join('\n'),
+      notice: { type: skipped ? 'error' : 'success', message: `Old copy cleanup: ${summary}` },
     }));
   }));
 

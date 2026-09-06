@@ -86,6 +86,10 @@ storage" copies them over (existing destination objects are never
 overwritten), rewrites every entry to the new URLs, and leaves the old
 copies untouched, so the old bucket can be deleted once migration is
 clean. For S3 sources the copy reads through the storage's public URL.
+Migrated rows remember where the old copy lives; "Delete old copies now"
+on the media page checks each object still exists, deletes it (variants
+included) and reports deleted, already gone, skipped and failed counts.
+Skipped rows (no credentials for the old storage) stay retryable.
 
 Local files are served at `/media/<project>/<key>` with immutable
 caching; keys are content-hash prefixed. The project slug is permanent

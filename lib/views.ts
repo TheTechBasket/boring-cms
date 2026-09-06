@@ -1123,7 +1123,7 @@ function mediaPreviewUrl(projectSlug: string, m: any, publicBase: string | null,
   return `/media/${projectSlug}/${key}`;
 }
 
-export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], staleCount = 0, notice: pageNotice, report }: any): string {
+export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], staleCount = 0, oldCopyCount = 0, notice: pageNotice, report }: any): string {
   const base = `/admin/projects/${project.slug}`;
   // Existing groups as visible, clickable chips (no datalist): tapping one
   // fills the group input in the same form.
@@ -1189,6 +1189,15 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
       </div>`
     : '';
 
+  // Migrated rows whose old copy is still on the previous storage: offer
+  // the deliberate delete. Checks existence first, reports per file.
+  const cleanupBanner = oldCopyCount
+    ? `<div class="border border-border bg-card shadow-xs p-4 flex flex-wrap items-center gap-3">
+        <p class="text-sm m-0 flex-1 min-w-64">${oldCopyCount} migrated file${oldCopyCount === 1 ? ' still has its' : 's still have their'} old cop${oldCopyCount === 1 ? 'y' : 'ies'} on the previous storage. Everything already serves from the current storage; the old copies are only taking up space. Deleting checks each object still exists and reports what it found.</p>
+        <form method="post" action="${base}/media/cleanup" data-confirm="cleanup-media">${button({ label: 'Delete old copies now', variant: 'outline' })}</form>
+      </div>`
+    : '';
+
   return layout({
     title: `Media · ${project.name}`,
     user,
@@ -1217,6 +1226,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
         })}</div>`)}
       <p class="text-sm text-muted-foreground">Copy MD copies a markdown snippet to paste into any markdown field.${publicBase ? ` Links use the storage domain <code>${escapeHtml(publicBase)}</code> directly, so they never depend on this CMS or the project slug. Previews are resized on the fly by wsrv.nl.` : ` Files are served at <code>/media/${escapeHtml(project.slug)}/&lt;key&gt;</code> with immutable caching. The slug never changes (rename only changes the display name), so links stay stable.`}</p>
       ${migrateBanner}
+      ${cleanupBanner}
       ${reportBlock}
       ${media.length
         ? `<div class="flex items-center gap-2 max-w-md">

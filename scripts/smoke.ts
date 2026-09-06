@@ -342,7 +342,26 @@ async function main() {
   assert.ok(migrateHtml.includes('failed'), 'migration report should count failures');
   assert.ok(migrateHtml.includes('old storage'), 'failed rows should stay pinned');
 
+  // Old-copy cleanup: put one row in the exact state a successful migration
+  // leaves behind (follows current storage, old copy on local disk), then
+  // delete the old copy through the cleanup action.
+  projectDb.prepare('UPDATE media SET base_url = NULL, migrated_from = ? WHERE key = ?').run('', jsonUploadBody.key);
+  const localCopyPath = path.join(dataDir, 'media', slug, jsonUploadBody.key);
+  assert.ok(existsSync(localCopyPath), 'old local copy should exist before cleanup');
+  const withOldCopies = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(withOldCopies.includes('Delete old copies now'), 'media page should offer old-copy cleanup');
+  const cleanupRes = await req('POST', `/admin/projects/${slug}/media/cleanup`);
+  assert.equal(cleanupRes.status, 200, 'cleanup should render a report');
+  const cleanupHtml = await cleanupRes.text();
+  assert.ok(cleanupHtml.includes('deleted'), 'cleanup report should count deletions');
+  assert.ok(!existsSync(localCopyPath), 'old local copy should be deleted by cleanup');
+  assert.ok(!cleanupHtml.includes('Delete old copies now'), 'cleanup banner should disappear once done');
+
   // Switching back unpins rows whose base matches again: nothing stale.
+  // (Re-pin the cleaned row to local first; its object never reached the
+  // fake bucket, so letting it follow the current storage would pin it to
+  // the cdn base on switch and leave it stale.)
+  projectDb.prepare('UPDATE media SET base_url = ? WHERE key = ?').run('', jsonUploadBody.key);
   await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'local' } }); // back to disk for the rest
   const backLocalHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
   assert.ok(!backLocalHtml.includes('old storage'), 'switching back to the original storage should unpin rows');
