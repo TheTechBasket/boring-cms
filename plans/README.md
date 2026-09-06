@@ -4,16 +4,16 @@
 
 - [Stage 4: universal export/import](stage-4-import-export.md) — JSON/CSV content export/import with in-browser field mapping and dry-run check, plus schema-as-code: full project schema exportable, writable by hand/code, applied idempotently.
 - Stage 5: field schema constraints (promoted from backlog). Per-field rules (required, min/max length, number range, regex, enum options) enforced live in the editor, in the import dry-run, and in createEntry/updateEntry. Rules editor on the field row; rules travel inside the schema export. Catches content bugs at write time.
-- Stage 6: media v2. Variants opt-in only: never generated unless asked, per-upload checkbox and a per-project default; variant identifier is a key suffix (`<hash>-<stem>_320.ext` / `_thumb.ext`). S3 uploads keep a local copy for instant admin preview (gallery never round-trips to bucket); per-project toggle to disable thumbnails entirely. Optional on-the-fly resize proxy route (`/media/<project>/<key>?w=320`, sharp required, disk-cached) so previews and galleries need no pre-generated variants at all.
-- [Stage 7: auth extras](stage-5-auth.md) — passkeys, Google OAuth from UI, Secure cookie/trust-proxy.
-- [Stage 8: MCP per project](stage-6-mcp.md) — Streamable HTTP MCP, scoped API keys, agent read/write tools.
+- Stage 6: media v2. Variants opt-in only: never generated unless asked, per-upload checkbox and a per-project default; variant identifier is a key suffix (`<hash>-<stem>_320.ext` / `_thumb.ext`); per-project toggle to disable variants entirely. No local copies and no self-hosted resize proxy: previews and galleries go through wsrv.nl (`https://wsrv.nl/?url=<public url>&w=320`) when the file has a public URL, so resizing/format is on the fly with zero server work. With S3 configured, uploads go browser-to-bucket directly via presigned PUT (server signs, never proxies bytes). Image usage search: per-image "where used" scan of entry data for the key with a count and entry list, no stored relationship; same scan powers a simple gallery view of images alongside the content that references them. S3 sync: reconcile button lists bucket objects vs media table, adopts files uploaded outside the CMS as rows, flags rows whose object was deleted outside (remove or re-upload).
+- [Stage 7: MCP per project](stage-6-mcp.md) — Streamable HTTP MCP, scoped API keys, agent read/write tools.
+- [Stage 8: auth extras](stage-5-auth.md) — passkeys, Google OAuth from UI, Secure cookie/trust-proxy. Deprioritized: waits until the rest ships.
 
-Order: 4, 5, 6; 7 and 8 independent after that.
+Order: 4, 5, 6, 7; 8 last.
 
 ## Backlog
 
 - Publish webhooks: per-project URL(s) POSTed on publish/unpublish (fires Netlify build hooks, cache purges). Small, high value for static-site consumers.
-- Relation field type: entry reference to another collection (stored as UUID, picker in editor, expanded in API on `?include=`). Needed once content grows past flat collections.
+- Relation field type: entry reference to another collection (stored as UUID, picker in editor, expanded in API on `?include=`). Deferred hard: house style is no stored relationships, content scan/search covers linking; build only if a real case defeats search.
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
 - Media alt text + caption fields on the media row, included in the copy-markdown snippet.
 - Human slug option per collection: designate a field as public slug so API URLs read `/blog-posts/my-post` instead of UUID (UUID stays canonical).
