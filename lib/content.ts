@@ -4,7 +4,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 
-export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'json'];
+export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'json', 'image'];
+
+// Optional per-field options stored inside the collection's fields JSON.
+// Only set values are stored; absence means "no constraint".
+export const FIELD_OPTIONS = [
+  'required', 'help', 'placeholder', 'default',
+  'min', 'max', 'step', 'minlength', 'maxlength', 'pattern', 'accept',
+];
 
 const REVISIONS_KEEP = 20;
 const REVISIONS_MAX_AGE_DAYS = 90;
@@ -78,6 +85,70 @@ export function reorderCollectionFields(db, collectionSlug, orderedNames) {
   if (fields.length !== collection.fields.length) return collection; // stale client order, ignore
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
   return getCollection(db, collectionSlug);
+}
+
+// Updates a field's label, type and options. The name (data key) is
+// immutable so existing entry data keeps pointing at the same key.
+export function updateCollectionField(db, collectionSlug, fieldName, props) {
+  const collection = getCollection(db, collectionSlug);
+  if (!collection) return null;
+  const fields = collection.fields.map((f) => {
+    if (f.name !== fieldName) return f;
+    const next: Record<string, any> = {
+      name: f.name,
+      label: (props.label || '').trim() || f.label,
+      type: FIELD_TYPES.includes(props.type) ? props.type : f.type,
+    };
+    for (const k of FIELD_OPTIONS) {
+      const v = props[k];
+      if (v === undefined || v === null || v === '' || v === false) continue;
+      next[k] = v;
+    }
+    return next;
+  });
+  db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  return getCollection(db, collectionSlug);
+}
+
+// Server-side enforcement of field options. Returns human-readable error
+// strings; empty array means the data is valid.
+export function validateEntryData(collection, data) {
+  const errors: string[] = [];
+  for (const f of collection.fields) {
+    const v = data[f.name];
+    const empty = v === undefined || v === null || v === '';
+    if (f.required && (empty || v === false)) {
+      errors.push(`${f.label} is required.`);
+      continue;
+    }
+    if (empty) continue;
+    if (f.type === 'number') {
+      if (typeof v !== 'number' || Number.isNaN(v)) errors.push(`${f.label} must be a number.`);
+      else {
+        if (f.min !== undefined && v < Number(f.min)) errors.push(`${f.label} must be at least ${f.min}.`);
+        if (f.max !== undefined && v > Number(f.max)) errors.push(`${f.label} must be at most ${f.max}.`);
+      }
+    } else if (f.type === 'text' || f.type === 'markdown' || f.type === 'image') {
+      const s = String(v);
+      if (f.minlength && s.length < Number(f.minlength)) errors.push(`${f.label} must be at least ${f.minlength} characters.`);
+      if (f.maxlength && s.length > Number(f.maxlength)) errors.push(`${f.label} must be at most ${f.maxlength} characters.`);
+      if (f.pattern) {
+        try {
+          if (!new RegExp(`^(?:${f.pattern})$`).test(s)) errors.push(`${f.label} does not match the required pattern.`);
+        } catch {
+          // invalid stored pattern never blocks saving
+        }
+      }
+    } else if (f.type === 'date') {
+      const s = String(v);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) errors.push(`${f.label} must be a date (YYYY-MM-DD).`);
+      else {
+        if (f.min && s < f.min) errors.push(`${f.label} must be on or after ${f.min}.`);
+        if (f.max && s > f.max) errors.push(`${f.label} must be on or before ${f.max}.`);
+      }
+    }
+  }
+  return errors;
 }
 
 export function removeCollectionField(db, collectionSlug, fieldName) {

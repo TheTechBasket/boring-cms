@@ -38,7 +38,9 @@ import {
   getCollection,
   createCollection,
   addCollectionField,
+  updateCollectionField,
   removeCollectionField,
+  validateEntryData,
   reorderCollectionFields,
   deleteCollection,
   listEntries,
@@ -477,6 +479,15 @@ export function createApp(configOverrides = {}) {
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 
+  router.post('/admin/projects/:slug/collections/:cslug/fields/update', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    if (form.field) {
+      // Checkboxes send nothing when unchecked, so required maps explicitly.
+      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1' });
+    }
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  }));
+
   router.post('/admin/projects/:slug/collections/:cslug/fields/reorder', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     const order = (form.order || '').split(',').filter(Boolean);
@@ -499,13 +510,18 @@ export function createApp(configOverrides = {}) {
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections`);
   }));
 
-  router.get('/admin/projects/:slug/collections/:cslug/new', withCollection((req, res, params, ctx) => {
-    html(req, res, 200, entryEditorPage({ ...ctx, entry: null }));
+  router.get('/admin/projects/:slug/collections/:cslug/new', withCollection((req, res, params, ctx, db) => {
+    html(req, res, 200, entryEditorPage({ ...ctx, entry: null, media: listMedia(db) }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/new', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    const entry = createEntry(db, ctx.collection, { data: collectFieldValues(ctx.collection, form) });
+    const data = collectFieldValues(ctx.collection, form);
+    const errors = validateEntryData(ctx.collection, data);
+    if (errors.length) {
+      return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, media: listMedia(db), notice: { type: 'error', message: errors.join(' ') } }));
+    }
+    const entry = createEntry(db, ctx.collection, { data });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${entry.slug}`);
   }));
 
@@ -518,12 +534,17 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/collections/:cslug/:eslug', withEntry((req, res, params, ctx, db) => {
-    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id) }));
+    html(req, res, 200, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db) }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/:eslug', withEntry(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    updateEntry(db, ctx.entry, { data: collectFieldValues(ctx.collection, form) });
+    const data = collectFieldValues(ctx.collection, form);
+    const errors = validateEntryData(ctx.collection, data);
+    if (errors.length) {
+      return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), media: listMedia(db), notice: { type: 'error', message: errors.join(' ') } }));
+    }
+    updateEntry(db, ctx.entry, { data });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
   }));
 

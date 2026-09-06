@@ -133,8 +133,35 @@ async function main() {
   });
   assert.equal(reorderRes.status, 302, 'reorder should redirect');
 
+  // Field options: constrain subtitle, reject a violating entry, then clear.
+  const updateFieldRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/update`, {
+    form: { field: 'subtitle', label: 'Subtitle', type: 'text', required: '1', maxlength: '10', help: 'Keep it short' },
+  });
+  assert.equal(updateFieldRes.status, 302, 'field update should redirect');
+
+  const badEntryRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, {
+    form: { field_subtitle: 'way past the ten character limit', field_body: 'x' },
+  });
+  assert.equal(badEntryRes.status, 400, 'entry violating field options should be rejected');
+  assert.ok((await badEntryRes.text()).includes('at most 10'), 'rejection should name the violated limit');
+
+  const missingRequiredRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, {
+    form: { field_subtitle: '', field_body: 'x' },
+  });
+  assert.equal(missingRequiredRes.status, 400, 'missing required field should be rejected');
+
+  // Clear the constraints (blank form values remove stored options).
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/update`, {
+    form: { field: 'subtitle', label: 'Subtitle', type: 'text', maxlength: '', help: '' },
+  });
+
+  // Image field type accepts a URL string.
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, {
+    form: { label: 'Cover', type: 'image' },
+  });
+
   const entryRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, {
-    form: { field_body: '# First draft' },
+    form: { field_body: '# First draft', field_cover: `/media/${slug}/abc123-pic.png` },
   });
   assert.equal(entryRes.status, 302, 'creating an entry should redirect');
   const entrySlug = (entryRes.headers.get('location') || '').split('/').pop() as string;
@@ -142,13 +169,18 @@ async function main() {
 
   // 8. Edit -> revision with backward delta of only the changed field
   const editRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`, {
-    form: { field_body: '# Second draft' },
+    form: { field_body: '# Second draft', field_cover: `/media/${slug}/abc123-pic.png` },
   });
   assert.equal(editRes.status, 302, 'editing an entry should redirect');
 
   const projectDb = app.projectDbs.get(slug);
   const collection = getCollection(projectDb, 'blog-posts');
-  assert.deepEqual(collection.fields.map((f) => f.name), ['subtitle', 'body'], 'reorder should persist field order');
+  assert.deepEqual(collection.fields.map((f) => f.name), ['subtitle', 'body', 'cover'], 'reorder should persist field order');
+  const subtitleField = collection.fields[0];
+  assert.equal(subtitleField.maxlength, undefined, 'blank option value should clear the stored constraint');
+  assert.equal(subtitleField.required, undefined, 'unchecked required should clear the flag');
+  let entry0 = getEntry(projectDb, collection.id, entrySlug);
+  assert.equal(entry0.data.cover, `/media/${slug}/abc123-pic.png`, 'image field should store the URL string');
   let entry = getEntry(projectDb, collection.id, entrySlug);
   assert.equal(entry.data.body, '# Second draft', 'edit should persist');
   const revisions = listRevisions(projectDb, entry.id);

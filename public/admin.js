@@ -86,6 +86,31 @@ document.querySelectorAll('[data-field-list]').forEach((list) => {
   });
 });
 
+// Field options editor: Edit button toggles the hidden editor panel in its row.
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-field-edit]');
+  if (!btn) return;
+  const editor = btn.closest('[data-field]').querySelector('[data-field-editor]');
+  if (editor) editor.hidden = !editor.hidden;
+});
+
+// Image field picker: clicking a thumbnail writes its URL into the input,
+// shows the preview, and closes the popover.
+document.addEventListener('click', (event) => {
+  const pick = event.target.closest('[data-image-set]');
+  if (!pick) return;
+  const wrap = pick.closest('[data-image-field]');
+  const input = wrap.querySelector('input[type="text"]');
+  const preview = wrap.querySelector('[data-image-preview]');
+  input.value = pick.dataset.imageSet;
+  if (preview) {
+    preview.src = pick.dataset.imageSet;
+    preview.classList.remove('hidden');
+  }
+  const popover = pick.closest('details[data-popover]');
+  if (popover) popover.removeAttribute('open');
+});
+
 // Markdown preview: client-side only, rendered with the vendored marked.js
 // into a typeset container. The server never converts markdown.
 document.querySelectorAll('[data-markdown-field]').forEach((wrap) => {
