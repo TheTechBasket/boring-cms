@@ -71,7 +71,7 @@ const INPUT_CLASS =
   'transition-colors placeholder:text-muted-foreground focus-visible:outline-none ' +
   'focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
 
-const TEXTAREA_CLASS = INPUT_CLASS.replace('h-9', 'min-h-40 py-2 font-mono leading-relaxed');
+const TEXTAREA_CLASS = INPUT_CLASS.replace('h-9', 'h-96 py-2 font-mono leading-relaxed resize-y overflow-y-auto');
 
 const SELECT_CLASS =
   'flex h-9 w-full items-center border border-input bg-transparent px-3 py-1 text-sm shadow-xs ' +
