@@ -1017,12 +1017,18 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         <input type="date" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
         ${help}
       </label>`;
-    default:
+    default: {
+      // Plain text fields sometimes hold an image path (e.g. a "cover" field
+      // not modeled as the richer `image` type): show a small preview so
+      // editing an existing entry doesn't require leaving the page to check it.
+      const looksLikeImage = typeof v === 'string' && /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(v);
       return `<label class="flex flex-col gap-1.5 text-sm">
         <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
         <input type="text" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
+        ${looksLikeImage ? `<img src="${escapeHtml(v)}" alt="" loading="lazy" class="h-16 w-auto object-cover border border-border">` : ''}
         ${help}
       </label>`;
+    }
   }
 }
 
@@ -1059,7 +1065,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
             <span class="text-sm font-medium">Status</span>
             ${statusBadge(entry.status)}
           </div>
-          <p class="text-xs text-muted-foreground">Slug: <code>${escapeHtml(entry.slug)}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
+          <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
           <div class="flex gap-2 flex-wrap">
             ${entry.status === 'published'
               ? `<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
