@@ -14,6 +14,7 @@ import {
   validateEntryData,
   listPublished,
   getPublished,
+  slugify,
 } from './content.ts';
 
 const PROTOCOL_VERSION = '2025-03-26';
@@ -82,13 +83,14 @@ const TOOLS = [
   },
   {
     name: 'create_entry',
-    description: 'Create a draft entry. data is an object keyed by field name. Set publish: true to publish immediately.',
+    description: 'Create an entry, or overwrite it if slug already exists in this collection (idempotent upsert, safe to re-run). data is an object keyed by field name, taken as the complete field set on upsert (not merged). Set publish: true to publish immediately. Pass slug to make the entry addressable at that slug instead of a generated UUID (slugified on first create; an existing draft or published entry at that slug is matched and overwritten, not duplicated).',
     scope: 'write',
     inputSchema: {
       type: 'object',
       properties: {
         collection: str('Collection slug'),
-        data: { type: 'object', description: 'Field values keyed by field name' },
+        data: { type: 'object', description: 'Field values keyed by field name (full replacement on upsert)' },
+        slug: str('Entry slug (optional; defaults to a generated UUID). Matches an existing entry at this slug for upsert.'),
         publish: { type: 'boolean', description: 'Publish immediately (default false)' },
       },
       required: ['collection', 'data'],
@@ -96,9 +98,10 @@ const TOOLS = [
     handler: (db, args, collection) => {
       const errors = validateEntryData(collection, args.data);
       if (errors.length) throw new ToolError(errors.join(' '));
-      let entry = createEntry(db, collection, { data: args.data });
+      const existing = args.slug ? getEntry(db, collection.id, slugify(args.slug)) : null;
+      let entry = existing ? updateEntry(db, existing, { data: args.data }) : createEntry(db, collection, { data: args.data, slug: args.slug });
       if (args.publish) entry = publishEntry(db, entry.id);
-      return { slug: entry.slug, status: entry.status, data: entry.data };
+      return { slug: entry.slug, status: entry.status, data: entry.data, upserted: !!existing };
     },
   },
   {

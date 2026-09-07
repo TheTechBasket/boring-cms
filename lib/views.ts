@@ -237,10 +237,20 @@ type LayoutOpts = {
   body: string;
   user?: { email: string } | null;
   projects?: { slug: string; name: string }[];
-  project?: { slug: string; name: string } | null;
+  project?: { slug: string; name: string; icon?: string } | null;
   notice?: { type: string; message: string } | null;
   bare?: boolean; // auth pages: no sidebar
 };
+
+// Default mark, or the open project's own icon: an image URL used directly,
+// an emoji rendered into the same SVG badge, or nothing (falls back).
+function favicon(project: LayoutOpts['project']): string {
+  const projectIcon = project?.icon;
+  if (projectIcon && /^(https?:)?\//.test(projectIcon)) return escapeHtml(projectIcon);
+  const glyph = projectIcon || 'y';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#111113"/><text x="16" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="17" font-weight="700" fill="#fff">${escapeHtml(glyph)}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 function layout({ title, body, user = null, projects = [], project = null, notice: pageNotice = null, bare = false }: LayoutOpts): string {
   const shell = bare
@@ -264,6 +274,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} · yncms</title>
+  <link rel="icon" href="${favicon(project)}">
   <link rel="stylesheet" href="/public/admin.css">
 </head>
 <body class="min-h-screen bg-background text-foreground">

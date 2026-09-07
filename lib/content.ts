@@ -202,8 +202,9 @@ export function getEntryById(db, id) {
   return parseEntry(db.prepare('SELECT * FROM entries WHERE id = ?').get(id));
 }
 
-export function createEntry(db, collection, { data }) {
-  const slug = randomUUID();
+export function createEntry(db, collection, { data, slug: requestedSlug = undefined }: { data: any; slug?: string }) {
+  const exists = (s) => !!getEntry(db, collection.id, s);
+  const slug = requestedSlug ? uniqueSlug(slugify(requestedSlug), exists) : randomUUID();
   const info = db
     .prepare('INSERT INTO entries (collection_id, slug, data) VALUES (?, ?, ?)')
     .run(collection.id, slug, JSON.stringify(data));
