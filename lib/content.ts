@@ -174,11 +174,15 @@ function parseEntry(row) {
   };
 }
 
-export function listEntries(db, collectionId) {
+export function listEntries(db, collectionId, { limit = 50, offset = 0 } = {}) {
   return db
-    .prepare('SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE collection_id = ? ORDER BY updated_at DESC')
-    .all(collectionId)
+    .prepare('SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE collection_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?')
+    .all(collectionId, limit, offset)
     .map((r) => ({ ...r, data: JSON.parse(r.data) }));
+}
+
+export function countEntries(db, collectionId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM entries WHERE collection_id = ?').get(collectionId).n;
 }
 
 // Row label: trimmed value of the collection's first field with content,

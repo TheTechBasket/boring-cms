@@ -54,6 +54,7 @@ import {
   reorderCollectionFields,
   deleteCollection,
   listEntries,
+  countEntries,
   getEntry,
   createEntry,
   updateEntry,
@@ -1084,7 +1085,12 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/collections/:cslug', withCollection((req, res, params, ctx, db) => {
-    html(req, res, 200, collectionPage({ ...ctx, entries: listEntries(db, ctx.collection.id), fieldTypes: FIELD_TYPES }));
+    const url = new URL(req.url, 'http://localhost');
+    const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+    const limit = 50;
+    const total = countEntries(db, ctx.collection.id);
+    const entries = listEntries(db, ctx.collection.id, { limit, offset: (page - 1) * limit });
+    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), fieldTypes: FIELD_TYPES }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(async (req, res, params, ctx, db) => {

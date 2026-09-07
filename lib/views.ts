@@ -687,7 +687,7 @@ export function collectionsPage({ user, projects, project, collections, stats, n
   });
 }
 
-export function collectionPage({ user, projects, project, collection, entries, fieldTypes, notice: pageNotice }: any): string {
+export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, fieldTypes, notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
 
   const gripIcon = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="3" r="1.5"/><circle cx="7.5" cy="3" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/><circle cx="2.5" cy="13" r="1.5"/><circle cx="7.5" cy="13" r="1.5"/></svg>`;
@@ -777,6 +777,13 @@ export function collectionPage({ user, projects, project, collection, entries, f
         ${tableHead([{ label: 'Entry' }, { label: 'Status' }, { label: 'Updated', extra: '@max-lg:hidden' }])}
         <tbody>${entryRows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No entries yet.</td></tr>'}</tbody>
       </table>`)}
+      ${totalPages > 1 ? `<div class="flex items-center justify-between gap-4 mt-3 text-sm text-muted-foreground">
+        <span>Page ${page} of ${totalPages}</span>
+        <div class="flex gap-2">
+          ${page > 1 ? `<a class="text-primary no-underline hover:underline" href="${base}?page=${page - 1}">&larr; Prev</a>` : ''}
+          ${page < totalPages ? `<a class="text-primary no-underline hover:underline" href="${base}?page=${page + 1}">Next &rarr;</a>` : ''}
+        </div>
+      </div>` : ''}
 
       <div class="flex flex-col gap-3 mt-16 max-w-2xl">
         <div class="flex items-center justify-between gap-4">
