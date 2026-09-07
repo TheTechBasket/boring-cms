@@ -174,15 +174,29 @@ function parseEntry(row) {
   };
 }
 
-export function listEntries(db, collectionId, { limit = 50, offset = 0 } = {}) {
+// q: matched against the entry's raw JSON data and slug (substring, case-insensitive).
+// status: 'draft' | 'published' exact match.
+export function listEntries(db, collectionId, { limit = 50, offset = 0, q = '', status = '' }: any = {}) {
+  const where = ['collection_id = ?'];
+  const args: any[] = [collectionId];
+  if (q) { where.push('(data LIKE ? ESCAPE \'\\\' OR slug LIKE ? ESCAPE \'\\\')'); const like = `%${likeEscape(q)}%`; args.push(like, like); }
+  if (status) { where.push('status = ?'); args.push(status); }
   return db
-    .prepare('SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE collection_id = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?')
-    .all(collectionId, limit, offset)
+    .prepare(`SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE ${where.join(' AND ')} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+    .all(...args, limit, offset)
     .map((r) => ({ ...r, data: JSON.parse(r.data) }));
 }
 
-export function countEntries(db, collectionId) {
-  return db.prepare('SELECT COUNT(*) AS n FROM entries WHERE collection_id = ?').get(collectionId).n;
+export function countEntries(db, collectionId, { q = '', status = '' }: any = {}) {
+  const where = ['collection_id = ?'];
+  const args: any[] = [collectionId];
+  if (q) { where.push('(data LIKE ? ESCAPE \'\\\' OR slug LIKE ? ESCAPE \'\\\')'); const like = `%${likeEscape(q)}%`; args.push(like, like); }
+  if (status) { where.push('status = ?'); args.push(status); }
+  return db.prepare(`SELECT COUNT(*) AS n FROM entries WHERE ${where.join(' AND ')}`).get(...args).n;
+}
+
+function likeEscape(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 // Row label: trimmed value of the collection's first field with content,

@@ -8,6 +8,7 @@ const CONFIRM_MESSAGES = {
   'delete-collection': 'This deletes the collection and every entry in it. Continue?',
   'delete-entry': 'Delete this entry? Its revisions go with it.',
   'delete-media': 'Delete this file? Anything embedding it will break.',
+  'delete-secret': 'Delete this secret? Anything reading it will break.',
   'cleanup-media': 'Delete the old copies from the previous storage? Entries already point at the current storage, so nothing breaks, but this cannot be undone.',
 };
 

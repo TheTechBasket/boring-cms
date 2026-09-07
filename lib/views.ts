@@ -131,12 +131,29 @@ function preBlock(content: string): string {
   return `<pre class="text-xs bg-muted p-3 overflow-x-auto m-0"><code>${escapeHtml(content)}</code></pre>`;
 }
 
-// Write-only setting keys list, shared by project and global settings pages.
-function settingsKeyList(settingKeys: any[]): string {
-  const keys = settingKeys
-    .map((s: any) => `<li class="py-1.5 border-b border-border"><code class="text-sm">${escapeHtml(s.key)}</code> <span class="text-muted-foreground text-sm">(updated ${timeAgo(s.updated_at)})</span></li>`)
+// Write-only secrets table (Name / Updated / Actions), shared by project and
+// global settings pages. Standard secrets-manager UI: names and last-updated
+// only, edit re-enters the value (never shown), delete removes it outright.
+function secretsTable(settingKeys: any[], base: string): string {
+  const rows = settingKeys
+    .map(
+      (s: any) => `<tr class="border-b border-border">
+        <td class="p-3"><code class="text-sm">${escapeHtml(s.key)}</code></td>
+        <td class="p-3 text-sm text-muted-foreground">${timeAgo(s.updated_at)}</td>
+        <td class="p-3 text-right whitespace-nowrap">
+          <a href="${base}?edit=${encodeURIComponent(s.key)}" class="text-primary text-sm no-underline hover:underline mr-3">Edit</a>
+          <form method="post" action="${base}/delete" class="inline" data-confirm="delete-secret">
+            <input type="hidden" name="key" value="${escapeHtml(s.key)}">
+            <button type="submit" class="text-destructive text-sm bg-transparent border-0 p-0 cursor-pointer hover:underline">Delete</button>
+          </form>
+        </td>
+      </tr>`,
+    )
     .join('\n');
-  return `<ul class="list-none p-0">${keys || '<li class="py-1.5 text-muted-foreground italic">No settings set.</li>'}</ul>`;
+  return tableCard(`<table class="w-full border-collapse">
+    ${tableHead([{ label: 'Name' }, { label: 'Last updated' }, { label: '' }])}
+    <tbody>${rows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No secrets set.</td></tr>'}</tbody>
+  </table>`);
 }
 
 function card({ action, extraClass = 'max-w-md', dataConfirm, children }: {
@@ -523,7 +540,9 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
   });
 }
 
-export function projectDetailPage({ user, projects, project, settingKeys, storages = [], mediaStorage = '', notice: pageNotice }: any): string {
+export function projectDetailPage({ user, projects, project, settingKeys, globalSettingKeys = [], editKey = '', storages = [], mediaStorage = '', notice: pageNotice }: any): string {
+  const settingsBase = `/admin/projects/${encodeURIComponent(project.slug)}/settings`;
+  const editing = editKey && settingKeys.some((s: any) => s.key === editKey);
   return layout({
     title: project.name,
     user,
@@ -566,18 +585,27 @@ export function projectDetailPage({ user, projects, project, settingKeys, storag
           `,
           })}
 
-          ${sectionHeading('Project settings')}
-          <p class="text-sm text-muted-foreground">Values are write-only and stored encrypted. Only key names are shown.</p>
-          ${settingsKeyList(settingKeys)}
+          ${sectionHeading('Project secrets')}
+          <p class="text-sm text-muted-foreground">Values are write-only and stored encrypted; only names and last-updated time are ever shown. Setting a key that already exists overrides its value.</p>
+          ${secretsTable(settingKeys, settingsBase)}
           ${card({
-            action: `/admin/projects/${encodeURIComponent(project.slug)}/settings`,
+            action: settingsBase,
             extraClass: '',
             children: `
-            ${field({ label: 'Key', name: 'key', required: true })}
+            ${editing ? `<p class="text-sm font-medium m-0">Update <code>${escapeHtml(editKey)}</code></p>` : ''}
+            ${field({ label: 'Name', name: 'key', value: editing ? editKey : '', required: true, placeholder: 'STRIPE_SECRET_KEY' })}
             ${field({ label: 'Value', name: 'value', type: 'password', required: true, autocomplete: 'off' })}
-            ${button({ label: 'Save setting' })}
+            ${button({ label: editing ? 'Update secret' : 'Add secret' })}
           `,
           })}
+
+          ${globalSettingKeys.length ? `
+          ${sectionHeading('Global secrets')}
+          <p class="text-sm text-muted-foreground">Set once under Global settings, not shown per-project. Reusing one of these names above adds a separate project-scoped secret; whether your code prefers it over the global one depends on the lookup order that code uses.</p>
+          <ul class="list-none p-0 m-0 flex flex-wrap gap-2">
+            ${globalSettingKeys.map((s: any) => `<li><code class="text-sm bg-muted px-2 py-1">${escapeHtml(s.key)}</code></li>`).join('')}
+          </ul>
+          ` : ''}
         </div>
 
       </div>
@@ -599,7 +627,8 @@ export function projectDetailPage({ user, projects, project, settingKeys, storag
   });
 }
 
-export function globalSettingsPage({ user, projects, settingKeys, notice: pageNotice }: any): string {
+export function globalSettingsPage({ user, projects, settingKeys, editKey = '', notice: pageNotice }: any): string {
+  const editing = editKey && settingKeys.some((s: any) => s.key === editKey);
   return layout({
     title: 'Settings',
     user,
@@ -607,16 +636,18 @@ export function globalSettingsPage({ user, projects, settingKeys, notice: pageNo
     notice: pageNotice,
     body: `
       <h1 class="text-2xl font-semibold">Global settings</h1>
-      <p class="text-sm text-muted-foreground">Values are write-only. Once set, only the key name and last-updated time are shown here, never the value.</p>
-      <div class="max-w-2xl">${settingsKeyList(settingKeys)}</div>
+      ${sectionHeading('Secrets')}
+      <p class="text-sm text-muted-foreground">Values are write-only and stored encrypted; only names and last-updated time are ever shown. Available to every project. Setting a name that already exists overrides its value.</p>
+      <div class="max-w-2xl">${secretsTable(settingKeys, '/admin/settings')}</div>
       <div class="grid gap-6 @3xl:grid-cols-2 items-start">
         ${card({
           action: '/admin/settings',
           extraClass: '',
           children: `
-          ${field({ label: 'Key', name: 'key', required: true })}
+          ${editing ? `<p class="text-sm font-medium m-0">Update <code>${escapeHtml(editKey)}</code></p>` : ''}
+          ${field({ label: 'Name', name: 'key', value: editing ? editKey : '', required: true, placeholder: 'STRIPE_SECRET_KEY' })}
           ${field({ label: 'Value', name: 'value', type: 'password', required: true, autocomplete: 'off' })}
-          ${button({ label: 'Save setting' })}
+          ${button({ label: editing ? 'Update secret' : 'Add secret' })}
         `,
         })}
         ${card({
@@ -687,8 +718,16 @@ export function collectionsPage({ user, projects, project, collections, stats, n
   });
 }
 
-export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, fieldTypes, notice: pageNotice }: any): string {
+export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, q = '', status = '', fieldTypes, notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
+  const qs = (p: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (status) params.set('status', status);
+    if (p > 1) params.set('page', String(p));
+    const s = params.toString();
+    return s ? `?${s}` : '';
+  };
 
   const gripIcon = `<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="3" r="1.5"/><circle cx="7.5" cy="3" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/><circle cx="2.5" cy="13" r="1.5"/><circle cx="7.5" cy="13" r="1.5"/></svg>`;
 
@@ -773,15 +812,32 @@ export function collectionPage({ user, projects, project, collection, entries, p
     body: `
       ${pageHeader(collection.name, `<a href="${base}/new" class="${BUTTON_BASE} ${BUTTON_VARIANTS.default} no-underline">+ New entry</a>`)}
 
+      <form method="get" action="${base}" class="flex flex-wrap items-end gap-3 mb-4">
+        <label class="flex flex-col gap-1.5 text-sm flex-1 min-w-48">
+          <span class="font-medium text-foreground">Search</span>
+          <input type="search" name="q" value="${escapeHtml(q)}" placeholder="Search entries&hellip;" class="${INPUT_CLASS}">
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="font-medium text-foreground">Status</span>
+          <select name="status" class="${SELECT_CLASS}">
+            <option value=""${status ? '' : ' selected'}>All</option>
+            <option value="draft"${status === 'draft' ? ' selected' : ''}>Draft</option>
+            <option value="published"${status === 'published' ? ' selected' : ''}>Published</option>
+          </select>
+        </label>
+        ${button({ label: 'Filter', variant: 'outline' })}
+        ${q || status ? `<a href="${base}" class="text-sm text-muted-foreground no-underline hover:underline self-center">Clear</a>` : ''}
+      </form>
+
       ${tableCard(`<table class="w-full border-collapse">
         ${tableHead([{ label: 'Entry' }, { label: 'Status' }, { label: 'Updated', extra: '@max-lg:hidden' }])}
-        <tbody>${entryRows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No entries yet.</td></tr>'}</tbody>
+        <tbody>${entryRows || `<tr><td colspan="3" class="p-3 text-muted-foreground italic">${q || status ? 'No entries match.' : 'No entries yet.'}</td></tr>`}</tbody>
       </table>`)}
       ${totalPages > 1 ? `<div class="flex items-center justify-between gap-4 mt-3 text-sm text-muted-foreground">
         <span>Page ${page} of ${totalPages}</span>
         <div class="flex gap-2">
-          ${page > 1 ? `<a class="text-primary no-underline hover:underline" href="${base}?page=${page - 1}">&larr; Prev</a>` : ''}
-          ${page < totalPages ? `<a class="text-primary no-underline hover:underline" href="${base}?page=${page + 1}">Next &rarr;</a>` : ''}
+          ${page > 1 ? `<a class="text-primary no-underline hover:underline" href="${base}${qs(page - 1)}">&larr; Prev</a>` : ''}
+          ${page < totalPages ? `<a class="text-primary no-underline hover:underline" href="${base}${qs(page + 1)}">Next &rarr;</a>` : ''}
         </div>
       </div>` : ''}
 

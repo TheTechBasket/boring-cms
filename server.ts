@@ -23,6 +23,7 @@ import {
   renameProject,
   deleteProjectRow,
   setSetting,
+  deleteSetting,
   listSettingKeys,
   getSettingValue,
   addCredential,
@@ -522,8 +523,10 @@ export function createApp(configOverrides = {}) {
       const project = getProjectBySlug(coreDb, params.slug);
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id });
+      const globalSettingKeys = listSettingKeys(coreDb, { scope: 'global' });
       const mediaStorage = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage' }) || '';
-      html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys, storages: listStorages(), mediaStorage }));
+      const editKey = new URL(req.url, 'http://localhost').searchParams.get('edit') || '';
+      html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys, globalSettingKeys, editKey, storages: listStorages(), mediaStorage }));
     }),
   );
 
@@ -578,6 +581,18 @@ export function createApp(configOverrides = {}) {
   );
 
   router.post(
+    '/admin/projects/:slug/settings/delete',
+    requireAdmin(async (req, res, params) => {
+      const project = getProjectBySlug(coreDb, params.slug);
+      if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
+      const form = await readFormBody(req);
+      const key = (form.key || '').trim();
+      if (key) deleteSetting(coreDb, { scope: 'project', projectId: project.id, key });
+      redirect(req, res, `/admin/projects/${project.slug}`);
+    }),
+  );
+
+  router.post(
     '/admin/projects/:slug/delete',
     requireAdmin(async (req, res, params, user) => {
       const project = getProjectBySlug(coreDb, params.slug);
@@ -607,7 +622,8 @@ export function createApp(configOverrides = {}) {
   router.get(
     '/admin/settings',
     requireAdmin((req, res, params, user) => {
-      html(req, res, 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: listSettingKeys(coreDb, { scope: 'global' }) }));
+      const editKey = new URL(req.url, 'http://localhost').searchParams.get('edit') || '';
+      html(req, res, 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: listSettingKeys(coreDb, { scope: 'global' }), editKey }));
     }),
   );
 
@@ -620,6 +636,16 @@ export function createApp(configOverrides = {}) {
       if (key && value) {
         setSetting(coreDb, config.masterKey, { scope: 'global', key, value });
       }
+      redirect(req, res, '/admin/settings');
+    }),
+  );
+
+  router.post(
+    '/admin/settings/delete',
+    requireAdmin(async (req, res, params) => {
+      const form = await readFormBody(req);
+      const key = (form.key || '').trim();
+      if (key) deleteSetting(coreDb, { scope: 'global', key });
       redirect(req, res, '/admin/settings');
     }),
   );
@@ -1087,10 +1113,13 @@ export function createApp(configOverrides = {}) {
   router.get('/admin/projects/:slug/collections/:cslug', withCollection((req, res, params, ctx, db) => {
     const url = new URL(req.url, 'http://localhost');
     const page = Math.max(1, Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+    const q = (url.searchParams.get('q') || '').trim();
+    const status = url.searchParams.get('status') || '';
     const limit = 50;
-    const total = countEntries(db, ctx.collection.id);
-    const entries = listEntries(db, ctx.collection.id, { limit, offset: (page - 1) * limit });
-    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), fieldTypes: FIELD_TYPES }));
+    const filter = { q, status };
+    const total = countEntries(db, ctx.collection.id, filter);
+    const entries = listEntries(db, ctx.collection.id, { limit, offset: (page - 1) * limit, ...filter });
+    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(async (req, res, params, ctx, db) => {
