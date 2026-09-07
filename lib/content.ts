@@ -4,13 +4,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 
-export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'json', 'image'];
+export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'json', 'image', 'relation'];
 
 // Optional per-field options stored inside the collection's fields JSON.
 // Only set values are stored; absence means "no constraint".
+// `collection` (relation target slug) and `multiple` (relation only) piggyback
+// on the same mechanism.
 export const FIELD_OPTIONS = [
   'required', 'help', 'placeholder', 'default',
   'min', 'max', 'step', 'minlength', 'maxlength', 'pattern', 'accept',
+  'collection', 'multiple',
 ];
 
 const REVISIONS_KEEP = 20;
@@ -116,7 +119,7 @@ export function validateEntryData(collection, data) {
   const errors: string[] = [];
   for (const f of collection.fields) {
     const v = data[f.name];
-    const empty = v === undefined || v === null || v === '';
+    const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
     if (f.required && (empty || v === false)) {
       errors.push(`${f.label} is required.`);
       continue;

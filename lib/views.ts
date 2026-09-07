@@ -718,7 +718,7 @@ export function collectionsPage({ user, projects, project, collections, stats, n
   });
 }
 
-export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, q = '', status = '', fieldTypes, notice: pageNotice }: any): string {
+export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, q = '', status = '', fieldTypes, collections = [], notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
   const qs = (p: number) => {
     const params = new URLSearchParams();
@@ -751,6 +751,21 @@ export function collectionPage({ user, projects, project, collection, entries, p
         : textish
           ? `${opt(f, 'minlength', 'Min length', { type: 'number', placeholder: '0' })}${opt(f, 'maxlength', 'Max length', { type: 'number', placeholder: f.type === 'text' ? '280' : '100000' })}${f.type === 'text' ? opt(f, 'pattern', 'Pattern (regex)', { placeholder: '.*' }) : ''}${f.type === 'image' ? opt(f, 'accept', 'Accept', { placeholder: 'image/*' }) : ''}`
           : '';
+    const relationTargets = collections
+      .map((c: any) => `<option value="${escapeHtml(c.slug)}"${c.slug === f.collection ? ' selected' : ''}>${escapeHtml(c.name)}</option>`)
+      .join('');
+    const relationOpts = f.type === 'relation'
+      ? `<label class="flex flex-col gap-1 text-xs">
+          <span class="font-medium text-muted-foreground">Target collection</span>
+          <select name="collection" class="${SELECT_CLASS} h-8">
+            <option value="">Choose one&hellip;</option>
+            ${relationTargets}
+          </select>
+        </label>
+        <label class="flex items-center gap-2 text-xs font-medium text-muted-foreground self-end">
+          <input type="checkbox" name="multiple" value="1"${f.multiple ? ' checked' : ''} class="size-3.5 accent-primary"> Allow multiple
+        </label>`
+      : '';
     return `<form method="post" action="${base}/fields/update" class="grid grid-cols-2 gap-3 border-b border-border bg-muted/50 px-4 py-4">
       <input type="hidden" name="field" value="${escapeHtml(f.name)}">
       ${opt(f, 'label', 'Label')}
@@ -760,8 +775,9 @@ export function collectionPage({ user, projects, project, collection, entries, p
       </label>
       ${opt(f, 'help', 'Help text', { placeholder: 'Shown under the input' })}
       ${opt(f, 'placeholder', 'Placeholder')}
-      ${f.type === 'boolean' ? '' : opt(f, 'default', 'Default value')}
+      ${f.type === 'boolean' || f.type === 'relation' ? '' : opt(f, 'default', 'Default value')}
       ${constraints}
+      ${relationOpts}
       <label class="col-span-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <input type="checkbox" name="required" value="1"${f.required ? ' checked' : ''} class="size-3.5 accent-primary"> Required
       </label>
@@ -899,7 +915,7 @@ function mediaUrl(projectSlug: string, key: string, publicBase: string | null = 
   return publicBase ? `${publicBase.replace(/\/+$/, '')}/${key}` : `/media/${projectSlug}/${key}`;
 }
 
-function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publicBase = null }: any = {}): string {
+function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publicBase = null, relationOptions = {} }: any = {}): string {
   // New entries prefill the field default; existing values win.
   const v = value ?? f.default ?? '';
   const help = f.help ? `<span class="text-xs text-muted-foreground">${escapeHtml(f.help)}</span>` : '';
@@ -974,6 +990,21 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         ${help}
       </div>`;
     }
+    case 'relation': {
+      const opts = relationOptions[f.name] || [];
+      const selected = new Set(Array.isArray(v) ? v : v ? [v] : []);
+      const optionTags = opts
+        .map((o: any) => `<option value="${escapeHtml(o.slug)}"${selected.has(o.slug) ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
+        .join('');
+      return `<label class="flex flex-col gap-1.5 text-sm">
+        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        <select name="field_${f.name}"${f.multiple ? ' multiple size="6"' : ''} class="${SELECT_CLASS}${f.multiple ? ' h-auto' : ''}"${f.required ? ' required' : ''}>
+          ${f.multiple ? '' : '<option value="">&mdash;</option>'}
+          ${optionTags || '<option value="" disabled>No entries in the target collection yet</option>'}
+        </select>
+        ${help}
+      </label>`;
+    }
     case 'number':
       return `<label class="flex flex-col gap-1.5 text-sm">
         <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
@@ -995,7 +1026,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
   }
 }
 
-export function entryEditorPage({ user, projects, project, collection, entry, revisions = [], media = [], publicBase = null, draft, notice: pageNotice }: any): string {
+export function entryEditorPage({ user, projects, project, collection, entry, revisions = [], media = [], publicBase = null, relationOptions = {}, draft, notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
   const isNew = !entry;
   const action = isNew ? `${base}/new` : `${base}/${entry.slug}`;
@@ -1004,7 +1035,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   const blank = isNew && !draft;
 
   const fieldInputs = collection.fields
-    .map((f: any) => fieldInput(f, blank ? undefined : data[f.name] ?? '', { media, projectSlug: project.slug, publicBase }))
+    .map((f: any) => fieldInput(f, blank ? undefined : data[f.name] ?? (f.type === 'relation' && f.multiple ? [] : ''), { media, projectSlug: project.slug, publicBase, relationOptions }))
     .join('\n');
 
   const revisionRows = revisions

@@ -63,7 +63,12 @@ export async function readBody(req, { limit = 1024 * 1024 } = {}) {
 export async function readFormBody(req) {
   const raw = await readBody(req);
   const params = new URLSearchParams(raw);
-  return Object.fromEntries(params.entries());
+  const out: any = {};
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key);
+    out[key] = values.length > 1 ? values : values[0];
+  }
+  return out;
 }
 
 export function parseCookies(req) {

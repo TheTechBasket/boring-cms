@@ -56,6 +56,7 @@ import {
   deleteCollection,
   listEntries,
   countEntries,
+  entryLabel,
   getEntry,
   createEntry,
   updateEntry,
@@ -706,6 +707,10 @@ export function createApp(configOverrides = {}) {
         // keep the raw string otherwise instead of losing the input.
         try { data[f.name] = raw ? JSON.parse(raw) : null; } catch { data[f.name] = raw; }
       }
+      else if (f.type === 'relation') {
+        const slugs = Array.isArray(raw) ? raw : raw ? [raw] : [];
+        data[f.name] = f.multiple ? slugs : (slugs[0] ?? '');
+      }
       else data[f.name] = raw ?? '';
     }
     return data;
@@ -848,10 +853,21 @@ export function createApp(configOverrides = {}) {
     };
   }
 
-  // Media props for the entry editor's image picker: same decorated rows.
+  // Media + relation-field option lists for the entry editor.
+  // relationOptions is { fieldName: [{slug, label}] }, capped at 500 per
+  // target collection (ponytail: fine at current scale, add a searchable
+  // picker if a target collection outgrows a plain <select>).
   function editorMedia(ctx, db) {
     const { publicBase } = mediaConfigFor(ctx.project);
-    return { media: listMedia(db).map((m) => decorateMedia(m, ctx.project, publicBase)), publicBase };
+    const relationOptions: Record<string, Array<{ slug: string; label: string }>> = {};
+    for (const f of ctx.collection.fields) {
+      if (f.type !== 'relation' || !f.collection) continue;
+      const target = getCollection(db, f.collection);
+      relationOptions[f.name] = target
+        ? listEntries(db, target.id, { limit: 500 }).map((e) => ({ slug: e.slug, label: entryLabel(e, target) }))
+        : [];
+    }
+    return { media: listMedia(db).map((m) => decorateMedia(m, ctx.project, publicBase)), publicBase, relationOptions };
   }
 
   router.get('/admin/projects/:slug/media', withProject((req, res, params, ctx, db) => {
@@ -1119,7 +1135,7 @@ export function createApp(configOverrides = {}) {
     const filter = { q, status };
     const total = countEntries(db, ctx.collection.id, filter);
     const entries = listEntries(db, ctx.collection.id, { limit, offset: (page - 1) * limit, ...filter });
-    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES }));
+    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES, collections: listCollections(db) }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(async (req, res, params, ctx, db) => {
@@ -1133,8 +1149,8 @@ export function createApp(configOverrides = {}) {
   router.post('/admin/projects/:slug/collections/:cslug/fields/update', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     if (form.field) {
-      // Checkboxes send nothing when unchecked, so required maps explicitly.
-      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1' });
+      // Checkboxes send nothing when unchecked, so these map explicitly.
+      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1', multiple: form.multiple === '1' });
     }
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
@@ -1315,7 +1331,7 @@ export function createApp(configOverrides = {}) {
     try {
       revertToRevision(db, ctx.entry, revisionId);
     } catch (err) {
-      return html(req, res, 400, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), notice: { type: 'error', message: err.message } }));
+      return html(req, res, 400, entryEditorPage({ ...ctx, revisions: listRevisions(db, ctx.entry.id), ...editorMedia(ctx, db), notice: { type: 'error', message: err.message } }));
     }
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
   }));
