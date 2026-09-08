@@ -22,7 +22,7 @@ const PROTOCOL_VERSION = '2025-03-26';
 // ---- Rate limit: per-key token bucket, in memory ---------------------------
 // ponytail: in-memory only, resets on restart; move to SQLite if multi-process ever happens.
 
-const RATE_LIMIT = 60; // requests per minute per key
+const RATE_LIMIT = Number(process.env.RATE_LIMIT_PER_MIN) || 60; // requests per minute per key
 const buckets = new Map<string, { tokens: number; ts: number }>();
 
 export function rateLimitOk(bucketKey: string): boolean {
