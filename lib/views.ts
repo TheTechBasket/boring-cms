@@ -1240,7 +1240,7 @@ function mcpConfig(origin: string, slug: string, key: string): string {
 function apiDocs(origin: string, slug: string, collections: any[]): string {
   const listUrl = (c: string) => `${origin}/api/v1/${slug}/${c}`;
   const endpointRows = [
-    { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;`, desc: 'List published entries. Query: <code>limit</code> (default 50), <code>offset</code>.' },
+    { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;`, desc: 'List published entries. Query: <code>limit</code> (default 50), <code>offset</code>, <code>updated_since</code> (ISO 8601 UTC, only entries changed after it).' },
     { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;/&lt;entry-id&gt;`, desc: 'One published entry by its id.' },
     { method: 'POST', path: `/mcp/${slug}`, desc: 'MCP endpoint (JSON-RPC). Read tools with any key; write tools need write scope.' },
   ]

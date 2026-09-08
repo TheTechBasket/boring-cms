@@ -48,7 +48,7 @@ Create an API key under Project, then:
 
 ```bash
 curl -H "Authorization: Bearer yn_..." \
-  http://localhost:3000/api/v1/<project>/<collection>        # list (limit/offset)
+  http://localhost:3000/api/v1/<project>/<collection>        # list (limit/offset/updated_since)
 curl -H "Authorization: Bearer yn_..." \
   http://localhost:3000/api/v1/<project>/<collection>/<slug> # single entry
 ```

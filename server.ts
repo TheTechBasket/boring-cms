@@ -1564,7 +1564,11 @@ export function createApp(configOverrides = {}) {
     const url = new URL(req.url, 'http://localhost');
     const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50;
     const offset = Number.parseInt(url.searchParams.get('offset') ?? '0', 10) || 0;
-    json(req, res, 200, { items: listPublished(db, collection.id, { limit, offset }) }, { ETag: etag });
+    const updatedSince = url.searchParams.get('updated_since') ?? '';
+    if (updatedSince && Number.isNaN(new Date(updatedSince).getTime())) {
+      return json(req, res, 400, { error: 'invalid_updated_since', hint: 'ISO 8601 or "YYYY-MM-DD HH:MM:SS" (UTC)' });
+    }
+    json(req, res, 200, { items: listPublished(db, collection.id, { limit, offset, updatedSince }) }, { ETag: etag });
   }));
 
   router.get('/api/v1/:project/:collection/:entry', apiHandler((req, res, params, { db, collection, etag }) => {

@@ -254,6 +254,13 @@ async function main() {
   const cached = await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': etag } });
   assert.equal(cached.status, 304, 'matching If-None-Match should be a 304');
 
+  const sinceOld = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2000-01-01T00:00:00Z`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await sinceOld.json()) as any).items.length, 1, 'old updated_since should return the entry');
+  const sinceFuture = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2099-01-01T00:00:00Z`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await sinceFuture.json()) as any).items.length, 0, 'future updated_since should return nothing');
+  const sinceBad = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=not-a-date`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(sinceBad.status, 400, 'invalid updated_since should be 400');
+
   // 9b. Headless media upload: Bearer key, write scope, {id, key, url} back
   const upKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-write', scope: 'write' } });
   const upWriteKey = ((await upKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
