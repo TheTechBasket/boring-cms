@@ -382,12 +382,29 @@ export function verifyApiKey(db, key) {
 
 // ---- Published read path (API) -------------------------------------------
 
+// Row clocks are stored as SQLite "YYYY-MM-DD HH:MM:SS" (UTC). Consumers get
+// ISO 8601 with Z so JS Date never misparses them as local time.
+export function isoUtc(ts) {
+  return typeof ts === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(ts) ? ts.replace(' ', 'T') + 'Z' : ts;
+}
+
+// Incoming timestamps (updated_since) normalize to the stored SQL format.
+// Bare "YYYY-MM-DD HH:MM:SS" is taken as UTC as-is; anything else (ISO with
+// Z, fractional seconds, or an offset) goes through Date so the comparison
+// is a real timestamp comparison, not a string accident.
+function sqlUtc(ts) {
+  const s = String(ts);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s.replace('T', ' ').replace(/Z$/, '') : d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // updatedSince: ISO/SQLite timestamp; only entries touched after it (draft
 // edits count, so incremental pulls see upcoming changes after republish).
 export function listPublished(db, collectionId, { limit = 50, offset = 0, updatedSince = '' }: any = {}) {
   const where = ["collection_id = ? AND status = 'published'"];
   const args: any[] = [collectionId];
-  if (updatedSince) { where.push('updated_at > ?'); args.push(String(updatedSince).replace('T', ' ').replace(/Z$/, '')); }
+  if (updatedSince) { where.push('updated_at > ?'); args.push(sqlUtc(updatedSince)); }
   return db
     .prepare(
       `SELECT slug, published_data, published_at, updated_at FROM entries
@@ -402,7 +419,7 @@ export function listPublished(db, collectionId, { limit = 50, offset = 0, update
     // filters on, so the row's write clock always wins over a same-named
     // data field (otherwise incremental pulls see stale values).
     .map((r) => {
-      const item = { published_at: r.published_at, ...JSON.parse(r.published_data), updated_at: r.updated_at };
+      const item = { published_at: isoUtc(r.published_at), ...JSON.parse(r.published_data), updated_at: isoUtc(r.updated_at) };
       if (!item.slug) item.slug = r.slug; // pre-fix snapshots missing the native slug
       return item;
     });
@@ -413,7 +430,7 @@ export function getPublished(db, collectionId, slug) {
     .prepare("SELECT slug, published_data, published_at, updated_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'")
     .get(collectionId, slug);
   if (!row) return null;
-  const item = { published_at: row.published_at, ...JSON.parse(row.published_data), updated_at: row.updated_at };
+  const item = { published_at: isoUtc(row.published_at), ...JSON.parse(row.published_data), updated_at: isoUtc(row.updated_at) };
   if (!item.slug) item.slug = row.slug;
   return item;
 }

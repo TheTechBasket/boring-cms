@@ -595,6 +595,13 @@ async function main() {
   ).json();
   const sinceItems = JSON.parse(since.result.content[0].text);
   assert.ok(sinceItems.length > 0 && sinceItems.every((i) => i.slug && i.updated_at), 'list_entries items should carry slug and updated_at');
+  assert.ok(sinceItems.every((i) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(i.updated_at)), 'updated_at should be ISO 8601 UTC with Z');
+  // Cursor round-trip: an ISO value with milliseconds and Z (what a JS
+  // client sends from toISOString) must match entries written just now.
+  const recentSince: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: new Date(Date.now() - 60_000).toISOString() } })
+  ).json();
+  assert.ok(JSON.parse(recentSince.result.content[0].text).length > 0, 'millisecond ISO updated_since should match fresh writes');
   const noneSince: any = await (
     await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: '2999-01-01 00:00:00' } })
   ).json();

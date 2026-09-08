@@ -1,6 +1,6 @@
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
-import { entryLabel } from './content.ts';
+import { entryLabel, isoUtc } from './content.ts';
 
 // Inline Solar duotone icons (allsvgicons MCP, solar:*-bold-duotone).
 const ICONS: Record<string, string> = {
@@ -1099,12 +1099,12 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   // the editor never has to guess what a consumer sees.
   let apiPreviewCard = '';
   if (!isNew) {
-    const next: Record<string, any> = { published_at: entry.published_at, slug: entry.slug, ...entry.data, updated_at: entry.updated_at };
+    const next: Record<string, any> = { published_at: isoUtc(entry.published_at), slug: entry.slug, ...entry.data, updated_at: isoUtc(entry.updated_at) };
     if (!next.slug) next.slug = entry.slug;
     const nextJson = JSON.stringify(next, null, 2);
     let liveJson = null;
     if (entry.status === 'published' && entry.published_data) {
-      const live: Record<string, any> = { published_at: entry.published_at, ...entry.published_data, updated_at: entry.updated_at };
+      const live: Record<string, any> = { published_at: isoUtc(entry.published_at), ...entry.published_data, updated_at: isoUtc(entry.updated_at) };
       if (!live.slug) live.slug = entry.slug;
       liveJson = JSON.stringify(live, null, 2);
     }
