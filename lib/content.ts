@@ -4,7 +4,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 
-export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'json', 'image', 'relation'];
+export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'datetime', 'json', 'image', 'relation'];
 
 // Optional per-field options stored inside the collection's fields JSON.
 // Only set values are stored; absence means "no constraint".
@@ -146,6 +146,14 @@ export function validateEntryData(collection, data) {
       const s = String(v);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) errors.push(`${f.label} must be a date (YYYY-MM-DD).`);
       else {
+        if (f.min && s < f.min) errors.push(`${f.label} must be on or after ${f.min}.`);
+        if (f.max && s > f.max) errors.push(`${f.label} must be on or before ${f.max}.`);
+      }
+    } else if (f.type === 'datetime') {
+      const s = String(v);
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(s)) {
+        errors.push(`${f.label} must be an ISO 8601 UTC datetime (YYYY-MM-DDTHH:MM:SSZ).`);
+      } else {
         if (f.min && s < f.min) errors.push(`${f.label} must be on or after ${f.min}.`);
         if (f.max && s > f.max) errors.push(`${f.label} must be on or before ${f.max}.`);
       }
@@ -366,7 +374,10 @@ export function listPublished(db, collectionId, { limit = 50, offset = 0 } = {})
        ORDER BY published_at DESC LIMIT ? OFFSET ?`,
     )
     .all(collectionId, Math.min(limit, 100), offset)
-    .map((r) => ({ ...JSON.parse(r.published_data), published_at: r.published_at }));
+    // published_at here is the entries table's publish-lifecycle clock, kept
+    // only as a fallback: a user-defined field of the same name (as ttb's
+    // articles schema has) is real entry data and must win, not be shadowed.
+    .map((r) => ({ published_at: r.published_at, ...JSON.parse(r.published_data) }));
 }
 
 export function getPublished(db, collectionId, slug) {
@@ -374,5 +385,5 @@ export function getPublished(db, collectionId, slug) {
     .prepare("SELECT published_data, published_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'")
     .get(collectionId, slug);
   if (!row) return null;
-  return { ...JSON.parse(row.published_data), published_at: row.published_at };
+  return { published_at: row.published_at, ...JSON.parse(row.published_data) };
 }
