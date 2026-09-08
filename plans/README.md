@@ -2,7 +2,7 @@
 
 ## Active
 
-(none — all planned stages shipped)
+- [MCP v2 + storage/media overhaul](mcp-v2-storage-media.md): MCP v2 tools, slug/editor fixes, storage secrets split with edit flow, multi-storage media with path folders and check-first sync.
 
 ## Backlog
 

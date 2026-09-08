@@ -505,9 +505,56 @@ async function main() {
   const badTool: any = await (await rpc(apiKey, 'tools/call', { name: 'nope' })).json();
   assert.ok(badTool.error, 'unknown tool should be a JSON-RPC error');
 
+  // MCP v2: publish on update, batch upsert, updated_since, delete, retry_after.
+  const upPub: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'update_entry', arguments: { collection: 'blog-posts', slug: createdEntry.slug, data: { body: 'v2 edit' }, publish: true } })
+  ).json();
+  assert.equal(JSON.parse(upPub.result.content[0].text).status, 'published', 'update_entry publish flag should publish');
+
+  const batch: any = await (
+    await rpc(writeKey, 'tools/call', {
+      name: 'batch_create_entries',
+      arguments: {
+        collection: 'blog-posts',
+        publish: true,
+        entries: [
+          { slug: 'batch-one', data: { body: 'one' } },
+          { slug: 'batch-two', data: { body: 'two' } },
+          { slug: createdEntry.slug, data: { body: 'upserted' } },
+        ],
+      },
+    })
+  ).json();
+  const batchOut = JSON.parse(batch.result.content[0].text);
+  assert.equal(batchOut.created, 2, 'batch should create two entries');
+  assert.equal(batchOut.updated, 1, 'batch should upsert the existing entry');
+  assert.equal(batchOut.failed, 0, 'batch should have no failures');
+
+  const since: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: '2000-01-01 00:00:00' } })
+  ).json();
+  const sinceItems = JSON.parse(since.result.content[0].text);
+  assert.ok(sinceItems.length > 0 && sinceItems.every((i) => i.slug && i.updated_at), 'list_entries items should carry slug and updated_at');
+  const noneSince: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: '2999-01-01 00:00:00' } })
+  ).json();
+  assert.equal(JSON.parse(noneSince.result.content[0].text).length, 0, 'future updated_since should return nothing');
+
+  const del: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: 'batch-two' } })
+  ).json();
+  assert.ok(JSON.parse(del.result.content[0].text).deleted, 'delete_entry should report deleted');
+  assert.ok(!getEntry(projectDb, collection.id, 'batch-two'), 'deleted entry should be gone from the DB');
+
   let limited = false;
   for (let i = 0; i < 70; i++) {
-    if ((await rpc(apiKey, 'ping')).status === 429) { limited = true; break; }
+    const r = await rpc(apiKey, 'ping');
+    if (r.status === 429) {
+      const body: any = await r.json();
+      assert.ok(body.retry_after >= 1, '429 body should carry a retry_after hint');
+      limited = true;
+      break;
+    }
   }
   assert.ok(limited, 'per-key rate limit should kick in');
 

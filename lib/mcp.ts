@@ -11,6 +11,7 @@ import {
   updateEntry,
   publishEntry,
   unpublishEntry,
+  deleteEntry,
   validateEntryData,
   listPublished,
   getPublished,
@@ -39,6 +40,28 @@ export function rateLimitOk(bucketKey: string, limit = DEFAULT_RATE_LIMIT): bool
   return true;
 }
 
+// Seconds until the bucket has one token again, for the 429 body. MCP
+// clients read the JSON-RPC payload, not HTTP headers.
+export function retryAfterSeconds(bucketKey: string, limit = DEFAULT_RATE_LIMIT): number {
+  const b = buckets.get(bucketKey);
+  if (!b || b.tokens >= 1) return 0;
+  return Math.max(1, Math.ceil(((1 - b.tokens) / limit) * 60));
+}
+
+// Accept arrays/objects natively for json fields, and parse string values
+// that are themselves JSON so older double-encoding clients keep working.
+function normalizeJsonFields(collection, data) {
+  const out = { ...data };
+  for (const f of collection.fields) {
+    if (f.type !== 'json') continue;
+    const v = out[f.name];
+    if (typeof v === 'string' && v.trim()) {
+      try { out[f.name] = JSON.parse(v); } catch { /* not JSON, keep the string */ }
+    }
+  }
+  return out;
+}
+
 // ---- Tools -----------------------------------------------------------------
 
 const str = (desc: string) => ({ type: 'string', description: desc });
@@ -53,7 +76,7 @@ const TOOLS = [
   },
   {
     name: 'list_entries',
-    description: 'List published entries in a collection (same shape as the REST API).',
+    description: 'List published entries in a collection (same shape as the REST API). Items carry slug, updated_at and published_at for incremental sync; pass updated_since to fetch only entries changed after that timestamp.',
     scope: 'read',
     inputSchema: {
       type: 'object',
@@ -61,10 +84,11 @@ const TOOLS = [
         collection: str('Collection slug'),
         limit: { type: 'number', description: 'Max entries (default 50, cap 100)' },
         offset: { type: 'number', description: 'Pagination offset' },
+        updated_since: str('Only entries updated after this UTC timestamp (ISO 8601 or "YYYY-MM-DD HH:MM:SS")'),
       },
       required: ['collection'],
     },
-    handler: (db, args, collection) => listPublished(db, collection.id, { limit: args.limit ?? 50, offset: args.offset ?? 0 }),
+    handler: (db, args, collection) => listPublished(db, collection.id, { limit: args.limit ?? 50, offset: args.offset ?? 0, updatedSince: args.updated_since ?? '' }),
   },
   {
     name: 'get_entry',
@@ -96,17 +120,79 @@ const TOOLS = [
       required: ['collection', 'data'],
     },
     handler: (db, args, collection) => {
-      const errors = validateEntryData(collection, args.data);
+      const data = normalizeJsonFields(collection, args.data);
+      const errors = validateEntryData(collection, data);
       if (errors.length) throw new ToolError(errors.join(' '));
       const existing = args.slug ? getEntry(db, collection.id, slugify(args.slug)) : null;
-      let entry = existing ? updateEntry(db, existing, { data: args.data }) : createEntry(db, collection, { data: args.data, slug: args.slug });
+      let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: args.slug });
       if (args.publish) entry = publishEntry(db, entry.id);
       return { slug: entry.slug, status: entry.status, data: entry.data, upserted: !!existing };
     },
   },
   {
+    name: 'batch_create_entries',
+    description: 'Create or upsert many entries in one call (one transaction, per-item results). entries is an array of {slug?, data, publish?}; same upsert semantics as create_entry. Top-level publish applies to every item without its own flag. Max 200 per call.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: str('Collection slug'),
+        entries: {
+          type: 'array',
+          description: 'Entries to create/upsert, each {slug?, data, publish?}',
+          items: {
+            type: 'object',
+            properties: {
+              slug: str('Entry slug (optional; upserts when it exists)'),
+              data: { type: 'object', description: 'Field values keyed by field name' },
+              publish: { type: 'boolean', description: 'Publish this entry (overrides the top-level flag)' },
+            },
+            required: ['data'],
+          },
+        },
+        publish: { type: 'boolean', description: 'Publish every entry immediately (default false)' },
+      },
+      required: ['collection', 'entries'],
+    },
+    handler: (db, args, collection) => {
+      if (!Array.isArray(args.entries) || args.entries.length === 0) throw new ToolError('entries must be a non-empty array.');
+      if (args.entries.length > 200) throw new ToolError('Max 200 entries per call; split into batches.');
+      const results: any[] = [];
+      db.exec('BEGIN');
+      try {
+        for (const item of args.entries) {
+          try {
+            const data = normalizeJsonFields(collection, item?.data ?? {});
+            const errors = validateEntryData(collection, data);
+            if (errors.length) {
+              results.push({ slug: item?.slug ?? null, ok: false, error: errors.join(' ') });
+              continue;
+            }
+            const existing = item.slug ? getEntry(db, collection.id, slugify(item.slug)) : null;
+            let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: item.slug });
+            if (item.publish ?? args.publish) entry = publishEntry(db, entry.id);
+            results.push({ slug: entry.slug, ok: true, status: entry.status, upserted: !!existing });
+          } catch (err) {
+            results.push({ slug: item?.slug ?? null, ok: false, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+      const ok = results.filter((r) => r.ok);
+      return {
+        created: ok.filter((r) => !r.upserted).length,
+        updated: ok.filter((r) => r.upserted).length,
+        failed: results.length - ok.length,
+        results,
+      };
+    },
+  },
+  {
     name: 'update_entry',
-    description: 'Update fields on an entry (merged into existing data, recorded as a revertable revision). Republish with publish_entry to update the live version.',
+    description: 'Update fields on an entry (merged into existing data, recorded as a revertable revision). Set publish: true to republish in the same call; otherwise republish with publish_entry to update the live version.',
     scope: 'write',
     inputSchema: {
       type: 'object',
@@ -114,16 +200,18 @@ const TOOLS = [
         collection: str('Collection slug'),
         slug: str('Entry slug'),
         data: { type: 'object', description: 'Field values to set, merged into existing data' },
+        publish: { type: 'boolean', description: 'Publish immediately after the update (default false)' },
       },
       required: ['collection', 'slug', 'data'],
     },
     handler: (db, args, collection) => {
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
-      const merged = { ...entry.data, ...args.data };
+      const merged = { ...entry.data, ...normalizeJsonFields(collection, args.data) };
       const errors = validateEntryData(collection, merged);
       if (errors.length) throw new ToolError(errors.join(' '));
-      const updated = updateEntry(db, entry, { data: merged });
+      let updated = updateEntry(db, entry, { data: merged });
+      if (args.publish) updated = publishEntry(db, updated.id);
       return { slug: updated.slug, status: updated.status, data: updated.data };
     },
   },
@@ -157,6 +245,22 @@ const TOOLS = [
       if (!entry) throw new ToolError('Entry not found.');
       unpublishEntry(db, entry.id);
       return { slug: entry.slug, status: 'draft' };
+    },
+  },
+  {
+    name: 'delete_entry',
+    description: 'Delete an entry permanently (its revisions go with it). Unpublish first is not required.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: { collection: str('Collection slug'), slug: str('Entry slug') },
+      required: ['collection', 'slug'],
+    },
+    handler: (db, args, collection) => {
+      const entry = getEntry(db, collection.id, args.slug);
+      if (!entry) throw new ToolError('Entry not found.');
+      deleteEntry(db, entry.id);
+      return { slug: entry.slug, deleted: true };
     },
   },
 ];

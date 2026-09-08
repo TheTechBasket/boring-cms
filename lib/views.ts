@@ -811,6 +811,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
     .map(
       (e: any) => `<tr class="border-b border-border">
         <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-primary" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
+        <td class="p-3 @max-lg:hidden"><code class="text-xs text-muted-foreground">${escapeHtml(e.slug)}</code></td>
         <td class="p-3">${statusBadge(e.status)}</td>
         <td class="p-3 text-sm text-muted-foreground @max-lg:hidden">${timeAgo(e.updated_at)}</td>
       </tr>`,
@@ -846,8 +847,8 @@ export function collectionPage({ user, projects, project, collection, entries, p
       </form>
 
       ${tableCard(`<table class="w-full border-collapse">
-        ${tableHead([{ label: 'Entry' }, { label: 'Status' }, { label: 'Updated', extra: '@max-lg:hidden' }])}
-        <tbody>${entryRows || `<tr><td colspan="3" class="p-3 text-muted-foreground italic">${q || status ? 'No entries match.' : 'No entries yet.'}</td></tr>`}</tbody>
+        ${tableHead([{ label: 'Entry' }, { label: 'Slug', extra: '@max-lg:hidden' }, { label: 'Status' }, { label: 'Updated', extra: '@max-lg:hidden' }])}
+        <tbody>${entryRows || `<tr><td colspan="4" class="p-3 text-muted-foreground italic">${q || status ? 'No entries match.' : 'No entries yet.'}</td></tr>`}</tbody>
       </table>`)}
       ${totalPages > 1 ? `<div class="flex items-center justify-between gap-4 mt-3 text-sm text-muted-foreground">
         <span>Page ${page} of ${totalPages}</span>
@@ -1041,7 +1042,14 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   const blank = isNew && !draft;
 
   const fieldInputs = collection.fields
-    .map((f: any) => fieldInput(f, blank ? undefined : data[f.name] ?? (f.type === 'relation' && f.multiple ? [] : ''), { media, projectSlug: project.slug, publicBase, relationOptions }))
+    .map((f: any) => {
+      // A user field literally named "slug" shadows the native slug in the
+      // API; make the relationship visible instead of leaving it mysterious.
+      const withHelp = f.name === 'slug' && !f.help && entry
+        ? { ...f, help: `Native entry slug is "${entry.slug}". Leave this empty to use it in the API response; a value here overrides it.` }
+        : f;
+      return fieldInput(withHelp, blank ? undefined : data[f.name] ?? (f.type === 'relation' && f.multiple ? [] : ''), { media, projectSlug: project.slug, publicBase, relationOptions });
+    })
     .join('\n');
 
   const revisionRows = revisions
@@ -1057,6 +1065,33 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
     })
     .join('\n');
 
+  // What the API serves (or would serve after publish) for this entry, so
+  // the editor never has to guess what a consumer sees.
+  let apiPreviewCard = '';
+  if (!isNew) {
+    const next: Record<string, any> = { published_at: entry.published_at, updated_at: entry.updated_at, slug: entry.slug, ...entry.data };
+    if (!next.slug) next.slug = entry.slug;
+    const nextJson = JSON.stringify(next, null, 2);
+    let liveJson = null;
+    if (entry.status === 'published' && entry.published_data) {
+      const live: Record<string, any> = { published_at: entry.published_at, updated_at: entry.updated_at, ...entry.published_data };
+      if (!live.slug) live.slug = entry.slug;
+      liveJson = JSON.stringify(live, null, 2);
+    }
+    const endpoint = `/api/v1/${project.slug}/${collection.slug}/${entry.slug}`;
+    const blocks = liveJson && liveJson !== nextJson
+      ? `<span class="text-xs font-medium">Live now</span>${preBlock(liveJson)}
+         <span class="text-xs font-medium">After next publish</span>${preBlock(nextJson)}`
+      : liveJson
+        ? preBlock(liveJson)
+        : `<span class="text-xs text-muted-foreground">Not published yet; this is what publish would serve.</span>${preBlock(nextJson)}`;
+    apiPreviewCard = `<div class="${CARD_CLASS}">
+      <span class="text-sm font-medium">API response</span>
+      <code class="text-xs break-all">${escapeHtml(endpoint)}</code>
+      ${blocks}
+    </div>`;
+  }
+
   const sidePanel = isNew
     ? ''
     : `<div class="flex flex-col gap-4">
@@ -1065,7 +1100,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
             <span class="text-sm font-medium">Status</span>
             ${statusBadge(entry.status)}
           </div>
-          <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
+          <p class="text-xs text-muted-foreground">Slug: <code>${escapeHtml(entry.slug)}</code> <button type="button" data-copy="${escapeHtml(entry.slug)}" class="text-primary cursor-pointer bg-transparent border-0 p-0 text-xs hover:underline">Copy</button><br>ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
           <div class="flex gap-2 flex-wrap">
             ${entry.status === 'published'
               ? `<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
@@ -1073,6 +1108,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
             <form method="post" action="${base}/${entry.slug}/delete" data-confirm="delete-entry">${button({ label: 'Delete', variant: 'destructive' })}</form>
           </div>
         </div>
+        ${apiPreviewCard}
         <div class="${CARD_CLASS}">
           <span class="text-sm font-medium">Revisions</span>
           <ul class="list-none p-0 m-0">${revisionRows || '<li class="py-1 text-sm text-muted-foreground italic">No revisions yet. Edits create field-level revisions automatically.</li>'}</ul>

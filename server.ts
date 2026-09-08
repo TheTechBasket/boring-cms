@@ -40,7 +40,7 @@ import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp, setMediaFolder, listMediaFolders } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
-import { handleMcp, rateLimitOk, DEFAULT_RATE_LIMIT } from './lib/mcp.ts';
+import { handleMcp, rateLimitOk, retryAfterSeconds, DEFAULT_RATE_LIMIT } from './lib/mcp.ts';
 import {
   FIELD_TYPES,
   contentVersion,
@@ -1414,7 +1414,8 @@ export function createApp(configOverrides = {}) {
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
     const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
     if (!rateLimitOk(`${project.slug}:${apiKey.id}`, rateLimit)) {
-      return json(req, res, 429, { error: 'rate_limited' }, { 'Retry-After': '60' });
+      const retryAfter = retryAfterSeconds(`${project.slug}:${apiKey.id}`, rateLimit);
+      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
     }
     let message;
     try {

@@ -263,7 +263,8 @@ export function updateEntry(db, entry, { data }) {
   }
   if (Object.keys(delta).length === 0) return getEntryById(db, entry.id);
 
-  db.exec('BEGIN');
+  // Savepoint instead of BEGIN so batch callers can hold an outer transaction.
+  db.exec('SAVEPOINT update_entry');
   try {
     db.prepare('INSERT INTO revisions (entry_id, changed) VALUES (?, ?)').run(entry.id, JSON.stringify(delta));
     db.prepare("UPDATE entries SET data = ?, updated_at = datetime('now') WHERE id = ?").run(
@@ -271,9 +272,10 @@ export function updateEntry(db, entry, { data }) {
       entry.id,
     );
     pruneRevisions(db, entry.id);
-    db.exec('COMMIT');
+    db.exec('RELEASE update_entry');
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec('ROLLBACK TO update_entry');
+    db.exec('RELEASE update_entry');
     throw err;
   }
   return getEntryById(db, entry.id);
@@ -283,6 +285,9 @@ export function publishEntry(db, entryId) {
   const entry = getEntryById(db, entryId);
   if (!entry) return null;
   const snapshot = { slug: entry.slug, ...entry.data };
+  // A user schema field named "slug" left empty must not wipe the native
+  // slug out of the API snapshot; a filled one wins on purpose.
+  if (snapshot.slug === '' || snapshot.slug === null || snapshot.slug === undefined) snapshot.slug = entry.slug;
   db.prepare(
     "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
   ).run(JSON.stringify(snapshot), entryId);
@@ -377,24 +382,35 @@ export function verifyApiKey(db, key) {
 
 // ---- Published read path (API) -------------------------------------------
 
-export function listPublished(db, collectionId, { limit = 50, offset = 0 } = {}) {
+// updatedSince: ISO/SQLite timestamp; only entries touched after it (draft
+// edits count, so incremental pulls see upcoming changes after republish).
+export function listPublished(db, collectionId, { limit = 50, offset = 0, updatedSince = '' }: any = {}) {
+  const where = ["collection_id = ? AND status = 'published'"];
+  const args: any[] = [collectionId];
+  if (updatedSince) { where.push('updated_at > ?'); args.push(String(updatedSince).replace('T', ' ').replace(/Z$/, '')); }
   return db
     .prepare(
-      `SELECT slug, published_data, published_at FROM entries
-       WHERE collection_id = ? AND status = 'published'
+      `SELECT slug, published_data, published_at, updated_at FROM entries
+       WHERE ${where.join(' AND ')}
        ORDER BY published_at DESC LIMIT ? OFFSET ?`,
     )
-    .all(collectionId, Math.min(limit, 100), offset)
+    .all(...args, Math.min(limit, 100), offset)
     // published_at here is the entries table's publish-lifecycle clock, kept
     // only as a fallback: a user-defined field of the same name (as ttb's
     // articles schema has) is real entry data and must win, not be shadowed.
-    .map((r) => ({ published_at: r.published_at, ...JSON.parse(r.published_data) }));
+    .map((r) => {
+      const item = { published_at: r.published_at, updated_at: r.updated_at, ...JSON.parse(r.published_data) };
+      if (!item.slug) item.slug = r.slug; // pre-fix snapshots missing the native slug
+      return item;
+    });
 }
 
 export function getPublished(db, collectionId, slug) {
   const row = db
-    .prepare("SELECT published_data, published_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'")
+    .prepare("SELECT slug, published_data, published_at, updated_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'")
     .get(collectionId, slug);
   if (!row) return null;
-  return { published_at: row.published_at, ...JSON.parse(row.published_data) };
+  const item = { published_at: row.published_at, updated_at: row.updated_at, ...JSON.parse(row.published_data) };
+  if (!item.slug) item.slug = row.slug;
+  return item;
 }
