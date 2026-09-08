@@ -254,6 +254,60 @@ async function main() {
   const cached = await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': etag } });
   assert.equal(cached.status, 304, 'matching If-None-Match should be a 304');
 
+  // 9b. Headless media upload: Bearer key, write scope, {id, key, url} back
+  const upKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-write', scope: 'write' } });
+  const upWriteKey = ((await upKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
+  assert.ok(upWriteKey, 'write-scope API key should appear once');
+
+  const apiUploadBody = (name: string) =>
+    `--smokeapib\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: text/plain\r\n\r\napi upload\r\n--smokeapib--\r\n`;
+  const apiUploadHeaders = (key?: string) => ({
+    'Content-Type': 'multipart/form-data; boundary=smokeapib',
+    ...(key ? { Authorization: `Bearer ${key}` } : {}),
+  });
+
+  const upNoAuth = await fetch(`${base}/api/v1/${slug}/media`, { method: 'POST', headers: apiUploadHeaders(), body: apiUploadBody('a.txt') });
+  assert.equal(upNoAuth.status, 401, 'API upload without a key should be 401');
+  const upReadKey = await fetch(`${base}/api/v1/${slug}/media`, { method: 'POST', headers: apiUploadHeaders(apiKey), body: apiUploadBody('a.txt') });
+  assert.equal(upReadKey.status, 403, 'API upload with a read key should be 403');
+
+  const upOk = await fetch(`${base}/api/v1/${slug}/media`, { method: 'POST', headers: apiUploadHeaders(upWriteKey), body: apiUploadBody('api-note.txt') });
+  assert.equal(upOk.status, 200, 'API upload with a write key should be 200');
+  const upJson: any = await upOk.json();
+  assert.ok(upJson.id && upJson.key.endsWith('-api-note.txt'), 'API upload should return id and key');
+  assert.equal(upJson.url, `/media/${slug}/${upJson.key}`, 'API upload should return the full URL (app route on local disk)');
+  const upServed = await fetch(`${base}${upJson.url}`);
+  assert.equal(await upServed.text(), 'api upload', 'API-uploaded bytes should serve back');
+
+  const upNested =
+    `--smokeapib\r\nContent-Disposition: form-data; name="path"\r\n\r\nwp-content/uploads/2026/09\r\n${apiUploadBody('b.txt')}`;
+  const upNestedRes = await fetch(`${base}/api/v1/${slug}/media`, { method: 'POST', headers: apiUploadHeaders(upWriteKey), body: upNested });
+  assert.equal(upNestedRes.status, 400, 'folder path on a storage without a public base should be 400');
+
+  // MCP upload_media: same auth model, base64 body, full URL back
+  const mcpUpload = await fetch(`${base}/mcp/${slug}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${upWriteKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name: 'upload_media', arguments: { filename: 'mcp-note.txt', data_base64: Buffer.from('mcp upload').toString('base64') } },
+    }),
+  });
+  const mcpUploadJson: any = await mcpUpload.json();
+  assert.ok(!mcpUploadJson.result.isError, 'MCP upload_media should succeed');
+  const mcpMedia = JSON.parse(mcpUploadJson.result.content[0].text);
+  assert.ok(mcpMedia.url.endsWith('-mcp-note.txt'), 'MCP upload should return the media URL');
+  const mcpReadOnly = await fetch(`${base}/mcp/${slug}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 2, method: 'tools/call',
+      params: { name: 'upload_media', arguments: { filename: 'x.txt', data_base64: 'aGk=' } },
+    }),
+  });
+  const mcpReadOnlyJson: any = await mcpReadOnly.json();
+  assert.ok(mcpReadOnlyJson.error, 'read-only key should be rejected for upload_media');
+
   // 10. Atomic revert to the first revision
   const revertRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/revert`, {
     form: { revision_id: String(revisions[0].id) },

@@ -43,19 +43,30 @@ function parseMedia(row) {
   return { ...row, variants: JSON.parse(row.variants) };
 }
 
-export function mediaKeyFor(hashHex: string, filename: string) {
+export function mediaKeyFor(hashHex: string, filename: string, prefix = '') {
   const hash = hashHex.slice(0, 8);
   const extMatch = filename.match(/\.([A-Za-z0-9]+)$/);
   const ext = (extMatch ? extMatch[1] : 'bin').toLowerCase();
   const stem = slugify(filename.replace(/\.[^.]*$/, '')) || 'file';
-  return { key: `${hash}-${stem}.${ext}`, hash, stem, ext };
+  const flat = `${hash}-${stem}.${ext}`;
+  return { key: prefix ? `${prefix}/${flat}` : flat, hash, stem, ext };
+}
+
+// A folder prefix a caller may upload under: slash-separated segments of
+// safe chars, no dot-only segments (blocks traversal), no leading/trailing
+// slash. Returns the prefix or null when invalid.
+export function mediaPrefixFrom(raw: string): string | null {
+  if (!raw) return '';
+  if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(raw)) return null;
+  if (raw.split('/').some((seg) => /^\.+$/.test(seg))) return null;
+  return raw;
 }
 
 // Variants are strictly opt-in (withVariants), identified by a width suffix
 // in the key: <hash>-<stem>_320.ext. Never generated unless asked.
-export async function createMedia(db, backend, { filename, mime, data }, { withVariants = false } = {}) {
+export async function createMedia(db, backend, { filename, mime, data }, { withVariants = false, prefix = '' } = {}) {
   const hashHex = createHash('sha256').update(data).digest('hex');
-  const { key, hash, stem, ext } = mediaKeyFor(hashHex, filename);
+  const { key, hash, stem, ext } = mediaKeyFor(hashHex, filename, prefix);
 
   const existing = getMediaByKey(db, key);
   if (existing) return existing; // same content re-uploaded
@@ -73,7 +84,7 @@ export async function createMedia(db, backend, { filename, mime, data }, { withV
       if (withVariants) {
         for (const [name, w] of VARIANT_WIDTHS) {
           if (!width || width <= w) continue;
-          const vkey = `${hash}-${stem}_${w}.${ext}`;
+          const vkey = `${prefix ? `${prefix}/` : ''}${hash}-${stem}_${w}.${ext}`;
           await backend.put(vkey, await sharp(data).resize({ width: w }).toBuffer(), mime);
           variants[name] = vkey;
         }
@@ -112,6 +123,7 @@ export function guessMime(key: string) {
 // Keys the CMS can own: flat always; nested paths (a/b/c.jpg) only when the
 // caller says so (a public base exists, so the app serve route is not needed).
 export function adoptableKey(key: string, allowNested: boolean) {
+  if (key.split('/').some((seg) => /^\.+$/.test(seg))) return false; // no "." / ".." segments
   if (/^[A-Za-z0-9._-]+$/.test(key)) return true;
   return allowNested && /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)+$/.test(key);
 }

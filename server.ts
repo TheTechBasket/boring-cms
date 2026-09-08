@@ -37,10 +37,10 @@ import { verifyRegistration, verifyAssertion, b64url } from './lib/webauthn.ts';
 import { readMultipart } from './lib/multipart.ts';
 import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
-import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp } from './lib/media.ts';
+import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, mediaPrefixFrom, adoptableKey, guessMime, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
-import { handleMcp, rateLimitOk, retryAfterSeconds, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
+import { handleMcp, rateLimitOk, retryAfterSeconds, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
 import {
   FIELD_TYPES,
   contentVersion,
@@ -929,6 +929,21 @@ export function createApp(configOverrides = {}) {
     return { ...m, url: urlFor(m.key), stale };
   }
 
+  // Key-authenticated upload shared by the REST media route and the MCP
+  // upload_media tool. Throws ToolError with a client-safe message on bad
+  // input; returns {id, key, url} with the full public URL.
+  async function apiUploadMedia(project, db, { filename, mime = '', data, path: rawPath = '', storage = '', variants = false }) {
+    const prefix = mediaPrefixFrom(String(rawPath).replace(/^\/+|\/+$/g, ''));
+    if (prefix === null) throw new ToolError('Invalid path: use "/"-separated segments of letters, digits, ".", "_", "-" (no dot-only segments).');
+    const chosen = storageChoiceConfig(project, String(storage).trim());
+    if (prefix && !chosen.publicBase) throw new ToolError('Folder paths need a storage with a public base URL; the chosen storage has none.');
+    const media = await createMedia(db, chosen.backend, { filename, mime: mime || guessMime(filename), data }, { withVariants: !!variants, prefix });
+    const pin = pinBaseFor(chosen);
+    if (pin !== null) db.prepare('UPDATE media SET base_url = ? WHERE id = ? AND base_url IS NULL').run(pin, media.id);
+    const base = pin === null ? chosen.publicBase : pin || null;
+    return { id: media.id, key: media.key, url: base ? `${base}/${media.key}` : `/media/${project.slug}/${media.key}` };
+  }
+
   // Storage label per row for the gallery filter: where the file lives.
   function storageLabelFor(m, defaultName, baseNames) {
     if (m.base_url === null || m.base_url === undefined) return defaultName;
@@ -1039,19 +1054,23 @@ export function createApp(configOverrides = {}) {
   // register the row. Bytes never pass through the server.
   router.post('/admin/projects/:slug/media/presign', withProject(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    const backend = storageChoiceConfig(ctx.project, (form.storage || '').trim()).backend;
+    const chosen = storageChoiceConfig(ctx.project, (form.storage || '').trim());
     if (!/^[0-9a-f]{64}$/.test(form.hash || '') || !form.filename) {
       return json(req, res, 400, { error: 'hash (sha256 hex) and filename required' });
     }
-    const { key } = mediaKeyFor(form.hash, form.filename);
-    const url = backend.presignPut(key, form.mime || 'application/octet-stream');
+    const prefix = mediaPrefixFrom(String(form.path || '').replace(/^\/+|\/+$/g, ''));
+    if (prefix === null) return json(req, res, 400, { error: 'invalid path' });
+    if (prefix && !chosen.publicBase) return json(req, res, 400, { error: 'Folder paths need a storage with a public base URL.' });
+    const { key } = mediaKeyFor(form.hash, form.filename, prefix);
+    const url = chosen.backend.presignPut(key, form.mime || 'application/octet-stream');
     if (!url) return json(req, res, 400, { error: 'Direct upload needs the S3 backend.' });
     json(req, res, 200, { url, key });
   }));
 
   router.post('/admin/projects/:slug/media/register', withProject(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    if (!/^[A-Za-z0-9._-]+$/.test(form.key || '') || !form.filename) {
+    const chosenReg = storageChoiceConfig(ctx.project, (form.storage || '').trim());
+    if (!adoptableKey(form.key || '', !!chosenReg.publicBase) || !form.filename) {
       return json(req, res, 400, { error: 'key and filename required' });
     }
     const media = registerMedia(db, {
@@ -1062,7 +1081,7 @@ export function createApp(configOverrides = {}) {
       width: Number(form.width) || null,
       height: Number(form.height) || null,
     });
-    const pin = pinBaseFor(storageChoiceConfig(ctx.project, (form.storage || '').trim()));
+    const pin = pinBaseFor(chosenReg);
     if (pin !== null) db.prepare('UPDATE media SET base_url = ? WHERE id = ? AND base_url IS NULL').run(pin, media.id);
     json(req, res, 200, { id: media.id, key: media.key });
   }));
@@ -1554,6 +1573,47 @@ export function createApp(configOverrides = {}) {
     json(req, res, 200, item, { ETag: etag });
   }));
 
+  // Media upload for headless clients: multipart POST, same Bearer key auth
+  // as MCP, write scope required. Unauthenticated requests get a bare 401
+  // before the body is parsed. Fields: file (required), path (optional
+  // folder prefix), storage, variants=1.
+  router.post('/api/v1/:project/media', async (req, res, params) => {
+    const project = getProjectBySlug(coreDb, params.project);
+    if (!project) return json(req, res, 404, { error: 'not_found' });
+    const db = projectDbs.get(project.slug);
+    const auth = req.headers.authorization || '';
+    const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
+    if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
+    if (apiKey.scope !== 'write') return json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' });
+    const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    if (!rateLimitOk(`${project.slug}:${apiKey.id}`, rateLimit)) {
+      const retryAfter = retryAfterSeconds(`${project.slug}:${apiKey.id}`, rateLimit);
+      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
+    }
+    let upload;
+    try {
+      upload = await readMultipart(req);
+    } catch (err: any) {
+      return json(req, res, 400, { error: 'bad_request', message: err.message });
+    }
+    const file = upload.files.file;
+    if (!file) return json(req, res, 400, { error: 'bad_request', message: 'Multipart field "file" is required.' });
+    try {
+      const result = await apiUploadMedia(project, db, {
+        filename: file.filename,
+        mime: file.mime,
+        data: file.data,
+        path: upload.fields.path || '',
+        storage: upload.fields.storage || '',
+        variants: upload.fields.variants === '1',
+      });
+      json(req, res, 200, result);
+    } catch (err) {
+      if (err instanceof ToolError) return json(req, res, 400, { error: 'bad_request', message: err.message });
+      throw err;
+    }
+  });
+
   // ---- MCP endpoint (per project, Bearer key, JSON-RPC over POST) ---------
 
   router.post('/mcp/:project', async (req, res, params) => {
@@ -1579,7 +1639,9 @@ export function createApp(configOverrides = {}) {
       }
       return json(req, res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error.' } });
     }
-    const response = handleMcp(db, project.name, message, apiKey.scope);
+    const response = await handleMcp(db, project.name, message, apiKey.scope, {
+      uploadMedia: (args) => apiUploadMedia(project, db, args),
+    });
     if (response === null) return send(req, res, 202, '', {});
     json(req, res, 200, response);
   });

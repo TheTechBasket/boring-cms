@@ -58,6 +58,21 @@ Responses carry an `ETag` tied to the project's content version; send
 page in the admin documents every endpoint with live URLs for the
 project's collections.
 
+Media uploads work headlessly with a write-scope key (multipart, field
+`file`; optional `path` folder prefix, `storage`, `variants=1`):
+
+```bash
+curl -H "Authorization: Bearer yn_..." \
+  -F file=@photo.jpg -F path=uploads/2026/09 \
+  http://localhost:3000/api/v1/<project>/media
+# -> { "id": 12, "key": "uploads/2026/09/ab12cd34-photo.jpg", "url": "https://cdn.example.com/uploads/2026/09/ab12cd34-photo.jpg" }
+```
+
+The response `url` is the full public URL (configured public base, or the
+app's `/media/...` route on local disk), ready to embed in content.
+Folder paths need a storage with a public base URL. The MCP endpoint has
+the same thing as an `upload_media` tool (base64 body, 8 MB request cap).
+
 ## Media
 
 Each project has a media library (sidebar: Media). Files upload to local

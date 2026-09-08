@@ -2,6 +2,12 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## Unreleased
+
+- Headless media upload: `POST /api/v1/<project>/media` (multipart, write-scope Bearer key, same rate limit as MCP) returns `{id, key, url}` with the full public URL. MCP gets a matching `upload_media` tool (base64 body, fits ~6 MB files under the 8 MB request cap).
+- Folder prefixes on upload: optional `path` field (validated segments, no traversal) stores objects under a nested key like `uploads/2026/09/ab12cd34-photo.jpg`; needs a storage with a public base URL. Presign accepts `path` too, and register accepts nested keys on such storages.
+- `adoptableKey` rejects dot-only path segments (`.`/`..`) everywhere.
+
 ## 0.9.0 (2026-09-08, from 0.1.0)
 
 Product named **Boring CMS** (repo stays `yncms`; cookie/settings crypto salts keep the old name on purpose so existing sessions and encrypted settings survive). Version now shows in the admin sidebar.

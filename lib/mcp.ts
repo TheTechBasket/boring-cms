@@ -264,9 +264,44 @@ const TOOLS = [
       return { slug: entry.slug, deleted: true };
     },
   },
+  {
+    name: 'upload_media',
+    description: 'Upload a file to the project media storage (file bytes as base64). Returns {id, key, url}; url is the full public URL, ready to embed in content. Re-uploading identical content returns the existing row. Optional path stores the object under a folder prefix (e.g. "uploads/2026/09"; safe path segments only), allowed only when the target storage has a public base URL. Request body cap is 8 MB, so files up to roughly 6 MB fit after base64 overhead.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filename: str('Original filename; its extension picks the MIME type and the stored key ends with a slug of it'),
+        data_base64: str('File content, base64-encoded'),
+        path: str('Optional folder prefix for the stored key, like "uploads/2026/09"'),
+        storage: str('Optional storage name (defaults to the project default storage)'),
+        variants: { type: 'boolean', description: 'Also generate resized image variants (default false)' },
+      },
+      required: ['filename', 'data_base64'],
+    },
+    handler: async (db, args, _collection, ctx) => {
+      if (!ctx?.uploadMedia) throw new ToolError('Media upload is not available on this server.');
+      if (typeof args.filename !== 'string' || !args.filename.trim()) throw new ToolError('filename is required.');
+      if (typeof args.data_base64 !== 'string' || !args.data_base64) throw new ToolError('data_base64 is required.');
+      let data;
+      try {
+        data = Buffer.from(args.data_base64, 'base64');
+      } catch {
+        throw new ToolError('data_base64 is not valid base64.');
+      }
+      if (data.length === 0) throw new ToolError('data_base64 decoded to an empty file.');
+      return ctx.uploadMedia({
+        filename: args.filename.trim(),
+        data,
+        path: args.path || '',
+        storage: args.storage || '',
+        variants: !!args.variants,
+      });
+    },
+  },
 ];
 
-class ToolError extends Error {}
+export class ToolError extends Error {}
 
 function rpcError(id, code, message) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
@@ -278,7 +313,7 @@ function rpcResult(id, result) {
 
 // Handles one JSON-RPC message. Returns the response object, or null for
 // notifications (respond 202 with no body).
-export function handleMcp(db, projectName: string, message: any, scope: string) {
+export async function handleMcp(db, projectName: string, message: any, scope: string, ctx: any = {}) {
   if (!message || message.jsonrpc !== '2.0' || typeof message.method !== 'string') {
     return rpcError(message?.id, -32600, 'Invalid request.');
   }
@@ -311,7 +346,7 @@ export function handleMcp(db, projectName: string, message: any, scope: string) 
         if (!collection) return toolFailure(id, `Collection not found: ${args.collection}`);
       }
       try {
-        const result = tool.handler(db, args, collection);
+        const result = await tool.handler(db, args, collection, ctx);
         return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] });
       } catch (err) {
         if (err instanceof ToolError) return toolFailure(id, err.message);
