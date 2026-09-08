@@ -14,6 +14,15 @@
 - Nightly per-project SQLite backup (single-file copy, rotate N) plus media manifest.
 - API request stats: per-key/per-day counters (calls, 429s, last endpoint hit) shown on the API keys page. In-memory counters only, flushed to a `request_stats` meta-style table on a timer (not per-request write) so it never adds DB I/O to the hot path; the rate limiter must never throttle its own stats flush or admin reads, only external API traffic.
 - Stage 3 leftovers (manual verify only, code shipped): real image upload with sharp installed; S3 backend against live R2 credentials.
+- MCP v2, from agent field use on a 4000-entry migration (2026-09-08, peer session feedback):
+  - `publish: true` option on update_entry (create_entry already has it; callers forget the publish_entry follow-up and read stale data). Trivial, do first.
+  - delete_entry tool (only unpublish exists; test entries pile up). Write scope, maybe a per-project "allow MCP delete" setting.
+  - batch_create_entries: array of {slug, data}, per-item results, one transaction. Cuts a 4000-entry push from ~25 min of single calls to seconds.
+  - list_entries `updated_since` filter plus slug and updated_at in the response, for incremental sync pulls.
+  - rate_limited error payload should carry a retry_after seconds hint (HTTP header exists but MCP clients read the JSON-RPC body).
+  - Native JSON handling for list/date fields: accept arrays/objects in data, return them typed (today clients double-encode JSON strings inside data).
+  - Editor and entry list should show the native entry slug (read-only or with a "changing breaks URLs" warning); today the slug field renders empty for entries created with a slug via MCP.
+  - Schema mutation over MCP (add_field/remove_field): deferred, schema read already exists via list_collections; revisit if migrations keep needing the dashboard.
 
 ## Rejected findings
 
