@@ -6,7 +6,6 @@
 
 ## Backlog
 
-- Publish webhooks: per-project URL(s) POSTed on publish/unpublish (fires Netlify build hooks, cache purges). Small, high value for static-site consumers.
 - Relation field API expansion on `?include=`: the relation field type itself is shipped (picker, target collection, multiple, one-save type switch from text); only the API-side expansion of referenced entries remains, build when a consumer needs it.
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
 - Media alt text + caption fields on the media row, included in the copy-markdown snippet.
@@ -25,6 +24,7 @@
 
 ## Shipped history
 
+- 2026-09-09 Consumer sync pair (requested by thetechbasket session): REST list endpoint gains updated_since (parity with MCP list_entries, 400 on invalid timestamp), so incremental sync is one request; publish webhooks per project (webhook URL + optional HMAC secret in project settings, POSTs entry.publish / entry.unpublish / entry.delete of published entries from admin and MCP paths, X-Boring-Signature sha256 header, 10s timeout, 2 in-process retries, fire-and-forget). Smoke covers both, README documents both.
 - 2026-09-08 Boring CMS v0.9.0 rebrand + editor/revision ergonomics: product named Boring CMS with version in the sidebar (from package.json); add-field takes an optional explicit field id alongside the label; built-in system fields (slug, updated_at, published_at) shown as non-deletable rows in the fields editor; native entry slug editable as a form field in the editor (create picks a custom slug, edit renames with API URL warning, published snapshot slug follows); revision retention now keep 2 by default, 15 day age cap, per-collection override (off / 5 / 20) for frequently rewritten collections.
 - 2026-09-08 updated_at shadow fix: a user data field named updated_at (WP imports) no longer shadows the row write clock in published reads (get_entry, list_entries, REST, editor preview); updated_at now always matches what updated_since filters on. published_at keeps field-wins semantics.
 - 2026-09-08 MCP v2 + storage/media overhaul (3 commits): MCP tools update_entry `publish`, delete_entry, batch_create_entries (one transaction, per-item results, 200 cap), list_entries `updated_since` with slug/updated_at, retry_after seconds in the 429 body, JSON-field double-encode fix; slug snapshot collision fix, native slug in editor status card and entry list, API response preview card (live vs after next publish); storage edit flow (non-secret fields recoverable and pre-filled, secret write-only with blank-keeps, delete action); media multi-storage (any storage at upload time via select, default from project setting, base_url pinning, storage badge and filter, delete via the row's own backend), check-first sync (dry-run report with previews, explicit adopt, storage selectable), nested S3 key adoption with folder drill-down from key paths; free-text media groups removed (filebird-lite replacement in backlog).

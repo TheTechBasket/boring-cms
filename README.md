@@ -73,6 +73,26 @@ app's `/media/...` route on local disk), ready to embed in content.
 Folder paths need a storage with a public base URL. The MCP endpoint has
 the same thing as an `upload_media` tool (base64 body, 8 MB request cap).
 
+## Webhooks
+
+Configure a webhook URL and optional secret per project under Project settings. Fired automatically when published content changes, so static site consumers can trigger rebuilds:
+
+- Fires on `entry.publish`, `entry.unpublish`, and `entry.delete` (delete fires only if the entry was published).
+- Payload shape:
+
+```json
+{
+  "event": "entry.publish",
+  "project": "my-site",
+  "collection": "blog-posts",
+  "slug": "hello-world",
+  "at": "2026-09-09T00:00:00.000Z"
+}
+```
+
+- When a secret is configured, requests carry an `X-Boring-Signature: sha256=<hex>` header containing the HMAC-SHA256 of the exact request body.
+- Delivery has a 10s timeout per attempt. Failures are retried best-effort in process (after 5s, then after 30s, for 2 retries total). Webhooks never block or fail admin or MCP requests.
+
 ## Media
 
 Each project has a media library (sidebar: Media). Files upload to local

@@ -7,12 +7,15 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHmac } from 'node:crypto';
+import http from 'node:http';
 
 import { createApp } from '../server.ts';
 import { openCoreDb } from '../lib/db.ts';
 import { getProjectBySlug, getSettingValue } from '../lib/store.ts';
 import { getCollection, getEntry, listRevisions } from '../lib/content.ts';
+
+let webhookServer: any = null;
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'boring-cms-smoke-'));
 const masterKey = randomBytes(32).toString('hex');
@@ -224,9 +227,112 @@ async function main() {
   await req('POST', `/admin/projects/${slug}/collections/blog-posts/smoke-renamed`, { form: { field_body: '# Second draft', field_cover: cover, entry_slug: entrySlug } });
   assert.ok(getEntry(projectDb, collection.id, entrySlug), 'entry should be back under the original slug');
 
-  // 9. Publish, then read through the public API with a Bearer key
+  // 9. Webhook setup and publish, then read through the public API with a Bearer key
+  const webhookEvents: Array<{ headers: http.IncomingHttpHeaders; body: any; rawBody: string }> = [];
+  webhookServer = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      const rawBody = Buffer.concat(chunks).toString('utf-8');
+      let body: any = null;
+      try { body = JSON.parse(rawBody); } catch {}
+      webhookEvents.push({ headers: req.headers, body, rawBody });
+      res.writeHead(200);
+      res.end('ok');
+    });
+  });
+  await new Promise<void>((resolve) => webhookServer.listen(0, '127.0.0.1', () => resolve()));
+  const webhookPort = (webhookServer.address() as any).port;
+  const webhookUrl = `http://127.0.0.1:${webhookPort}/webhook`;
+  const webhookSecret = 'smoke-secret-key-123';
+
+  // Bad webhook URL should be rejected with 400
+  const badWebhookRes = await req('POST', `/admin/projects/${slug}/webhook`, {
+    form: { webhook_url: 'not-a-valid-url' },
+  });
+  assert.equal(badWebhookRes.status, 400, 'invalid webhook url should return 400');
+
+  // Set webhook_url and webhook_secret via settings form POST
+  const setWebhookRes = await req('POST', `/admin/projects/${slug}/settings`, {
+    form: { webhook_url: webhookUrl, webhook_secret: webhookSecret },
+  });
+  assert.equal(setWebhookRes.status, 302, 'saving webhook settings should redirect');
+
+  const settingsPageHtml = await (await req('GET', `/admin/projects/${slug}`)).text();
+  assert.ok(settingsPageHtml.includes(webhookUrl), 'settings page should pre-fill webhook_url');
+  assert.ok(!settingsPageHtml.includes(webhookSecret), 'settings page must never reveal webhook_secret');
+
+  async function waitForWebhook(predicate: (e: any) => boolean, timeoutMs = 2000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const found = webhookEvents.find(predicate);
+      if (found) return found;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return null;
+  }
+
   const publishRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/publish`);
   assert.equal(publishRes.status, 302, 'publish should redirect');
+
+  const pubEvent = await waitForWebhook((e) => e.body?.event === 'entry.publish');
+  assert.ok(pubEvent, 'webhook listener should receive entry.publish event within 2s');
+  assert.equal(pubEvent.body.project, slug);
+  assert.equal(pubEvent.body.collection, 'blog-posts');
+  assert.equal(pubEvent.body.slug, entrySlug);
+  assert.ok(pubEvent.body.at, 'payload should contain an ISO timestamp');
+  assert.equal(pubEvent.headers['user-agent'], 'boring-cms-webhook');
+  assert.equal(pubEvent.headers['content-type'], 'application/json');
+
+  const expectedSig = 'sha256=' + createHmac('sha256', webhookSecret).update(pubEvent.rawBody).digest('hex');
+  assert.equal(pubEvent.headers['x-boring-signature'], expectedSig, 'webhook signature header should match computed HMAC');
+
+  // Unpublish and assert entry.unpublish arrives
+  const unpublishRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/unpublish`);
+  assert.equal(unpublishRes.status, 302, 'unpublish should redirect');
+
+  const unpubEvent = await waitForWebhook((e) => e.body?.event === 'entry.unpublish');
+  assert.ok(unpubEvent, 'webhook listener should receive entry.unpublish event within 2s');
+  assert.equal(unpubEvent.body.project, slug);
+  assert.equal(unpubEvent.body.collection, 'blog-posts');
+  assert.equal(unpubEvent.body.slug, entrySlug);
+
+  // Delete of a draft entry must NOT fire entry.delete
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, { form: { field_body: 'draft to delete', entry_slug: 'draft-del' } });
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/draft-del/delete`);
+  const draftDelEvent = await waitForWebhook((e) => e.body?.event === 'entry.delete' && e.body?.slug === 'draft-del', 200);
+  assert.equal(draftDelEvent, null, 'deleting a draft entry must not fire a webhook');
+
+  // Delete of a published entry MUST fire entry.delete
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/new`, { form: { field_body: 'pub to delete', entry_slug: 'pub-del' } });
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/pub-del/publish`);
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/pub-del/delete`);
+  const pubDelEvent = await waitForWebhook((e) => e.body?.event === 'entry.delete' && e.body?.slug === 'pub-del');
+  assert.ok(pubDelEvent, 'deleting a published entry must fire entry.delete');
+  assert.equal(pubDelEvent.body.slug, 'pub-del');
+
+  // Re-publish so subsequent tests continue with a published entry
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/publish`);
+
+  // Blank secret keeps existing secret
+  await req('POST', `/admin/projects/${slug}/webhook`, {
+    form: { webhook_url: webhookUrl, webhook_secret: '' },
+  });
+  const projectRow = getProjectBySlug(app.coreDb, slug);
+  const keptSecret = getSettingValue(app.coreDb, masterKey, { scope: 'project', projectId: projectRow.id, key: 'webhook_secret' });
+  assert.equal(keptSecret, webhookSecret, 'blank secret should keep existing secret');
+
+  // Blank webhook_url clears the setting
+  await req('POST', `/admin/projects/${slug}/webhook`, {
+    form: { webhook_url: '', webhook_secret: '' },
+  });
+  const clearedUrl = getSettingValue(app.coreDb, masterKey, { scope: 'project', projectId: projectRow.id, key: 'webhook_url' });
+  assert.equal(clearedUrl, null, 'blank webhook_url should clear the setting');
+
+  // Restore webhook config for remaining tests
+  await req('POST', `/admin/projects/${slug}/webhook`, {
+    form: { webhook_url: webhookUrl, webhook_secret: webhookSecret },
+  });
 
   const keyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke' } });
   assert.equal(keyPage.status, 200, 'creating an API key should render the key once');
@@ -668,6 +774,8 @@ async function main() {
     await rpc(writeKey, 'tools/call', { name: 'update_entry', arguments: { collection: 'blog-posts', slug: createdEntry.slug, data: { body: 'v2 edit' }, publish: true } })
   ).json();
   assert.equal(JSON.parse(upPub.result.content[0].text).status, 'published', 'update_entry publish flag should publish');
+  const mcpPubEvent = await waitForWebhook((e) => e.body?.event === 'entry.publish' && e.body?.slug === createdEntry.slug);
+  assert.ok(mcpPubEvent, 'MCP update_entry with publish=true should fire entry.publish');
 
   const batch: any = await (
     await rpc(writeKey, 'tools/call', {
@@ -720,6 +828,8 @@ async function main() {
   ).json();
   assert.ok(JSON.parse(del.result.content[0].text).deleted, 'delete_entry should report deleted');
   assert.ok(!getEntry(projectDb, collection.id, 'batch-two'), 'deleted entry should be gone from the DB');
+  const mcpDelEvent = await waitForWebhook((e) => e.body?.event === 'entry.delete' && e.body?.slug === 'batch-two');
+  assert.ok(mcpDelEvent, 'MCP delete_entry of published entry should fire entry.delete');
 
   // Unique field option: one-step create with flags from the add popover,
   // duplicate values rejected across dashboard/API/MCP naming the holder,
@@ -944,6 +1054,9 @@ try {
   console.error(err);
   process.exitCode = 1;
 } finally {
+  if (webhookServer) {
+    await new Promise((resolve) => webhookServer.close(resolve));
+  }
   app.closeAll();
   await new Promise((resolve) => app.close(resolve));
   rmSync(dataDir, { recursive: true, force: true });

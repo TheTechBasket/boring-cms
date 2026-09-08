@@ -120,13 +120,16 @@ const TOOLS = [
       },
       required: ['collection', 'data'],
     },
-    handler: (db, args, collection) => {
+    handler: (db, args, collection, ctx) => {
       const data = normalizeJsonFields(collection, args.data);
       const existing = args.slug ? getEntry(db, collection.id, slugify(args.slug)) : null;
       const errors = validateEntryData(collection, data, { db, excludeEntryId: existing?.id ?? 0 });
       if (errors.length) throw new ToolError(errors.join(' '));
       let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: args.slug });
-      if (args.publish) entry = publishEntry(db, entry.id);
+      if (args.publish) {
+        entry = publishEntry(db, entry.id);
+        ctx?.onWebhook?.('entry.publish', collection.slug, entry.slug);
+      }
       return { slug: entry.slug, status: entry.status, data: entry.data, upserted: !!existing };
     },
   },
@@ -155,7 +158,7 @@ const TOOLS = [
       },
       required: ['collection', 'entries'],
     },
-    handler: (db, args, collection) => {
+    handler: (db, args, collection, ctx) => {
       if (!Array.isArray(args.entries) || args.entries.length === 0) throw new ToolError('entries must be a non-empty array.');
       if (args.entries.length > 200) throw new ToolError('Max 200 entries per call; split into batches.');
       const results: any[] = [];
@@ -171,7 +174,10 @@ const TOOLS = [
               continue;
             }
             let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: item.slug });
-            if (item.publish ?? args.publish) entry = publishEntry(db, entry.id);
+            if (item.publish ?? args.publish) {
+              entry = publishEntry(db, entry.id);
+              ctx?.onWebhook?.('entry.publish', collection.slug, entry.slug);
+            }
             results.push({ slug: entry.slug, ok: true, status: entry.status, upserted: !!existing });
           } catch (err) {
             results.push({ slug: item?.slug ?? null, ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -205,14 +211,17 @@ const TOOLS = [
       },
       required: ['collection', 'slug', 'data'],
     },
-    handler: (db, args, collection) => {
+    handler: (db, args, collection, ctx) => {
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
       const merged = { ...entry.data, ...normalizeJsonFields(collection, args.data) };
       const errors = validateEntryData(collection, merged, { db, excludeEntryId: entry.id });
       if (errors.length) throw new ToolError(errors.join(' '));
       let updated = updateEntry(db, entry, { data: merged });
-      if (args.publish) updated = publishEntry(db, updated.id);
+      if (args.publish) {
+        updated = publishEntry(db, updated.id);
+        ctx?.onWebhook?.('entry.publish', collection.slug, updated.slug);
+      }
       return { slug: updated.slug, status: updated.status, data: updated.data };
     },
   },
@@ -225,10 +234,11 @@ const TOOLS = [
       properties: { collection: str('Collection slug'), slug: str('Entry slug') },
       required: ['collection', 'slug'],
     },
-    handler: (db, args, collection) => {
+    handler: (db, args, collection, ctx) => {
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
       const published = publishEntry(db, entry.id);
+      ctx?.onWebhook?.('entry.publish', collection.slug, published.slug);
       return { slug: published.slug, status: published.status };
     },
   },
@@ -241,10 +251,11 @@ const TOOLS = [
       properties: { collection: str('Collection slug'), slug: str('Entry slug') },
       required: ['collection', 'slug'],
     },
-    handler: (db, args, collection) => {
+    handler: (db, args, collection, ctx) => {
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
       unpublishEntry(db, entry.id);
+      ctx?.onWebhook?.('entry.unpublish', collection.slug, entry.slug);
       return { slug: entry.slug, status: 'draft' };
     },
   },
@@ -257,10 +268,14 @@ const TOOLS = [
       properties: { collection: str('Collection slug'), slug: str('Entry slug') },
       required: ['collection', 'slug'],
     },
-    handler: (db, args, collection) => {
+    handler: (db, args, collection, ctx) => {
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
+      const wasPublished = entry.status === 'published';
       deleteEntry(db, entry.id);
+      if (wasPublished) {
+        ctx?.onWebhook?.('entry.delete', collection.slug, entry.slug);
+      }
       return { slug: entry.slug, deleted: true };
     },
   },

@@ -41,6 +41,7 @@ import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, regis
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import { handleMcp, rateLimitOk, retryAfterSeconds, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
+import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
   contentVersion,
@@ -522,16 +523,92 @@ export function createApp(configOverrides = {}) {
     }),
   );
 
+  function renderProjectDetail(req: any, res: any, project: any, user: any, extra: any = {}, status = 200) {
+    const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id })
+      .filter((s: any) => !['webhook_url', 'webhook_secret'].includes(s.key));
+    const globalSettingKeys = plainSettingKeys();
+    const mediaStorage = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage' }) || '';
+    const currentWebhookUrl = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'webhook_url' }) || '';
+    const currentWebhookSecret = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'webhook_secret' }) || '';
+    const editKey = new URL(req.url, 'http://localhost').searchParams.get('edit') || '';
+    return html(
+      req,
+      res,
+      status,
+      projectDetailPage({
+        user,
+        projects: listProjects(coreDb),
+        project,
+        settingKeys,
+        globalSettingKeys,
+        editKey,
+        storages: listStorages(),
+        mediaStorage,
+        webhookUrl: currentWebhookUrl,
+        hasWebhookSecret: !!currentWebhookSecret,
+        ...extra,
+      }),
+    );
+  }
+
+  function saveProjectWebhook(req: any, res: any, project: any, form: any, user: any) {
+    const webhookUrl = (form.webhook_url ?? '').trim();
+    const webhookSecret = (form.webhook_secret ?? '').trim();
+
+    if (webhookUrl) {
+      try {
+        const u = new URL(webhookUrl);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+          throw new Error('invalid protocol');
+        }
+      } catch {
+        return renderProjectDetail(
+          req,
+          res,
+          project,
+          user,
+          {
+            webhookUrl,
+            notice: { type: 'error', message: 'Webhook URL must be a valid http or https URL.' },
+          },
+          400,
+        );
+      }
+      setSetting(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'webhook_url', value: webhookUrl });
+    } else {
+      deleteSetting(coreDb, { scope: 'project', projectId: project.id, key: 'webhook_url' });
+    }
+
+    if (webhookSecret) {
+      setSetting(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'webhook_secret', value: webhookSecret });
+    }
+
+    redirect(req, res, `/admin/projects/${project.slug}`);
+  }
+
+  function triggerWebhook(project: any, collectionSlug: string, entrySlug: string, event: WebhookEvent) {
+    try {
+      const url = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'webhook_url' });
+      if (!url) return;
+      const secret = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'webhook_secret' });
+      fireWebhook(url, secret, {
+        event,
+        project: project.slug,
+        collection: collectionSlug,
+        slug: entrySlug,
+        at: new Date().toISOString(),
+      });
+    } catch {
+      // Never block or fail the request on webhook problems
+    }
+  }
+
   router.get(
     '/admin/projects/:slug',
     requireAdmin((req, res, params, user) => {
       const project = getProjectBySlug(coreDb, params.slug);
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
-      const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id });
-      const globalSettingKeys = plainSettingKeys();
-      const mediaStorage = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage' }) || '';
-      const editKey = new URL(req.url, 'http://localhost').searchParams.get('edit') || '';
-      html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys, globalSettingKeys, editKey, storages: listStorages(), mediaStorage }));
+      renderProjectDetail(req, res, project, user);
     }),
   );
 
@@ -571,11 +648,24 @@ export function createApp(configOverrides = {}) {
   );
 
   router.post(
-    '/admin/projects/:slug/settings',
-    requireAdmin(async (req, res, params) => {
+    '/admin/projects/:slug/webhook',
+    requireAdmin(async (req, res, params, user) => {
       const project = getProjectBySlug(coreDb, params.slug);
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const form = await readFormBody(req);
+      saveProjectWebhook(req, res, project, form, user);
+    }),
+  );
+
+  router.post(
+    '/admin/projects/:slug/settings',
+    requireAdmin(async (req, res, params, user) => {
+      const project = getProjectBySlug(coreDb, params.slug);
+      if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
+      const form = await readFormBody(req);
+      if (form.webhook_url !== undefined || form.webhook_secret !== undefined) {
+        return saveProjectWebhook(req, res, project, form, user);
+      }
       const key = (form.key || '').trim();
       const value = form.value || '';
       if (key && value) {
@@ -604,18 +694,13 @@ export function createApp(configOverrides = {}) {
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const form = await readFormBody(req);
       if (form.confirm !== project.slug) {
-        const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id });
-        return html(
+        return renderProjectDetail(
           req,
           res,
+          project,
+          user,
+          { notice: { type: 'error', message: 'Type the project slug exactly to confirm deletion.' } },
           400,
-          projectDetailPage({
-            user,
-            projects: listProjects(coreDb),
-            project,
-            settingKeys,
-            notice: { type: 'error', message: 'Type the project slug exactly to confirm deletion.' },
-          }),
         );
       }
       projectDbs.destroy(project.slug);
@@ -1481,19 +1566,24 @@ export function createApp(configOverrides = {}) {
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${slug}`);
   }));
 
-  const entryActions: Array<[string, (db: any, ctx: any) => void]> = [
-    ['publish', (db, ctx) => publishEntry(db, ctx.entry.id)],
-    ['unpublish', (db, ctx) => unpublishEntry(db, ctx.entry.id)],
+  const entryActions: Array<[string, (db: any, ctx: any) => void, WebhookEvent]> = [
+    ['publish', (db, ctx) => publishEntry(db, ctx.entry.id), 'entry.publish'],
+    ['unpublish', (db, ctx) => unpublishEntry(db, ctx.entry.id), 'entry.unpublish'],
   ];
-  for (const [actionName, fn] of entryActions) {
+  for (const [actionName, fn, webhookEvent] of entryActions) {
     router.post(`/admin/projects/:slug/collections/:cslug/:eslug/${actionName}`, withEntry(async (req, res, params, ctx, db) => {
       fn(db, ctx);
+      triggerWebhook(ctx.project, ctx.collection.slug, ctx.entry.slug, webhookEvent);
       redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
     }));
   }
 
   router.post('/admin/projects/:slug/collections/:cslug/:eslug/delete', withEntry(async (req, res, params, ctx, db) => {
+    const wasPublished = ctx.entry.status === 'published';
     deleteEntry(db, ctx.entry.id);
+    if (wasPublished) {
+      triggerWebhook(ctx.project, ctx.collection.slug, ctx.entry.slug, 'entry.delete');
+    }
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 
@@ -1645,6 +1735,9 @@ export function createApp(configOverrides = {}) {
     }
     const response = await handleMcp(db, project.name, message, apiKey.scope, {
       uploadMedia: (args) => apiUploadMedia(project, db, args),
+      onWebhook: (event: WebhookEvent, collectionSlug: string, entrySlug: string) => {
+        triggerWebhook(project, collectionSlug, entrySlug, event);
+      },
     });
     if (response === null) return send(req, res, 202, '', {});
     json(req, res, 200, response);

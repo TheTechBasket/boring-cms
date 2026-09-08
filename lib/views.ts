@@ -545,7 +545,7 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
   });
 }
 
-export function projectDetailPage({ user, projects, project, settingKeys, globalSettingKeys = [], editKey = '', storages = [], mediaStorage = '', notice: pageNotice }: any): string {
+export function projectDetailPage({ user, projects, project, settingKeys, globalSettingKeys = [], editKey = '', storages = [], mediaStorage = '', webhookUrl = '', hasWebhookSecret = false, notice: pageNotice }: any): string {
   const settingsBase = `/admin/projects/${encodeURIComponent(project.slug)}/settings`;
   const editing = editKey && settingKeys.some((s: any) => s.key === editKey);
   return layout({
@@ -587,6 +587,30 @@ export function projectDetailPage({ user, projects, project, settingKeys, global
             })}
             ${storages.length ? '' : '<p class="text-xs text-muted-foreground m-0">No shared storages yet. Add one under Global settings.</p>'}
             ${button({ label: 'Use this storage' })}
+          `,
+          })}
+
+          ${sectionHeading('Publish webhook')}
+          <p class="text-sm text-muted-foreground">Outbound webhook fired when published content changes, so static-site consumers can trigger rebuilds instead of polling.</p>
+          ${card({
+            action: `/admin/projects/${encodeURIComponent(project.slug)}/webhook`,
+            extraClass: '',
+            children: `
+            ${field({
+              label: 'Webhook URL',
+              name: 'webhook_url',
+              value: webhookUrl,
+              placeholder: 'https://api.example.com/rebuild-hook',
+              help: 'POSTed on publish, unpublish and delete of a published entry. Use it to trigger a static site rebuild.',
+            })}
+            ${field({
+              label: 'Webhook secret',
+              name: 'webhook_secret',
+              type: 'password',
+              autocomplete: 'off',
+              help: (hasWebhookSecret ? 'Leave blank to keep existing secret. ' : '') + 'Optional. Requests carry X-Boring-Signature: sha256=HMAC-SHA256(body, secret).',
+            })}
+            ${button({ label: 'Save webhook' })}
           `,
           })}
 
