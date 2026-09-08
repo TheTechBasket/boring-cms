@@ -14,7 +14,7 @@ import { openCoreDb } from '../lib/db.ts';
 import { getProjectBySlug, getSettingValue } from '../lib/store.ts';
 import { getCollection, getEntry, listRevisions } from '../lib/content.ts';
 
-const dataDir = mkdtempSync(path.join(tmpdir(), 'yncms-smoke-'));
+const dataDir = mkdtempSync(path.join(tmpdir(), 'boring-cms-smoke-'));
 const masterKey = randomBytes(32).toString('hex');
 
 const app: any = createApp({ dataDir, masterKey, port: 0 });

@@ -355,7 +355,7 @@ export function setupPage({ error }: { error?: string } = {}): string {
     title: `Set up ${APP_NAME}`,
     bare: true,
     body: `
-      <h1 class="text-2xl font-semibold">Set up yncms</h1>
+      <h1 class="text-2xl font-semibold">Set up ${APP_NAME}</h1>
       <p class="text-sm text-muted-foreground">No admin account exists yet. Create the one and only admin user.</p>
       ${error ? notice({ type: 'error', message: error }) : ''}
       ${card({
@@ -1582,7 +1582,7 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
         </div>
         <div class="${CARD_CLASS}">
           <span class="text-sm font-medium">Import content</span>
-          <p class="text-xs text-muted-foreground m-0">JSON (yncms export or an array of flat objects) or CSV with a header row. Nothing is written until you confirm the mapping and dry-run report.</p>
+          <p class="text-xs text-muted-foreground m-0">JSON (Boring CMS export or an array of flat objects) or CSV with a header row. Nothing is written until you confirm the mapping and dry-run report.</p>
           <form method="post" action="${base}/import" enctype="multipart/form-data" class="flex flex-col gap-4">
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">File</span>

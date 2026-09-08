@@ -105,7 +105,7 @@ export function createApp(configOverrides = {}) {
   if (!config.masterKey || config.masterKey.length < 32) {
     const suggested = randomBytes(32).toString('base64url');
     throw new Error(
-      'SECRET_KEY missing or shorter than 32 characters. yncms refuses to start without it.\n' +
+      'SECRET_KEY missing or shorter than 32 characters. Boring CMS refuses to start without it.\n' +
         `Suggested key, paste this line into .env:\n\nSECRET_KEY=${suggested}\n\n` +
         'Changing it later makes existing encrypted settings unreadable. (MASTER_KEY is accepted as a legacy alias.)',
     );
@@ -303,7 +303,7 @@ export function createApp(configOverrides = {}) {
     const { rpId } = requestOrigin(req);
     json(req, res, 200, {
       challenge: issueChallenge(req, res),
-      rp: { id: rpId, name: 'yncms' },
+      rp: { id: rpId, name: 'Boring CMS' },
       user: { id: b64url(Buffer.from(String(user.id))), name: user.email, displayName: user.email },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
       excludeCredentials: listCredentials(coreDb, user.id).map((c) => ({ type: 'public-key', id: c.credential_id })),
@@ -797,9 +797,9 @@ export function createApp(configOverrides = {}) {
       accessKey: blob.key,
       secretKey: blob.secret,
     });
-    const probeKey = `yncms-probe-${randomBytes(4).toString('hex')}.txt`;
+    const probeKey = `boring-cms-probe-${randomBytes(4).toString('hex')}.txt`;
     try {
-      await backend.put(probeKey, Buffer.from('yncms storage probe'), 'text/plain');
+      await backend.put(probeKey, Buffer.from('Boring CMS storage probe'), 'text/plain');
       await backend.list();
       await backend.remove(probeKey);
       return null;
@@ -1650,6 +1650,6 @@ export function createApp(configOverrides = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const app = createApp();
   app.listen(app.appConfig.port, () => {
-    console.log(`yncms listening on http://localhost:${app.appConfig.port}`);
+    console.log(`Boring CMS listening on http://localhost:${app.appConfig.port}`);
   });
 }

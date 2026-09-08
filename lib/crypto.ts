@@ -3,6 +3,10 @@
 // Passwords:   crypto.scrypt, random salt per password, stored as one string.
 // Cookies:     HMAC-SHA256, key = HKDF(MASTER_KEY, salt: 'yncms-cookie', info: 'session-cookie')
 // Settings:    AES-256-GCM, key = HKDF(MASTER_KEY, salt: 'yncms-settings', info: 'settings-value')
+//
+// The 'yncms-*' salts predate the Boring CMS rename and stay as they are on
+// purpose: changing them changes the derived keys, which would invalidate
+// every session cookie and make every encrypted setting unreadable.
 //              per-value random IV, distinct key from the cookie key.
 
 import { scrypt, randomBytes, timingSafeEqual, hkdfSync, createHmac, createCipheriv, createDecipheriv } from 'node:crypto';
