@@ -627,8 +627,32 @@ export function projectDetailPage({ user, projects, project, settingKeys, global
   });
 }
 
-export function globalSettingsPage({ user, projects, settingKeys, editKey = '', notice: pageNotice }: any): string {
+export function globalSettingsPage({ user, projects, settingKeys, editKey = '', storages = [], storageEdit = null, notice: pageNotice }: any): string {
   const editing = editKey && settingKeys.some((s: any) => s.key === editKey);
+  // storages: [{name, endpoint, bucket, key, region, public_url}] with the
+  // secret never included. storageEdit pre-fills the form for one of them.
+  const s = storageEdit || {};
+  const editingStorage = !!storageEdit;
+  const storageRows = storages
+    .map(
+      (st: any) => `<tr class="border-b border-border">
+        <td class="p-3"><code class="text-sm">${escapeHtml(st.name)}</code></td>
+        <td class="p-3 text-sm text-muted-foreground break-all">${escapeHtml(st.bucket)} @ ${escapeHtml(st.endpoint)}</td>
+        <td class="p-3 text-sm text-muted-foreground">${escapeHtml(st.public_url || '')}</td>
+        <td class="p-3 text-right whitespace-nowrap">
+          <a href="/admin/settings?storage=${encodeURIComponent(st.name)}" class="text-primary text-sm no-underline hover:underline mr-3">Edit</a>
+          <form method="post" action="/admin/settings/storage/delete" class="inline" data-confirm="delete-secret">
+            <input type="hidden" name="name" value="${escapeHtml(st.name)}">
+            <button type="submit" class="text-destructive text-sm bg-transparent border-0 p-0 cursor-pointer hover:underline">Delete</button>
+          </form>
+        </td>
+      </tr>`,
+    )
+    .join('\n');
+  const storagesTable = tableCard(`<table class="w-full border-collapse">
+    ${tableHead([{ label: 'Name' }, { label: 'Bucket' }, { label: 'Public URL' }, { label: '' }])}
+    <tbody>${storageRows || '<tr><td colspan="4" class="p-3 text-muted-foreground italic">No storages yet.</td></tr>'}</tbody>
+  </table>`);
   return layout({
     title: 'Settings',
     user,
@@ -650,24 +674,30 @@ export function globalSettingsPage({ user, projects, settingKeys, editKey = '', 
           ${button({ label: editing ? 'Update secret' : 'Add secret' })}
         `,
         })}
-        ${card({
-          action: '/admin/settings/storage',
-          extraClass: '',
-          children: `
-          <h2 class="text-sm font-semibold m-0">Add shared S3 storage</h2>
-          <p class="text-xs text-muted-foreground m-0">Configure a bucket (R2, MinIO, S3) once; any project can then select it as its media storage. Saved encrypted as <code>storage_&lt;name&gt;</code>.</p>
-          ${field({ label: 'Name', name: 'name', required: true, placeholder: 'r2-main' })}
-          ${field({ label: 'Endpoint', name: 'endpoint', required: true, placeholder: 'https://<account>.r2.cloudflarestorage.com' })}
-          ${field({ label: 'Bucket', name: 'bucket', required: true })}
-          ${field({ label: 'Access key', name: 'key', required: true, autocomplete: 'off', help: 'Object-level read and write on this one bucket is enough. Never use an account or admin credential. R2: create an API token with the "Object Read & Write" permission scoped to the bucket. AWS/MinIO: a key limited to s3:GetObject, s3:PutObject, s3:DeleteObject and s3:ListBucket on the bucket.' })}
-          ${field({ label: 'Secret key', name: 'secret', type: 'password', required: true, autocomplete: 'off' })}
-          ${field({ label: 'Region', name: 'region', placeholder: 'auto' })}
-          ${field({ label: 'Public URL (custom domain, used in content links)', name: 'public_url', placeholder: 'https://cdn.example.com' })}
-          ${checkbox({ name: 'skip_test', label: 'Save without testing (skip the write/list/delete probe)' })}
-          ${button({ label: 'Test and save storage' })}
-        `,
-        })}
       </div>
+
+      ${sectionHeading('Shared S3 storages')}
+      <p class="text-sm text-muted-foreground">Configure a bucket (R2, MinIO, S3) once; any project can select it as its media storage, and any storage stays usable for uploads and sync at any time. Only the secret key is write-only; everything else is visible and editable here.</p>
+      <div class="max-w-3xl">${storagesTable}</div>
+      ${card({
+        action: '/admin/settings/storage',
+        extraClass: 'max-w-2xl',
+        children: `
+        <h2 class="text-sm font-semibold m-0">${editingStorage ? `Edit storage <code>${escapeHtml(s.name)}</code>` : 'Add shared S3 storage'}</h2>
+        ${editingStorage
+          ? `<input type="hidden" name="name" value="${escapeHtml(s.name)}">`
+          : field({ label: 'Name', name: 'name', required: true, placeholder: 'r2-main' })}
+        ${field({ label: 'Endpoint', name: 'endpoint', required: true, value: s.endpoint || '', placeholder: 'https://<account>.r2.cloudflarestorage.com' })}
+        ${field({ label: 'Bucket', name: 'bucket', required: true, value: s.bucket || '' })}
+        ${field({ label: 'Access key', name: 'key', required: true, value: s.key || '', autocomplete: 'off', help: 'Object-level read and write on this one bucket is enough. Never use an account or admin credential. R2: create an API token with the "Object Read & Write" permission scoped to the bucket. AWS/MinIO: a key limited to s3:GetObject, s3:PutObject, s3:DeleteObject and s3:ListBucket on the bucket.' })}
+        ${field({ label: 'Secret key', name: 'secret', type: 'password', required: !editingStorage, autocomplete: 'off', help: editingStorage ? 'Secret is set and never shown. Leave blank to keep it; paste a new one to re-roll.' : undefined })}
+        ${field({ label: 'Region', name: 'region', value: s.region || '', placeholder: 'auto' })}
+        ${field({ label: 'Public URL (custom domain, used in content links)', name: 'public_url', value: s.public_url || '', placeholder: 'https://cdn.example.com' })}
+        ${checkbox({ name: 'skip_test', label: 'Save without testing (skip the write/list/delete probe)' })}
+        ${button({ label: editingStorage ? 'Test and update storage' : 'Test and save storage' })}
+        ${editingStorage ? `<a href="/admin/settings" class="text-sm text-muted-foreground no-underline hover:underline">Cancel edit</a>` : ''}
+      `,
+      })}
     `,
   });
 }

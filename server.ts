@@ -526,7 +526,7 @@ export function createApp(configOverrides = {}) {
       const project = getProjectBySlug(coreDb, params.slug);
       if (!project) return html(req, res, 404, errorPage({ status: 404, message: 'Project not found.' }));
       const settingKeys = listSettingKeys(coreDb, { scope: 'project', projectId: project.id });
-      const globalSettingKeys = listSettingKeys(coreDb, { scope: 'global' });
+      const globalSettingKeys = plainSettingKeys();
       const mediaStorage = getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key: 'media_storage' }) || '';
       const editKey = new URL(req.url, 'http://localhost').searchParams.get('edit') || '';
       html(req, res, 200, projectDetailPage({ user, projects: listProjects(coreDb), project, settingKeys, globalSettingKeys, editKey, storages: listStorages(), mediaStorage }));
@@ -625,10 +625,31 @@ export function createApp(configOverrides = {}) {
   router.get(
     '/admin/settings',
     requireAdmin((req, res, params, user) => {
-      const editKey = new URL(req.url, 'http://localhost').searchParams.get('edit') || '';
-      html(req, res, 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: listSettingKeys(coreDb, { scope: 'global' }), editKey }));
+      const url = new URL(req.url, 'http://localhost');
+      const editKey = url.searchParams.get('edit') || '';
+      const storageEditName = url.searchParams.get('storage') || '';
+      const storageEdit = storageEditName ? storageDetail(storageEditName) : null;
+      html(req, res, 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: plainSettingKeys(), editKey, storages: listStorageDetails(), storageEdit }));
     }),
   );
+
+  // Storage blobs live in the settings table but get their own UI; keep
+  // them out of the generic write-only secrets list.
+  function plainSettingKeys() {
+    return listSettingKeys(coreDb, { scope: 'global' }).filter((s) => !s.key.startsWith('storage_'));
+  }
+
+  // Everything except the secret, for display and edit pre-fill.
+  function storageDetail(name) {
+    const blob = getStorage(name);
+    if (!blob) return null;
+    const { secret, ...rest } = blob;
+    return { name, ...rest };
+  }
+
+  function listStorageDetails() {
+    return listStorages().map(storageDetail).filter(Boolean);
+  }
 
   router.post(
     '/admin/settings',
@@ -653,23 +674,27 @@ export function createApp(configOverrides = {}) {
     }),
   );
 
-  // Add a shared storage from named fields; stored as one encrypted global
-  // setting storage_<name> holding the JSON blob.
+  // Add or update a shared storage. Stored as one encrypted global setting
+  // storage_<name>; the edit form pre-fills everything except the secret,
+  // and a blank secret on update keeps the existing one (re-roll by pasting
+  // a new value only).
   router.post(
     '/admin/settings/storage',
     requireAdmin(async (req, res, params, user) => {
       const form = await readFormBody(req);
       const name = slugify((form.name || '').trim());
       const render = (notice) =>
-        html(req, res, notice.type === 'error' ? 400 : 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: listSettingKeys(coreDb, { scope: 'global' }), notice }));
-      if (!name || !form.endpoint || !form.bucket || !form.key || !form.secret) {
+        html(req, res, notice.type === 'error' ? 400 : 200, globalSettingsPage({ user, projects: listProjects(coreDb), settingKeys: plainSettingKeys(), storages: listStorageDetails(), notice }));
+      const existing = name ? getStorage(name) : null;
+      const secret = form.secret || existing?.secret || '';
+      if (!name || !form.endpoint || !form.bucket || !form.key || !secret) {
         return render({ type: 'error', message: 'Name, endpoint, bucket, access key and secret are required.' });
       }
       const blob = {
         endpoint: form.endpoint.trim(),
         bucket: form.bucket.trim(),
         key: form.key.trim(),
-        secret: form.secret,
+        secret,
         region: (form.region || '').trim() || 'auto',
         public_url: (form.public_url || '').trim(),
       };
@@ -682,6 +707,16 @@ export function createApp(configOverrides = {}) {
       }
       setSetting(coreDb, config.masterKey, { scope: 'global', key: `storage_${name}`, value: JSON.stringify(blob) });
       render({ type: 'success', message: `Storage "${name}" ${form.skip_test === '1' ? 'saved without testing' : 'tested and saved'}. Select it on any project page.` });
+    }),
+  );
+
+  router.post(
+    '/admin/settings/storage/delete',
+    requireAdmin(async (req, res) => {
+      const form = await readFormBody(req);
+      const name = slugify((form.name || '').trim());
+      if (name) deleteSetting(coreDb, { scope: 'global', key: `storage_${name}` });
+      redirect(req, res, '/admin/settings');
     }),
   );
 

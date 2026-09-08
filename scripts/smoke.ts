@@ -324,6 +324,28 @@ async function main() {
   const projectPageHtml = await (await req('GET', `/admin/projects/${slug}`)).text();
   assert.ok(projectPageHtml.includes('r2-main'), 'project page should offer the shared storage');
 
+  // Storage edit: non-secret fields come back pre-filled, secret is write-only
+  // and a blank secret on save keeps the stored one.
+  const settingsHtml = await (await req('GET', '/admin/settings')).text();
+  assert.ok(settingsHtml.includes('r2-main'), 'settings page should list saved storages');
+  assert.ok(!settingsHtml.includes('storage_r2-main'), 'storage blobs must not show up as plain secrets');
+  const storageEditHtml = await (await req('GET', '/admin/settings?storage=r2-main')).text();
+  assert.ok(storageEditHtml.includes('value="https://acc.r2.cloudflarestorage.com"'), 'storage edit should pre-fill the endpoint');
+  assert.ok(storageEditHtml.includes('value="assets"'), 'storage edit should pre-fill the bucket');
+  assert.ok(storageEditHtml.includes('Leave blank to keep'), 'storage edit should explain blank-keeps-secret');
+  assert.ok(!storageEditHtml.includes('value="SK"'), 'storage edit must never render the secret');
+  const storageUpdate = await req('POST', '/admin/settings/storage', {
+    form: { name: 'r2-main', endpoint: 'https://acc.r2.cloudflarestorage.com', bucket: 'assets', key: 'AK2', secret: '', public_url: 'https://cdn.example.com/', skip_test: '1' },
+  });
+  assert.equal(storageUpdate.status, 200, 'storage update with blank secret should save');
+  const storedBlob = JSON.parse(getSettingValue(app.coreDb, masterKey, { scope: 'global', key: 'storage_r2-main' }) || '{}');
+  assert.equal(storedBlob.secret, 'SK', 'blank secret on edit should keep the stored secret');
+  assert.equal(storedBlob.key, 'AK2', 'non-secret fields should update on edit');
+  // put the access key back so the pin/migrate flow below sees the original config
+  await req('POST', '/admin/settings/storage', {
+    form: { name: 'r2-main', endpoint: 'https://acc.r2.cloudflarestorage.com', bucket: 'assets', key: 'AK', secret: '', public_url: 'https://cdn.example.com/', skip_test: '1' },
+  });
+
   // Switching storage pins existing rows to where they live: links keep
   // working from the old storage and the page offers a migration.
   const pickStorage = await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'r2-main' } });
@@ -365,6 +387,10 @@ async function main() {
   await req('POST', `/admin/projects/${slug}/storage`, { form: { storage: 'local' } }); // back to disk for the rest
   const backLocalHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
   assert.ok(!backLocalHtml.includes('old storage'), 'switching back to the original storage should unpin rows');
+
+  const storageDelete = await req('POST', '/admin/settings/storage/delete', { form: { name: 'r2-main' } });
+  assert.equal(storageDelete.status, 302, 'storage delete should redirect');
+  assert.equal(getSettingValue(app.coreDb, masterKey, { scope: 'global', key: 'storage_r2-main' }), null, 'deleted storage blob should be gone');
 
   const iconRes = await req('POST', `/admin/projects/${slug}/rename`, { form: { name: 'Demo Project', icon: '🚀' } });
   assert.equal(iconRes.status, 302, 'rename with icon should redirect');
