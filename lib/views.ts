@@ -1099,12 +1099,12 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   // the editor never has to guess what a consumer sees.
   let apiPreviewCard = '';
   if (!isNew) {
-    const next: Record<string, any> = { published_at: entry.published_at, updated_at: entry.updated_at, slug: entry.slug, ...entry.data };
+    const next: Record<string, any> = { published_at: entry.published_at, slug: entry.slug, ...entry.data, updated_at: entry.updated_at };
     if (!next.slug) next.slug = entry.slug;
     const nextJson = JSON.stringify(next, null, 2);
     let liveJson = null;
     if (entry.status === 'published' && entry.published_data) {
-      const live: Record<string, any> = { published_at: entry.published_at, updated_at: entry.updated_at, ...entry.published_data };
+      const live: Record<string, any> = { published_at: entry.published_at, ...entry.published_data, updated_at: entry.updated_at };
       if (!live.slug) live.slug = entry.slug;
       liveJson = JSON.stringify(live, null, 2);
     }

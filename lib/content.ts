@@ -398,8 +398,11 @@ export function listPublished(db, collectionId, { limit = 50, offset = 0, update
     // published_at here is the entries table's publish-lifecycle clock, kept
     // only as a fallback: a user-defined field of the same name (as ttb's
     // articles schema has) is real entry data and must win, not be shadowed.
+    // updated_at is the opposite case: it is the cursor updated_since
+    // filters on, so the row's write clock always wins over a same-named
+    // data field (otherwise incremental pulls see stale values).
     .map((r) => {
-      const item = { published_at: r.published_at, updated_at: r.updated_at, ...JSON.parse(r.published_data) };
+      const item = { published_at: r.published_at, ...JSON.parse(r.published_data), updated_at: r.updated_at };
       if (!item.slug) item.slug = r.slug; // pre-fix snapshots missing the native slug
       return item;
     });
@@ -410,7 +413,7 @@ export function getPublished(db, collectionId, slug) {
     .prepare("SELECT slug, published_data, published_at, updated_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'")
     .get(collectionId, slug);
   if (!row) return null;
-  const item = { published_at: row.published_at, updated_at: row.updated_at, ...JSON.parse(row.published_data) };
+  const item = { published_at: row.published_at, ...JSON.parse(row.published_data), updated_at: row.updated_at };
   if (!item.slug) item.slug = row.slug;
   return item;
 }

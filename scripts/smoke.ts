@@ -600,6 +600,16 @@ async function main() {
   ).json();
   assert.equal(JSON.parse(noneSince.result.content[0].text).length, 0, 'future updated_since should return nothing');
 
+  // A user data field named updated_at (WP imports) must never shadow the
+  // row's write clock, or incremental pulls see stale values.
+  projectDb
+    .prepare("UPDATE entries SET published_data = json_set(published_data, '$.updated_at', '2020-01-01 00:00:00') WHERE slug = ?")
+    .run('batch-one');
+  const shadowed: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'get_entry', arguments: { collection: 'blog-posts', slug: 'batch-one' } })
+  ).json();
+  assert.notEqual(JSON.parse(shadowed.result.content[0].text).updated_at, '2020-01-01 00:00:00', 'row updated_at should win over a same-named data field');
+
   const del: any = await (
     await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: 'batch-two' } })
   ).json();
