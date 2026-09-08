@@ -122,9 +122,9 @@ const TOOLS = [
     },
     handler: (db, args, collection) => {
       const data = normalizeJsonFields(collection, args.data);
-      const errors = validateEntryData(collection, data);
-      if (errors.length) throw new ToolError(errors.join(' '));
       const existing = args.slug ? getEntry(db, collection.id, slugify(args.slug)) : null;
+      const errors = validateEntryData(collection, data, { db, excludeEntryId: existing?.id ?? 0 });
+      if (errors.length) throw new ToolError(errors.join(' '));
       let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: args.slug });
       if (args.publish) entry = publishEntry(db, entry.id);
       return { slug: entry.slug, status: entry.status, data: entry.data, upserted: !!existing };
@@ -164,12 +164,12 @@ const TOOLS = [
         for (const item of args.entries) {
           try {
             const data = normalizeJsonFields(collection, item?.data ?? {});
-            const errors = validateEntryData(collection, data);
+            const existing = item.slug ? getEntry(db, collection.id, slugify(item.slug)) : null;
+            const errors = validateEntryData(collection, data, { db, excludeEntryId: existing?.id ?? 0 });
             if (errors.length) {
               results.push({ slug: item?.slug ?? null, ok: false, error: errors.join(' ') });
               continue;
             }
-            const existing = item.slug ? getEntry(db, collection.id, slugify(item.slug)) : null;
             let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: item.slug });
             if (item.publish ?? args.publish) entry = publishEntry(db, entry.id);
             results.push({ slug: entry.slug, ok: true, status: entry.status, upserted: !!existing });
@@ -209,7 +209,7 @@ const TOOLS = [
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
       const merged = { ...entry.data, ...normalizeJsonFields(collection, args.data) };
-      const errors = validateEntryData(collection, merged);
+      const errors = validateEntryData(collection, merged, { db, excludeEntryId: entry.id });
       if (errors.length) throw new ToolError(errors.join(' '));
       let updated = updateEntry(db, entry, { data: merged });
       if (args.publish) updated = publishEntry(db, updated.id);

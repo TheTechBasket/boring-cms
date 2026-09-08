@@ -1284,7 +1284,7 @@ export function createApp(configOverrides = {}) {
     const form = await readFormBody(req);
     const label = (form.label || '').trim();
     const type = FIELD_TYPES.includes(form.type) ? form.type : 'text';
-    if (label) addCollectionField(db, ctx.collection.slug, { label, type });
+    if (label) addCollectionField(db, ctx.collection.slug, { label, type, required: form.required === '1', unique: form.unique === '1' });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 
@@ -1292,7 +1292,7 @@ export function createApp(configOverrides = {}) {
     const form = await readFormBody(req);
     if (form.field) {
       // Checkboxes send nothing when unchecked, so these map explicitly.
-      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1', multiple: form.multiple === '1' });
+      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1', unique: form.unique === '1', multiple: form.multiple === '1' });
     }
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
@@ -1420,7 +1420,7 @@ export function createApp(configOverrides = {}) {
   router.post('/admin/projects/:slug/collections/:cslug/new', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     const data = collectFieldValues(ctx.collection, form);
-    const errors = validateEntryData(ctx.collection, data);
+    const errors = validateEntryData(ctx.collection, data, { db });
     if (errors.length) {
       return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, ...editorMedia(ctx, db), notice: { type: 'error', message: errors.join(' ') } }));
     }
@@ -1443,7 +1443,7 @@ export function createApp(configOverrides = {}) {
   router.post('/admin/projects/:slug/collections/:cslug/:eslug', withEntry(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     const data = collectFieldValues(ctx.collection, form);
-    const errors = validateEntryData(ctx.collection, data);
+    const errors = validateEntryData(ctx.collection, data, { db, excludeEntryId: ctx.entry.id });
     if (errors.length) {
       return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), ...editorMedia(ctx, db), notice: { type: 'error', message: errors.join(' ') } }));
     }

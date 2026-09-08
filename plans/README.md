@@ -7,7 +7,7 @@
 ## Backlog
 
 - Publish webhooks: per-project URL(s) POSTed on publish/unpublish (fires Netlify build hooks, cache purges). Small, high value for static-site consumers.
-- Relation field type: entry reference to another collection (stored as UUID, picker in editor, expanded in API on `?include=`). Deferred hard: house style is no stored relationships, content scan/search covers linking; build only if a real case defeats search.
+- Relation field API expansion on `?include=`: the relation field type itself is shipped (picker, target collection, multiple, one-save type switch from text); only the API-side expansion of referenced entries remains, build when a consumer needs it.
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
 - Media alt text + caption fields on the media row, included in the copy-markdown snippet.
 - Human slug option per collection: designate a field as public slug so API URLs read `/blog-posts/my-post` instead of UUID (UUID stays canonical).

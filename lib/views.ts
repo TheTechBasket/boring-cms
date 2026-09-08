@@ -784,18 +784,17 @@ export function collectionPage({ user, projects, project, collection, entries, p
     const relationTargets = collections
       .map((c: any) => `<option value="${escapeHtml(c.slug)}"${c.slug === f.collection ? ' selected' : ''}>${escapeHtml(c.name)}</option>`)
       .join('');
-    const relationOpts = f.type === 'relation'
-      ? `<label class="flex flex-col gap-1 text-xs">
-          <span class="font-medium text-muted-foreground">Target collection</span>
+    // Always rendered so switching a field to relation is one save, not two.
+    const relationOpts = `<label class="flex flex-col gap-1 text-xs">
+          <span class="font-medium text-muted-foreground">Target collection${f.type === 'relation' ? '' : ' (relation type only)'}</span>
           <select name="collection" class="${SELECT_CLASS} h-8">
             <option value="">Choose one&hellip;</option>
             ${relationTargets}
           </select>
         </label>
         <label class="flex items-center gap-2 text-xs font-medium text-muted-foreground self-end">
-          <input type="checkbox" name="multiple" value="1"${f.multiple ? ' checked' : ''} class="size-3.5 accent-primary"> Allow multiple
-        </label>`
-      : '';
+          <input type="checkbox" name="multiple" value="1"${f.multiple ? ' checked' : ''} class="size-3.5 accent-primary"> Allow multiple (relation)
+        </label>`;
     return `<form method="post" action="${base}/fields/update" class="grid grid-cols-2 gap-3 border-b border-border bg-muted/50 px-4 py-4">
       <input type="hidden" name="field" value="${escapeHtml(f.name)}">
       ${opt(f, 'label', 'Label')}
@@ -811,6 +810,9 @@ export function collectionPage({ user, projects, project, collection, entries, p
       <label class="col-span-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <input type="checkbox" name="required" value="1"${f.required ? ' checked' : ''} class="size-3.5 accent-primary"> Required
       </label>
+      <label class="col-span-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <input type="checkbox" name="unique" value="1"${f.unique ? ' checked' : ''} class="size-3.5 accent-primary"> Unique (no two entries may share a value; enforced on save, API and MCP writes)
+      </label>
       <div class="col-span-2">${button({ label: 'Save field', small: true })}</div>
     </form>`;
   };
@@ -824,6 +826,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
           <code class="text-muted-foreground">${escapeHtml(f.name)}</code>
           <span class="text-muted-foreground">${escapeHtml(f.type)}</span>
           ${f.required ? '<span class="text-xs font-medium text-primary-foreground bg-primary px-1.5 py-0.5">required</span>' : ''}
+          ${f.unique ? '<span class="text-xs font-medium text-primary-foreground bg-primary px-1.5 py-0.5">unique</span>' : ''}
           <button type="button" data-field-edit class="ml-auto text-xs text-primary hover:underline cursor-pointer bg-transparent border-0 p-0">Edit</button>
           <form method="post" action="${base}/fields/remove">
             <input type="hidden" name="field" value="${escapeHtml(f.name)}">
@@ -899,6 +902,12 @@ export function collectionPage({ user, projects, project, collection, entries, p
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">Type</span>
               <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
+            </label>
+            <label class="flex items-center gap-2 text-sm font-medium text-foreground">
+              <input type="checkbox" name="required" value="1" class="size-3.5 accent-primary"> Required
+            </label>
+            <label class="flex items-center gap-2 text-sm font-medium text-foreground">
+              <input type="checkbox" name="unique" value="1" class="size-3.5 accent-primary"> Unique
             </label>
             ${button({ label: 'Add field' })}
           `,

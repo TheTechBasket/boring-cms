@@ -631,6 +631,28 @@ async function main() {
   assert.ok(JSON.parse(del.result.content[0].text).deleted, 'delete_entry should report deleted');
   assert.ok(!getEntry(projectDb, collection.id, 'batch-two'), 'deleted entry should be gone from the DB');
 
+  // Unique field option: one-step create with flags from the add popover,
+  // duplicate values rejected across dashboard/API/MCP naming the holder,
+  // an entry keeps its own value on update.
+  const uniqAdd = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, { form: { label: 'Sku', type: 'text', unique: '1', required: '1' } });
+  assert.equal(uniqAdd.status, 302, 'add field with flags should redirect');
+  const skuField = getCollection(projectDb, 'blog-posts').fields.find((f) => f.name === 'sku');
+  assert.ok(skuField?.unique && skuField?.required, 'add-field popover should persist required and unique in one step');
+  const uniqFirst: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'create_entry', arguments: { collection: 'blog-posts', data: { body: 'a', sku: 'SKU-1' } } })
+  ).json();
+  const uniqFirstSlug = JSON.parse(uniqFirst.result.content[0].text).slug;
+  const uniqDupe: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'create_entry', arguments: { collection: 'blog-posts', data: { body: 'b', sku: 'SKU-1' } } })
+  ).json();
+  assert.ok(uniqDupe.result.isError && uniqDupe.result.content[0].text.includes(uniqFirstSlug), 'duplicate unique value should fail naming the holding entry');
+  const uniqSelf: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'update_entry', arguments: { collection: 'blog-posts', slug: uniqFirstSlug, data: { sku: 'SKU-1' } } })
+  ).json();
+  assert.ok(!uniqSelf.result.isError, 'an entry should keep its own unique value on update');
+  await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: uniqFirstSlug } });
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/remove`, { form: { field: 'sku' } });
+
   let limited = false;
   for (let i = 0; i < 70; i++) {
     const r = await rpc(apiKey, 'ping');

@@ -11,7 +11,7 @@ export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'da
 // `collection` (relation target slug) and `multiple` (relation only) piggyback
 // on the same mechanism.
 export const FIELD_OPTIONS = [
-  'required', 'help', 'placeholder', 'default',
+  'required', 'unique', 'help', 'placeholder', 'default',
   'min', 'max', 'step', 'minlength', 'maxlength', 'pattern', 'accept',
   'collection', 'multiple',
 ];
@@ -87,12 +87,15 @@ export function createCollection(db, name) {
 // the read path defends per name.
 export const RESERVED_FIELD_NAMES = new Set(['slug', 'updated_at', 'published_at']);
 
-export function addCollectionField(db, collectionSlug, { label, type }) {
+export function addCollectionField(db, collectionSlug, { label, type, required = false, unique = false }) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
   if (!FIELD_TYPES.includes(type)) throw new Error(`Unknown field type: ${type}`);
   const name = uniqueSlug(slugify(label), (s) => RESERVED_FIELD_NAMES.has(s) || collection.fields.some((f) => f.name === s));
-  const fields = [...collection.fields, { name, label, type }];
+  const field: Record<string, any> = { name, label, type };
+  if (required) field.required = true;
+  if (unique) field.unique = true;
+  const fields = [...collection.fields, field];
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
   return getCollection(db, collectionSlug);
 }
@@ -131,8 +134,10 @@ export function updateCollectionField(db, collectionSlug, fieldName, props) {
 }
 
 // Server-side enforcement of field options. Returns human-readable error
-// strings; empty array means the data is valid.
-export function validateEntryData(collection, data) {
+// strings; empty array means the data is valid. Pass db (and excludeEntryId
+// for edits/upserts) to also enforce unique fields; without db the unique
+// check is skipped.
+export function validateEntryData(collection, data, { db = null, excludeEntryId = 0 }: any = {}) {
   const errors: string[] = [];
   for (const f of collection.fields) {
     const v = data[f.name];
@@ -142,6 +147,12 @@ export function validateEntryData(collection, data) {
       continue;
     }
     if (empty) continue;
+    if (f.unique && db && (typeof v === 'string' || typeof v === 'number')) {
+      const dup = db
+        .prepare('SELECT slug FROM entries WHERE collection_id = ? AND id != ? AND json_extract(data, ?) = ? LIMIT 1')
+        .get(collection.id, excludeEntryId, `$.${f.name}`, v);
+      if (dup) errors.push(`${f.label} must be unique; "${v}" is already used by entry ${dup.slug}.`);
+    }
     if (f.type === 'number') {
       if (typeof v !== 'number' || Number.isNaN(v)) errors.push(`${f.label} must be a number.`);
       else {
