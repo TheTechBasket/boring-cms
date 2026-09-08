@@ -1,6 +1,10 @@
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
-import { entryLabel, isoUtc } from './content.ts';
+import { readFileSync } from 'node:fs';
+import { entryLabel, isoUtc, REVISIONS_KEEP } from './content.ts';
+
+export const APP_NAME = 'Boring CMS';
+export const APP_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // Inline Solar duotone icons (allsvgicons MCP, solar:*-bold-duotone).
 const ICONS: Record<string, string> = {
@@ -290,7 +294,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)} · yncms</title>
+  <title>${escapeHtml(title)} · ${APP_NAME}</title>
   <link rel="icon" href="${favicon(project)}">
   <link rel="stylesheet" href="/public/admin.css">
 </head>
@@ -327,7 +331,7 @@ function sidebar({ user, projects, project }: {
     : '';
 
   return `<aside class="w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3 sticky top-0 h-screen">
-    <a class="px-3 py-2 font-bold text-sidebar-foreground no-underline" href="/admin/projects">yncms</a>
+    <a class="px-3 py-2 font-bold text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
     <select id="project-switcher" class="${SELECT_CLASS} bg-sidebar mb-1" title="Switch project">${options}</select>
     ${projectNav}
     <div class="mt-auto flex flex-col gap-0.5 border-t border-sidebar-border pt-3">
@@ -337,6 +341,7 @@ function sidebar({ user, projects, project }: {
       <a class="${SIDEBAR_LINK}" href="/account">${icon('user')}Account</a>
       <div class="mt-2 border-t border-sidebar-border pt-3 px-3 flex flex-col gap-2">
         <span class="text-xs text-muted-foreground truncate">${escapeHtml(user.email)}</span>
+        <span class="text-xs text-muted-foreground">${APP_NAME} v${APP_VERSION}</span>
         <form method="post" action="/logout">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
       </div>
     </div>
@@ -347,7 +352,7 @@ function sidebar({ user, projects, project }: {
 
 export function setupPage({ error }: { error?: string } = {}): string {
   return layout({
-    title: 'Set up yncms',
+    title: `Set up ${APP_NAME}`,
     bare: true,
     body: `
       <h1 class="text-2xl font-semibold">Set up yncms</h1>
@@ -838,6 +843,23 @@ export function collectionPage({ user, projects, project, collection, entries, p
     )
     .join('\n');
 
+  // The system writes these on every entry; showing them here stops people
+  // from adding redundant custom copies (their names are reserved anyway).
+  const builtinFieldRows = [
+    { name: 'slug', type: 'text', note: 'public id in API URLs, editable on each entry' },
+    { name: 'updated_at', type: 'datetime', note: 'set automatically on save' },
+    { name: 'published_at', type: 'datetime', note: 'set automatically on publish' },
+  ]
+    .map(
+      (f) => `<div class="flex items-center gap-3 border-b border-border last:border-b-0 px-3 py-2 text-sm">
+        <code class="text-muted-foreground">${f.name}</code>
+        <span class="text-muted-foreground">${f.type}</span>
+        <span class="text-xs text-muted-foreground">${f.note}</span>
+        <span class="ml-auto text-xs font-medium text-muted-foreground bg-muted px-1.5 py-0.5">built-in</span>
+      </div>`,
+    )
+    .join('\n');
+
   const initialOrder = collection.fields.map((f: any) => f.name).join(',');
 
   const entryRows = entries
@@ -899,6 +921,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
             action: `${base}/fields/add`,
             children: `
             ${field({ label: 'Field label', name: 'label', required: true, placeholder: 'Body' })}
+            ${field({ label: 'Field id', name: 'name', placeholder: 'auto from label', help: 'The data key in the API. Leave empty to derive it from the label.' })}
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">Type</span>
               <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
@@ -914,13 +937,32 @@ export function collectionPage({ user, projects, project, collection, entries, p
           })}
         </div>
         <p class="text-sm text-muted-foreground">Drag to reorder. The first field's value is the entry label in lists; entries with no values show their id.</p>
-        <p class="text-sm text-muted-foreground">Every entry automatically carries <code>slug</code>, <code>updated_at</code>, and <code>published_at</code> in the API, so those names are reserved; a field labeled that way gets a suffixed name instead.</p>
+        <div class="border border-border bg-card shadow-xs">
+          ${builtinFieldRows}
+        </div>
         <div class="border border-border bg-card shadow-xs" data-field-list>
           ${fieldRows || '<p class="p-3 text-muted-foreground italic text-sm m-0">No fields yet. Add a markdown body or more with the + button.</p>'}
           <form method="post" action="${base}/fields/reorder" data-reorder-form data-initial="${escapeHtml(initialOrder)}" hidden>
             <input type="hidden" name="order" value="">
           </form>
         </div>
+      </div>
+
+      <div class="flex flex-col gap-3 mt-10 max-w-2xl">
+        ${sectionHeading('Revisions')}
+        <form method="post" action="${base}/revisions" class="flex flex-wrap items-end gap-3">
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="font-medium text-foreground">Keep per entry</span>
+            <select name="revisions_keep" class="${SELECT_CLASS}">
+              <option value=""${collection.revisions_keep == null ? ' selected' : ''}>Default (keep ${REVISIONS_KEEP})</option>
+              <option value="0"${collection.revisions_keep === 0 ? ' selected' : ''}>Off (no revisions)</option>
+              <option value="5"${collection.revisions_keep === 5 ? ' selected' : ''}>Keep 5</option>
+              <option value="20"${collection.revisions_keep === 20 ? ' selected' : ''}>Keep 20</option>
+            </select>
+          </label>
+          ${button({ label: 'Save', variant: 'outline' })}
+        </form>
+        <p class="text-sm text-muted-foreground">Edits store field-level revisions per entry; anything older than 15 days is deleted automatically. Turn revisions off for collections that agents rewrite constantly.</p>
       </div>
 
       ${dangerDetails({
@@ -1140,7 +1182,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
             <span class="text-sm font-medium">Status</span>
             ${statusBadge(entry.status)}
           </div>
-          <p class="text-xs text-muted-foreground">Slug: <code>${escapeHtml(entry.slug)}</code> <button type="button" data-copy="${escapeHtml(entry.slug)}" class="text-primary cursor-pointer bg-transparent border-0 p-0 text-xs hover:underline">Copy</button><br>ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
+          <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
           <div class="flex gap-2 flex-wrap">
             ${entry.status === 'published'
               ? `<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
@@ -1165,6 +1207,11 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
       <p class="text-sm"><a class="text-primary hover:underline" href="${base}">&larr; ${escapeHtml(collection.name)}</a></p>
       <div class="grid gap-8 @4xl:grid-cols-[minmax(0,1fr)_320px] items-start">
         <form method="post" action="${action}" class="flex flex-col gap-5 min-w-0">
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="font-medium text-foreground">Slug</span>
+            <input type="text" name="entry_slug" value="${escapeHtml(entry?.slug ?? '')}" placeholder="auto (random id)" class="${INPUT_CLASS}">
+            <span class="text-xs text-muted-foreground">${isNew ? 'Public id in the API URL. Leave empty for a generated id.' : 'Public id in the API URL. Changing it changes this entry’s API URL, so update anything linking to it.'}</span>
+          </label>
           ${fieldInputs || '<p class="text-sm text-muted-foreground">This collection has no fields yet. Add fields on the collection page.</p>'}
           ${button({ label: isNew ? 'Create entry' : 'Save changes' })}
         </form>

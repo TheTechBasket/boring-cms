@@ -290,7 +290,7 @@ export function handleMcp(db, projectName: string, message: any, scope: string) 
       return rpcResult(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: `yncms (${projectName})`, version: '1.0.0' },
+        serverInfo: { name: `Boring CMS (${projectName})`, version: '0.9.0' },
       });
     case 'ping':
       return rpcResult(id, {});

@@ -184,6 +184,16 @@ async function main() {
   assert.ok(!withReserved.fields.some((f) => f.name === 'slug'), 'a field labeled Slug should not take the reserved name');
   assert.ok(withReserved.fields.some((f) => f.name === 'slug-2'), 'reserved label should mint a suffixed name');
   await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/remove`, { form: { field: 'slug-2' } });
+
+  // Explicit field id wins over the label-derived one.
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, { form: { label: 'Body Copy', type: 'text', name: 'content' } });
+  const withCustomId = getCollection(projectDb, 'blog-posts');
+  assert.ok(withCustomId.fields.some((f) => f.name === 'content' && f.label === 'Body Copy'), 'explicit field id should become the data key');
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/remove`, { form: { field: 'content' } });
+
+  // Collection page lists the built-in system fields.
+  const collPageHtml = await (await req('GET', `/admin/projects/${slug}/collections/blog-posts`)).text();
+  assert.ok(collPageHtml.includes('built-in'), 'fields editor should show built-in system field rows');
   const subtitleField = collection.fields[0];
   assert.equal(subtitleField.maxlength, undefined, 'blank option value should clear the stored constraint');
   assert.equal(subtitleField.required, undefined, 'unchecked required should clear the flag');
@@ -194,6 +204,25 @@ async function main() {
   const revisions = listRevisions(projectDb, entry.id);
   assert.equal(revisions.length, 1, 'edit should create one revision');
   assert.deepEqual(revisions[0].changed, { body: '# First draft' }, 'revision should hold only the previous value of the changed field');
+
+  // Per-collection revisions off: edits stop recording, turning it back on records again.
+  const cover = `/media/${slug}/abc123-pic.png`;
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/revisions`, { form: { revisions_keep: '0' } });
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`, { form: { field_body: '# Third draft', field_cover: cover } });
+  assert.equal(listRevisions(projectDb, entry.id).length, 1, 'revisions off should record no new revision');
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/revisions`, { form: { revisions_keep: '' } });
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`, { form: { field_body: '# Second draft', field_cover: cover } });
+  assert.equal(listRevisions(projectDb, entry.id).length, 2, 'default retention should record revisions again');
+
+  // Native entry slug is editable from the editor form (rename, then rename back).
+  const editorHtml = await (await req('GET', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`)).text();
+  assert.ok(editorHtml.includes('name="entry_slug"'), 'entry editor should expose the slug as a field');
+  const renameRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}`, { form: { field_body: '# Second draft', field_cover: cover, entry_slug: 'smoke-renamed' } });
+  assert.equal(renameRes.status, 302, 'rename should redirect');
+  assert.ok((renameRes.headers.get('location') || '').endsWith('/smoke-renamed'), 'redirect should follow the new slug');
+  assert.ok(getEntry(projectDb, collection.id, 'smoke-renamed'), 'entry should be reachable under the new slug');
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/smoke-renamed`, { form: { field_body: '# Second draft', field_cover: cover, entry_slug: entrySlug } });
+  assert.ok(getEntry(projectDb, collection.id, entrySlug), 'entry should be back under the original slug');
 
   // 9. Publish, then read through the public API with a Bearer key
   const publishRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/publish`);
@@ -529,7 +558,7 @@ async function main() {
 
   const init: any = await (await rpc(apiKey, 'initialize')).json();
   assert.ok(init.result.protocolVersion, 'initialize should return a protocol version');
-  assert.ok(init.result.serverInfo.name.includes('yncms'), 'initialize should name the server');
+  assert.ok(init.result.serverInfo.name.includes('Boring CMS'), 'initialize should name the server');
 
   const readTools: any = await (await rpc(apiKey, 'tools/list')).json();
   const readNames = readTools.result.tools.map((t) => t.name);

@@ -16,8 +16,10 @@ export const FIELD_OPTIONS = [
   'collection', 'multiple',
 ];
 
-const REVISIONS_KEEP = 20;
-const REVISIONS_MAX_AGE_DAYS = 90;
+// Default retention; a collection can override keep via revisions_keep
+// (NULL = default, 0 = revisions off for frequently rewritten collections).
+export const REVISIONS_KEEP = 2;
+const REVISIONS_MAX_AGE_DAYS = 15;
 
 // ---- Slugs ---------------------------------------------------------------
 
@@ -87,16 +89,26 @@ export function createCollection(db, name) {
 // the read path defends per name.
 export const RESERVED_FIELD_NAMES = new Set(['slug', 'updated_at', 'published_at']);
 
-export function addCollectionField(db, collectionSlug, { label, type, required = false, unique = false }) {
+export function addCollectionField(db, collectionSlug, { label, type, name: requestedName = '', required = false, unique = false }) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
   if (!FIELD_TYPES.includes(type)) throw new Error(`Unknown field type: ${type}`);
-  const name = uniqueSlug(slugify(label), (s) => RESERVED_FIELD_NAMES.has(s) || collection.fields.some((f) => f.name === s));
+  // Explicit field id wins over auto-slugified label; both still dodge
+  // reserved names and duplicates by suffixing.
+  const name = uniqueSlug(slugify(String(requestedName).trim() || label), (s) => RESERVED_FIELD_NAMES.has(s) || collection.fields.some((f) => f.name === s));
   const field: Record<string, any> = { name, label, type };
   if (required) field.required = true;
   if (unique) field.unique = true;
   const fields = [...collection.fields, field];
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  return getCollection(db, collectionSlug);
+}
+
+// keep: null clears the override (use default), integer >= 0 sets it (0 = off).
+export function setCollectionRevisions(db, collectionSlug, keep) {
+  const collection = getCollection(db, collectionSlug);
+  if (!collection) return null;
+  db.prepare('UPDATE collections SET revisions_keep = ? WHERE id = ?').run(keep, collection.id);
   return getCollection(db, collectionSlug);
 }
 
@@ -280,15 +292,17 @@ export function updateEntry(db, entry, { data }) {
   }
   if (Object.keys(delta).length === 0) return getEntryById(db, entry.id);
 
+  const keep = db.prepare('SELECT revisions_keep FROM collections WHERE id = ?').get(entry.collection_id)?.revisions_keep ?? REVISIONS_KEEP;
+
   // Savepoint instead of BEGIN so batch callers can hold an outer transaction.
   db.exec('SAVEPOINT update_entry');
   try {
-    db.prepare('INSERT INTO revisions (entry_id, changed) VALUES (?, ?)').run(entry.id, JSON.stringify(delta));
+    if (keep > 0) db.prepare('INSERT INTO revisions (entry_id, changed) VALUES (?, ?)').run(entry.id, JSON.stringify(delta));
     db.prepare("UPDATE entries SET data = ?, updated_at = datetime('now') WHERE id = ?").run(
       JSON.stringify(data),
       entry.id,
     );
-    pruneRevisions(db, entry.id);
+    pruneRevisions(db, entry.id, keep);
     db.exec('RELEASE update_entry');
   } catch (err) {
     db.exec('ROLLBACK TO update_entry');
@@ -296,6 +310,21 @@ export function updateEntry(db, entry, { data }) {
     throw err;
   }
   return getEntryById(db, entry.id);
+}
+
+// Renames an entry's native slug (the public id in API URLs). Returns the
+// slug actually applied (collision-suffixed). The published snapshot's slug
+// follows along unless a user schema field deliberately set a different one.
+export function renameEntry(db, entry, requestedSlug) {
+  const wanted = slugify(String(requestedSlug));
+  if (!wanted || wanted === entry.slug) return entry.slug;
+  const slug = uniqueSlug(wanted, (s) => !!db.prepare('SELECT 1 FROM entries WHERE collection_id = ? AND slug = ? AND id != ?').get(entry.collection_id, s, entry.id));
+  db.prepare('UPDATE entries SET slug = ? WHERE id = ?').run(slug, entry.id);
+  if (entry.published_data && entry.published_data.slug === entry.slug) {
+    db.prepare("UPDATE entries SET published_data = json_set(published_data, '$.slug', ?) WHERE id = ?").run(slug, entry.id);
+  }
+  if (entry.status === 'published') bumpContentVersion(db); // API URL changed
+  return slug;
 }
 
 export function publishEntry(db, entryId) {
@@ -331,13 +360,15 @@ export function listRevisions(db, entryId) {
     .map((r) => ({ ...r, changed: JSON.parse(r.changed) }));
 }
 
-// Keep the newest REVISIONS_KEEP and drop anything older than the age cap.
-function pruneRevisions(db, entryId) {
-  db.prepare(
+// Keep the newest `keep` and drop anything older than the age cap.
+// keep = 0 means "revisions off": existing history is left to age out
+// rather than wiped retroactively.
+function pruneRevisions(db, entryId, keep = REVISIONS_KEEP) {
+  if (keep > 0) db.prepare(
     `DELETE FROM revisions WHERE entry_id = ? AND id NOT IN (
        SELECT id FROM revisions WHERE entry_id = ? ORDER BY id DESC LIMIT ?
      )`,
-  ).run(entryId, entryId, REVISIONS_KEEP);
+  ).run(entryId, entryId, keep);
   db.prepare("DELETE FROM revisions WHERE entry_id = ? AND created_at < datetime('now', ?)").run(
     entryId,
     `-${REVISIONS_MAX_AGE_DAYS} days`,

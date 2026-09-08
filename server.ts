@@ -60,6 +60,8 @@ import {
   getEntry,
   createEntry,
   updateEntry,
+  renameEntry,
+  setCollectionRevisions,
   publishEntry,
   unpublishEntry,
   deleteEntry,
@@ -1284,7 +1286,7 @@ export function createApp(configOverrides = {}) {
     const form = await readFormBody(req);
     const label = (form.label || '').trim();
     const type = FIELD_TYPES.includes(form.type) ? form.type : 'text';
-    if (label) addCollectionField(db, ctx.collection.slug, { label, type, required: form.required === '1', unique: form.unique === '1' });
+    if (label) addCollectionField(db, ctx.collection.slug, { label, type, name: form.name || '', required: form.required === '1', unique: form.unique === '1' });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 
@@ -1307,6 +1309,13 @@ export function createApp(configOverrides = {}) {
   router.post('/admin/projects/:slug/collections/:cslug/fields/remove', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     if (form.field) removeCollectionField(db, ctx.collection.slug, form.field);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/revisions', withCollection(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const keep = form.revisions_keep === '' ? null : Math.max(0, Number.parseInt(form.revisions_keep, 10) || 0);
+    setCollectionRevisions(db, ctx.collection.slug, keep);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 
@@ -1424,7 +1433,7 @@ export function createApp(configOverrides = {}) {
     if (errors.length) {
       return html(req, res, 400, entryEditorPage({ ...ctx, entry: null, draft: data, ...editorMedia(ctx, db), notice: { type: 'error', message: errors.join(' ') } }));
     }
-    const entry = createEntry(db, ctx.collection, { data });
+    const entry = createEntry(db, ctx.collection, { data, slug: (form.entry_slug || '').trim() || undefined });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${entry.slug}`);
   }));
 
@@ -1448,7 +1457,9 @@ export function createApp(configOverrides = {}) {
       return html(req, res, 400, entryEditorPage({ ...ctx, entry: { ...ctx.entry, data }, revisions: listRevisions(db, ctx.entry.id), ...editorMedia(ctx, db), notice: { type: 'error', message: errors.join(' ') } }));
     }
     updateEntry(db, ctx.entry, { data });
-    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
+    let slug = ctx.entry.slug;
+    if ((form.entry_slug || '').trim()) slug = renameEntry(db, ctx.entry, form.entry_slug);
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${slug}`);
   }));
 
   const entryActions: Array<[string, (db: any, ctx: any) => void]> = [

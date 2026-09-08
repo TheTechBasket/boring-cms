@@ -1,4 +1,4 @@
-# yncms
+# Boring CMS
 
 Open-source headless CMS. One deploy, many projects. Light when idle, fast
 under load. See `ARCHITECTURE.md` for the full design and `plans/` for the
@@ -126,7 +126,7 @@ as rows, rows whose object is gone are reported as missing.
 ## Export and import
 
 Each project has a Transfer page (sidebar). Export the whole project,
-the schema only, or one collection as JSON. Import JSON (a yncms export
+the schema only, or one collection as JSON. Import JSON (a Boring CMS export
 or any array of flat objects) or CSV with a header row: upload, map each
 source field to an existing field, a new field, or skip, review the
 dry-run report (row counts, type coercion failures, sample), then

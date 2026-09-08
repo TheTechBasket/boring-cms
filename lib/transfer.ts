@@ -111,7 +111,7 @@ export function parseCsv(text: string) {
   };
 }
 
-// Accepts CSV, a JSON array of flat objects, or a yncms collection export.
+// Accepts CSV, a JSON array of flat objects, or a Boring CMS collection export.
 // Export-shape status survives as __status so publish state re-materializes.
 export function parseImportFile(filename: string, buffer: Buffer) {
   const text = buffer.toString('utf8');
@@ -121,7 +121,7 @@ export function parseImportFile(filename: string, buffer: Buffer) {
   let rows;
   if (Array.isArray(parsed)) rows = parsed;
   else if (Array.isArray(parsed?.entries)) rows = parsed.entries.map((e) => ({ __status: e.status, ...(e.data ?? {}) }));
-  else throw new Error('JSON must be an array of objects or a yncms collection export.');
+  else throw new Error('JSON must be an array of objects or a Boring CMS collection export.');
   rows = rows.filter((r) => r && typeof r === 'object' && !Array.isArray(r));
   if (!rows.length) throw new Error('No rows found in the file.');
   const sourceFields = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => k !== '__status');

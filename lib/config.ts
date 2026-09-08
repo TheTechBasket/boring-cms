@@ -34,8 +34,8 @@ export function loadConfig(cwd = process.cwd()) {
   if (!existsSync(envPath) && !process.env.SECRET_KEY && !process.env.MASTER_KEY) {
     const generated = randomBytes(32).toString('base64url');
     writeFileSync(envPath, `SECRET_KEY=${generated}\nPORT=3000\n`, { mode: 0o600 });
-    console.log(`yncms: no .env found, created one with a generated SECRET_KEY at ${envPath}`);
-    console.log('yncms: back it up. Losing SECRET_KEY makes encrypted settings unreadable.');
+    console.log(`Boring CMS: no .env found, created one with a generated SECRET_KEY at ${envPath}`);
+    console.log('Boring CMS: back it up. Losing SECRET_KEY makes encrypted settings unreadable.');
   }
 
   const fileVars = existsSync(envPath) ? parseEnvFile(readFileSync(envPath, 'utf8')) : {};
