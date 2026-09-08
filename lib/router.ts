@@ -54,7 +54,11 @@ export async function readBody(req, { limit = 1024 * 1024 } = {}) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw new Error('Request body too large');
+    if (size > limit) {
+      const err: any = new Error('Request body too large');
+      err.code = 'body_too_large';
+      throw err;
+    }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString('utf8');

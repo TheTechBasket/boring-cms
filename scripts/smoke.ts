@@ -643,6 +643,15 @@ async function main() {
   }
   assert.ok(limited, 'per-key rate limit should kick in');
 
+  // Oversized MCP body: clean 413 with the limit, not a parse error.
+  const huge = await fetch(`${base}/mcp/${slug}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${writeKey}`, 'Content-Type': 'application/json' },
+    body: `{"pad":"${'x'.repeat(9 * 1024 * 1024)}"}`,
+  });
+  assert.equal(huge.status, 413, 'oversized MCP body should return 413');
+  assert.ok(((await huge.json()) as any).limit_bytes > 0, '413 body should carry limit_bytes');
+
   // 14. Auth extras: passkey register + login against a simulated
   // authenticator (real crypto, fake device), account page, Google gating.
   const { generateKeyPairSync, createHash: sha, sign: cryptoSign } = await import('node:crypto');

@@ -24,6 +24,7 @@ const PROTOCOL_VERSION = '2025-03-26';
 // ponytail: in-memory only, resets on restart; move to SQLite if multi-process ever happens.
 
 export const DEFAULT_RATE_LIMIT = 60; // requests per minute per key, project can override via meta
+export const MCP_BODY_LIMIT = 8 * 1024 * 1024; // bytes; 200 typical CMS entries easily pass 1MB
 const buckets = new Map<string, { tokens: number; ts: number }>();
 
 export function rateLimitOk(bucketKey: string, limit = DEFAULT_RATE_LIMIT): boolean {
@@ -131,7 +132,7 @@ const TOOLS = [
   },
   {
     name: 'batch_create_entries',
-    description: 'Create or upsert many entries in one call (one transaction, per-item results). entries is an array of {slug?, data, publish?}; same upsert semantics as create_entry. Top-level publish applies to every item without its own flag. Max 200 per call.',
+    description: 'Create or upsert many entries in one call (one transaction, per-item results). entries is an array of {slug?, data, publish?}; same upsert semantics as create_entry. Top-level publish applies to every item without its own flag. Max 200 per call and 8 MB request body (413 with limit_bytes beyond that); chunk big imports by payload size.',
     scope: 'write',
     inputSchema: {
       type: 'object',

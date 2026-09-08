@@ -40,7 +40,7 @@ import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
-import { handleMcp, rateLimitOk, retryAfterSeconds, DEFAULT_RATE_LIMIT } from './lib/mcp.ts';
+import { handleMcp, rateLimitOk, retryAfterSeconds, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
 import {
   FIELD_TYPES,
   contentVersion,
@@ -1559,8 +1559,13 @@ export function createApp(configOverrides = {}) {
     }
     let message;
     try {
-      message = JSON.parse(await readBody(req));
-    } catch {
+      message = JSON.parse(await readBody(req, { limit: MCP_BODY_LIMIT }));
+    } catch (err: any) {
+      if (err?.code === 'body_too_large') {
+        // The unread rest of the body poisons the socket for keep-alive
+        // reuse, so tell the client this connection is done.
+        return json(req, res, 413, { error: 'body_too_large', limit_bytes: MCP_BODY_LIMIT }, { Connection: 'close' });
+      }
       return json(req, res, 400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error.' } });
     }
     const response = handleMcp(db, project.name, message, apiKey.scope);
