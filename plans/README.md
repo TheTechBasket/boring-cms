@@ -2,7 +2,7 @@
 
 ## Active
 
-- [MCP v2 + storage/media overhaul](mcp-v2-storage-media.md): MCP v2 tools, slug/editor fixes, storage secrets split with edit flow, multi-storage media with path folders and check-first sync.
+(none)
 
 ## Backlog
 
@@ -14,15 +14,8 @@
 - Nightly per-project SQLite backup (single-file copy, rotate N) plus media manifest.
 - API request stats: per-key/per-day counters (calls, 429s, last endpoint hit) shown on the API keys page. In-memory counters only, flushed to a `request_stats` meta-style table on a timer (not per-request write) so it never adds DB I/O to the hot path; the rate limiter must never throttle its own stats flush or admin reads, only external API traffic.
 - Stage 3 leftovers (manual verify only, code shipped): real image upload with sharp installed; S3 backend against live R2 credentials.
-- MCP v2, from agent field use on a 4000-entry migration (2026-09-08, peer session feedback):
-  - `publish: true` option on update_entry (create_entry already has it; callers forget the publish_entry follow-up and read stale data). Trivial, do first.
-  - delete_entry tool (only unpublish exists; test entries pile up). Write scope, maybe a per-project "allow MCP delete" setting.
-  - batch_create_entries: array of {slug, data}, per-item results, one transaction. Cuts a 4000-entry push from ~25 min of single calls to seconds.
-  - list_entries `updated_since` filter plus slug and updated_at in the response, for incremental sync pulls.
-  - rate_limited error payload should carry a retry_after seconds hint (HTTP header exists but MCP clients read the JSON-RPC body).
-  - Native JSON handling for list/date fields: accept arrays/objects in data, return them typed (today clients double-encode JSON strings inside data).
-  - Editor and entry list should show the native entry slug (read-only or with a "changing breaks URLs" warning); today the slug field renders empty for entries created with a slug via MCP.
-  - Schema mutation over MCP (add_field/remove_field): deferred, schema read already exists via list_collections; revisit if migrations keep needing the dashboard.
+- Schema mutation over MCP (add_field/remove_field): deferred, schema read already exists via list_collections; revisit if migrations keep needing the dashboard. (Rest of the 2026-09-08 MCP v2 feedback shipped, see history.)
+- Media grouping v2, filebird-lite style: virtual folders stored only in the CMS (no key rewrites, no storage changes), replacing the removed free-text groups. Amit will spec this one.
 
 ## Rejected findings
 
@@ -32,6 +25,7 @@
 
 ## Shipped history
 
+- 2026-09-08 MCP v2 + storage/media overhaul (3 commits): MCP tools update_entry `publish`, delete_entry, batch_create_entries (one transaction, per-item results, 200 cap), list_entries `updated_since` with slug/updated_at, retry_after seconds in the 429 body, JSON-field double-encode fix; slug snapshot collision fix, native slug in editor status card and entry list, API response preview card (live vs after next publish); storage edit flow (non-secret fields recoverable and pre-filled, secret write-only with blank-keeps, delete action); media multi-storage (any storage at upload time via select, default from project setting, base_url pinning, storage badge and filter, delete via the row's own backend), check-first sync (dry-run report with previews, explicit adopt, storage selectable), nested S3 key adoption with folder drill-down from key paths; free-text media groups removed (filebird-lite replacement in backlog).
 - 2026-09-07 Stage 10 docs, login hardening, DRY, polish: REST API docs card on the API keys page (all endpoints, params, auth, ETag/304, live per-collection URLs, curl example); password login can be disabled from Account once a passkey or Google exists (global `password_login` setting, self-healing when alternatives vanish, FORCE_PASSWORD_RESET as break-glass, login page hides the form, POST /login 403s); datalist group suggestions replaced with clickable chips (`data-fill`); "Projects overview" removed from the switcher (empty value is a no-op placeholder); main content capped at `max-w-6xl` leaving room for a future right sidebar; DRY pass in views (popover, selectField, checkbox, preBlock, settingsKeyList, FILE_INPUT_CLASS helpers); sharp corners everywhere per the dribbble reference; popover entrance animation with reduced-motion guard; smoke coverage for all of it.
 - 2026-09-06 Stage 9 media ergonomics + shared storage: global storage registry (add an S3 bucket once in Global settings as encrypted `storage_<name>` JSON, any project selects it; legacy per-project s3_* still works); content URLs use the storage public domain directly, never the CMS host or project slug (slug is permanent anyway, rename changes the name only); media groups (`folder` column, free text, datalist), search box and group filter on the media page and in the image-field picker; upload a new image straight from the picker (fetch, json=1); project icon column (emoji, logo URL, or auto initials avatar) shown in list, sidebar, switcher; MCP snippet uses the live request origin and key creation shows the complete `.mcp.json` with the key filled in; Transfer page pairs schema export with Apply schema. Manual verify open: live R2 with a custom domain.
 - 2026-09-06 Stage 8 auth extras: hand-rolled WebAuthn passkeys (minimal CBOR decoder, COSE to JWK, ES256/RS256 assertion verify with counter clone check, signed stateless challenge cookies), Account page (passkey list/add/remove, change password), Google OAuth code flow with PKCE via plain fetch gated on encrypted global settings (admin email only), TRUST_PROXY=1 for x-forwarded-proto and Secure session cookies, login page passkey/Google buttons, smoke coverage with a simulated authenticator (real signatures, fake device). Manual browser passkey + live Google flow verification still open.
