@@ -81,11 +81,17 @@ export function createCollection(db, name) {
   return getCollection(db, slug);
 }
 
+// Field names the system writes itself in API output. A user field with one
+// of these names either gets shadowed (slug, updated_at) or shadows a system
+// value, so the builder never mints them; imports may still carry them and
+// the read path defends per name.
+export const RESERVED_FIELD_NAMES = new Set(['slug', 'updated_at', 'published_at']);
+
 export function addCollectionField(db, collectionSlug, { label, type }) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
   if (!FIELD_TYPES.includes(type)) throw new Error(`Unknown field type: ${type}`);
-  const name = uniqueSlug(slugify(label), (s) => collection.fields.some((f) => f.name === s));
+  const name = uniqueSlug(slugify(label), (s) => RESERVED_FIELD_NAMES.has(s) || collection.fields.some((f) => f.name === s));
   const fields = [...collection.fields, { name, label, type }];
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
   return getCollection(db, collectionSlug);

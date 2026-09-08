@@ -905,6 +905,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
           })}
         </div>
         <p class="text-sm text-muted-foreground">Drag to reorder. The first field's value is the entry label in lists; entries with no values show their id.</p>
+        <p class="text-sm text-muted-foreground">Every entry automatically carries <code>slug</code>, <code>updated_at</code>, and <code>published_at</code> in the API, so those names are reserved; a field labeled that way gets a suffixed name instead.</p>
         <div class="border border-border bg-card shadow-xs" data-field-list>
           ${fieldRows || '<p class="p-3 text-muted-foreground italic text-sm m-0">No fields yet. Add a markdown body or more with the + button.</p>'}
           <form method="post" action="${base}/fields/reorder" data-reorder-form data-initial="${escapeHtml(initialOrder)}" hidden>

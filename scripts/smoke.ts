@@ -176,6 +176,14 @@ async function main() {
   const projectDb = app.projectDbs.get(slug);
   const collection = getCollection(projectDb, 'blog-posts');
   assert.deepEqual(collection.fields.map((f) => f.name), ['subtitle', 'body', 'cover'], 'reorder should persist field order');
+
+  // Reserved names (system API fields) never mint as user field names.
+  const reservedRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, { form: { label: 'Slug', type: 'text' } });
+  assert.equal(reservedRes.status, 302, 'adding a reserved-labeled field should still redirect');
+  const withReserved = getCollection(projectDb, 'blog-posts');
+  assert.ok(!withReserved.fields.some((f) => f.name === 'slug'), 'a field labeled Slug should not take the reserved name');
+  assert.ok(withReserved.fields.some((f) => f.name === 'slug-2'), 'reserved label should mint a suffixed name');
+  await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/remove`, { form: { field: 'slug-2' } });
   const subtitleField = collection.fields[0];
   assert.equal(subtitleField.maxlength, undefined, 'blank option value should clear the stored constraint');
   assert.equal(subtitleField.required, undefined, 'unchecked required should clear the flag');
