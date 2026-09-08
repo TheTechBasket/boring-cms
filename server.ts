@@ -40,7 +40,7 @@ import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp, setMediaFolder, listMediaFolders } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
-import { handleMcp, rateLimitOk } from './lib/mcp.ts';
+import { handleMcp, rateLimitOk, DEFAULT_RATE_LIMIT } from './lib/mcp.ts';
 import {
   FIELD_TYPES,
   contentVersion,
@@ -73,6 +73,8 @@ import {
   getPublished,
   slugify,
   uniqueSlug,
+  getMeta,
+  setMeta,
 } from './lib/content.ts';
 import {
   setupPage,
@@ -1339,7 +1341,7 @@ export function createApp(configOverrides = {}) {
   // ---- API keys -----------------------------------------------------------
 
   router.get('/admin/projects/:slug/api-keys', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), collections: listCollections(db), origin: requestOrigin(req).origin }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT }));
   }));
 
   router.post('/admin/projects/:slug/api-keys', withProject(async (req, res, params, ctx, db) => {
@@ -1347,11 +1349,18 @@ export function createApp(configOverrides = {}) {
     const name = (form.name || '').trim();
     if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
     const createdKey = createApiKey(db, name, form.scope);
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, collections: listCollections(db), origin: requestOrigin(req).origin }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT }));
   }));
 
   router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {
     revokeApiKey(db, Number.parseInt(params.keyId, 10));
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
+  }));
+
+  router.post('/admin/projects/:slug/rate-limit', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const n = Number.parseInt(form.rate_limit_per_min, 10);
+    if (Number.isFinite(n) && n > 0) setMeta(db, 'rate_limit_per_min', String(n));
     redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
   }));
 
@@ -1403,7 +1412,8 @@ export function createApp(configOverrides = {}) {
     const auth = req.headers.authorization || '';
     const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
-    if (!rateLimitOk(`${project.slug}:${apiKey.id}`)) {
+    const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    if (!rateLimitOk(`${project.slug}:${apiKey.id}`, rateLimit)) {
       return json(req, res, 429, { error: 'rate_limited' }, { 'Retry-After': '60' });
     }
     let message;

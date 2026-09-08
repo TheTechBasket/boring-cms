@@ -49,6 +49,17 @@ export function bumpContentVersion(db) {
   db.prepare("UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'content_version'").run();
 }
 
+// ---- Project meta (plain key/value, no encryption) ------------------------
+
+export function getMeta(db, key, fallback = null) {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
+  return row ? row.value : fallback;
+}
+
+export function setMeta(db, key, value) {
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
 // ---- Collections ---------------------------------------------------------
 
 export function listCollections(db) {

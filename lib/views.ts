@@ -1146,7 +1146,7 @@ function apiDocs(origin: string, slug: string, collections: any[]): string {
   </div>`;
 }
 
-export function apiKeysPage({ user, projects, project, keys, createdKey, origin = '', collections = [], notice: pageNotice }: any): string {
+export function apiKeysPage({ user, projects, project, keys, createdKey, origin = '', collections = [], rateLimit = 60, notice: pageNotice }: any): string {
   const rows = keys
     .map(
       (k: any) => `<tr class="border-b border-border">
@@ -1209,6 +1209,13 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, origin 
           <h2 class="text-sm font-semibold">MCP endpoint</h2>
           <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code>. Claude Code <code>.mcp.json</code> (create a key above to get one with the key filled in):</p>
           ${preBlock(mcpConfig(origin, project.slug, 'yn_<key>'))}
+          <form method="post" action="/admin/projects/${project.slug}/rate-limit" class="flex items-end gap-2 pt-1 border-t border-border mt-1">
+            <label class="flex flex-col gap-1 text-xs flex-1">
+              <span class="font-medium text-muted-foreground">Rate limit (requests/min per key)</span>
+              <input type="number" name="rate_limit_per_min" value="${rateLimit}" min="1" class="${INPUT_CLASS} h-8">
+            </label>
+            ${button({ label: 'Save', small: true })}
+          </form>
         </div>
       </div>
     `,
