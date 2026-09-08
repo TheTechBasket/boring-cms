@@ -51,14 +51,6 @@ document.addEventListener('click', (event) => {
   });
 });
 
-// Suggestion chips: fill the named input in the same form.
-document.addEventListener('click', (event) => {
-  const chip = event.target.closest('[data-fill]');
-  if (!chip) return;
-  const input = chip.closest('form')?.querySelector(`input[name="${chip.dataset.fill}"]`);
-  if (input) input.value = chip.dataset.value;
-});
-
 // "+" popovers are <details data-popover>: close any open one on outside click.
 document.addEventListener('click', (event) => {
   document.querySelectorAll('details[data-popover][open]').forEach((d) => {
@@ -107,6 +99,7 @@ document.querySelectorAll('form[data-direct-upload]').forEach((form) => {
     if (!file || !window.crypto || !crypto.subtle) return; // plain submit
     event.preventDefault();
     const base = form.dataset.directUpload;
+    const storage = form.querySelector('select[name="storage"]')?.value || '';
     const post = (url, params) => fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -115,7 +108,7 @@ document.querySelectorAll('form[data-direct-upload]').forEach((form) => {
     try {
       const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
       const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-      const presign = await post(`${base}/presign`, { hash, filename: file.name, mime: file.type });
+      const presign = await post(`${base}/presign`, { hash, filename: file.name, mime: file.type, storage });
       if (!presign.ok) throw new Error('presign failed');
       const { url, key } = await presign.json();
       const put = await fetch(url, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
@@ -127,7 +120,7 @@ document.querySelectorAll('form[data-direct-upload]').forEach((form) => {
           width = bmp.width; height = bmp.height;
         } catch {} // not decodable, dimensions stay unknown
       }
-      const reg = await post(`${base}/register`, { key, filename: file.name, mime: file.type, size: file.size, width, height });
+      const reg = await post(`${base}/register`, { key, filename: file.name, mime: file.type, size: file.size, width, height, storage });
       if (!reg.ok) throw new Error('register failed');
       window.location.reload();
     } catch (err) {
@@ -162,22 +155,21 @@ document.addEventListener('click', (event) => {
   if (popover) popover.removeAttribute('open');
 });
 
-// Media search + group filter: pure client-side show/hide, works both on the
-// media page ([data-media-item] cards) and inside image-field picker popovers
-// ([data-media-name] buttons scoped to the popover).
+// Media search + storage filter: pure client-side show/hide, works both on
+// the media page ([data-media-item] cards) and inside image-field picker
+// popovers ([data-media-name] buttons scoped to the popover).
 function filterMedia(scope) {
   const search = scope.querySelector('[data-media-search]');
-  const folderSel = document.querySelector('[data-media-folder-filter]');
+  const storageSel = document.querySelector('[data-media-storage-filter]');
   const q = (search?.value || '').trim().toLowerCase();
-  const folder = folderSel?.value || '';
+  const storage = storageSel?.value || '';
   const items = scope === document
     ? document.querySelectorAll('[data-media-item]')
     : scope.querySelectorAll('[data-media-name]');
   items.forEach((el) => {
     const name = el.dataset.mediaName || '';
-    const f = el.dataset.mediaFolder;
-    const folderOk = !folder || (folder === '__none__' ? !f : f === folder);
-    el.hidden = !(name.includes(q) && folderOk);
+    const storageOk = !storage || el.dataset.mediaStorage === storage;
+    el.hidden = !(name.includes(q) && storageOk);
   });
 }
 document.addEventListener('input', (event) => {
@@ -185,7 +177,7 @@ document.addEventListener('input', (event) => {
   const popover = event.target.closest('details[data-popover]');
   filterMedia(popover || document);
 });
-document.querySelector('[data-media-folder-filter]')?.addEventListener('change', () => filterMedia(document));
+document.querySelector('[data-media-storage-filter]')?.addEventListener('change', () => filterMedia(document));
 
 // Upload a new image straight from the image-field picker: multipart fetch
 // with json=1, then set the field to the returned URL.

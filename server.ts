@@ -37,7 +37,7 @@ import { verifyRegistration, verifyAssertion, b64url } from './lib/webauthn.ts';
 import { readMultipart } from './lib/multipart.ts';
 import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
-import { listMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp, setMediaFolder, listMediaFolders } from './lib/media.ts';
+import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import { handleMcp, rateLimitOk, retryAfterSeconds, DEFAULT_RATE_LIMIT } from './lib/mcp.ts';
@@ -812,48 +812,105 @@ export function createApp(configOverrides = {}) {
     try { return JSON.parse(raw); } catch { return null; }
   }
 
-  // Backend per project: a shared global storage if selected, else the
-  // legacy per-project s3_* settings, else local disk.
+  function sharedStorageConfig(shared) {
+    const publicUrl = (shared.public_url || '').replace(/\/+$/, '') || null;
+    return {
+      backend: s3Backend({
+        endpoint: shared.endpoint,
+        bucket: shared.bucket,
+        region: shared.region || 'auto',
+        accessKey: shared.key,
+        secretKey: shared.secret,
+        publicUrl,
+      }),
+      publicBase: publicUrl,
+      isS3: true,
+    };
+  }
+
+  function localStorageConfig(project) {
+    return { backend: localBackend(path.join(config.dataDir, 'media', project.slug)), publicBase: null, isS3: false };
+  }
+
+  // The project's default upload storage: a shared global storage if
+  // selected, else the legacy per-project s3_* settings, else local disk.
   function mediaConfigFor(project) {
     const setting = (key) =>
       getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key });
     const storageName = setting('media_storage');
     const shared = storageName && storageName !== 'local' ? getStorage(storageName) : null;
-    if (shared) {
-      const publicUrl = (shared.public_url || '').replace(/\/+$/, '') || null;
-      return {
-        backend: s3Backend({
-          endpoint: shared.endpoint,
-          bucket: shared.bucket,
-          region: shared.region || 'auto',
-          accessKey: shared.key,
-          secretKey: shared.secret,
-          publicUrl,
-        }),
-        publicBase: publicUrl,
-        isS3: true,
-      };
-    }
+    if (shared) return sharedStorageConfig(shared);
     if (setting('media_backend') === 's3') {
-      const publicUrl = (setting('s3_public_url') || '').replace(/\/+$/, '') || null;
-      return {
-        backend: s3Backend({
-          endpoint: setting('s3_endpoint'),
-          bucket: setting('s3_bucket'),
-          region: setting('s3_region') || 'auto',
-          accessKey: setting('s3_key'),
-          secretKey: setting('s3_secret'),
-          publicUrl,
-        }),
-        publicBase: publicUrl,
-        isS3: true,
-      };
+      return sharedStorageConfig({
+        endpoint: setting('s3_endpoint'),
+        bucket: setting('s3_bucket'),
+        region: setting('s3_region'),
+        key: setting('s3_key'),
+        secret: setting('s3_secret'),
+        public_url: setting('s3_public_url'),
+      });
     }
-    return { backend: localBackend(path.join(config.dataDir, 'media', project.slug)), publicBase: null, isS3: false };
+    return localStorageConfig(project);
   }
 
   function mediaBackendFor(project) {
     return mediaConfigFor(project).backend;
+  }
+
+  // Name of the project's default storage as shown in storage pickers.
+  function defaultStorageName(project) {
+    const setting = (key) =>
+      getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: project.id, key });
+    const name = setting('media_storage');
+    if (name && name !== 'local' && getStorage(name)) return name;
+    if (!name && setting('media_backend') === 's3') return 'legacy-s3';
+    return 'local';
+  }
+
+  // Resolve an explicit storage choice from a form. '' or the default name
+  // means "use the project default". Any storage stays usable at any time;
+  // the project setting only picks the default.
+  function storageChoiceConfig(project, choice) {
+    const def = defaultStorageName(project);
+    if (!choice || choice === def) return { name: def, isDefault: true, ...mediaConfigFor(project) };
+    if (choice === 'local') return { name: 'local', isDefault: false, ...localStorageConfig(project) };
+    const shared = getStorage(choice);
+    if (!shared) return { name: def, isDefault: true, ...mediaConfigFor(project) };
+    return { name: choice, isDefault: false, ...sharedStorageConfig(shared) };
+  }
+
+  // Rows uploaded to a non-default storage get pinned to where they live, so
+  // switching the default never breaks their URLs.
+  function pinBaseFor(chosen) {
+    return chosen.isDefault ? null : chosen.publicBase || '';
+  }
+
+  // Old base -> a backend with object rights there: local disk, or the
+  // shared storage whose public URL matches.
+  function backendForBase(project, base) {
+    if (base === '') return localBackend(path.join(config.dataDir, 'media', project.slug));
+    for (const name of listStorages()) {
+      const s = getStorage(name);
+      if (s && (s.public_url || '').replace(/\/+$/, '') === base) {
+        return s3Backend({ endpoint: s.endpoint, bucket: s.bucket, region: s.region || 'auto', accessKey: s.key, secretKey: s.secret });
+      }
+    }
+    return null;
+  }
+
+  // Storage options offered in upload/sync/filter selects: the default, local
+  // disk, and every shared storage with a public URL (without one, a
+  // non-default storage could not serve its files).
+  function storageOptions(project) {
+    const def = defaultStorageName(project);
+    const options = [{ name: def, label: `${def} (default)` }];
+    if (def !== 'local') options.push({ name: 'local', label: 'local' });
+    for (const name of listStorages()) {
+      if (name === def) continue;
+      const s = getStorage(name);
+      if (s && (s.public_url || '').trim()) options.push({ name, label: name });
+    }
+    return options;
   }
 
   // Effective URL per row: pinned rows (base_url set on a storage switch)
@@ -870,19 +927,54 @@ export function createApp(configOverrides = {}) {
     return { ...m, url: urlFor(m.key), stale };
   }
 
-  function mediaCtx(ctx, db) {
+  // Storage label per row for the gallery filter: where the file lives.
+  function storageLabelFor(m, defaultName, baseNames) {
+    if (m.base_url === null || m.base_url === undefined) return defaultName;
+    if (m.base_url === '') return 'local';
+    return baseNames[m.base_url] || 'other';
+  }
+
+  function mediaCtx(ctx, db, pathPrefix = '') {
     const setting = (key) => getSettingValue(coreDb, config.masterKey, { scope: 'project', projectId: ctx.project.id, key });
     const { publicBase, isS3 } = mediaConfigFor(ctx.project);
-    const media = listMedia(db).map((m) => decorateMedia(m, ctx.project, publicBase));
+    const defaultName = defaultStorageName(ctx.project);
+    const baseNames = {};
+    for (const name of listStorages()) {
+      const s = getStorage(name);
+      const base = (s?.public_url || '').replace(/\/+$/, '');
+      if (base) baseNames[base] = name;
+    }
+    const all = listMedia(db).map((m) => ({
+      ...decorateMedia(m, ctx.project, publicBase),
+      storage: storageLabelFor(m, defaultName, baseNames),
+    }));
+    // Path drill-down: nested keys (adopted from S3) browse like folders.
+    const prefix = pathPrefix ? `${pathPrefix}/` : '';
+    const media = [];
+    const subfolders = new Map();
+    for (const m of all) {
+      if (pathPrefix && !m.key.startsWith(prefix)) continue;
+      const rest = m.key.slice(prefix.length);
+      if (!pathPrefix && !m.key.includes('/')) media.push(m);
+      else if (pathPrefix && !rest.includes('/')) media.push(m);
+      else {
+        const seg = (pathPrefix ? rest : m.key).split('/')[0];
+        subfolders.set(seg, (subfolders.get(seg) || 0) + 1);
+      }
+    }
     // Per-image "where used": a plain scan, no stored relationships.
     const usage = Object.fromEntries(media.map((m) => [m.key, mediaUsage(db, m.key)]));
     return {
       ...ctx,
       media,
       usage,
-      staleCount: media.filter((m) => m.stale).length,
-      oldCopyCount: media.filter((m) => m.migrated_from !== null && m.migrated_from !== undefined).length,
-      folders: listMediaFolders(db),
+      pathPrefix,
+      subfolders: [...subfolders.entries()].sort().map(([name, count]) => ({ name, count })),
+      staleCount: all.filter((m) => m.stale).length,
+      oldCopyCount: all.filter((m) => m.migrated_from !== null && m.migrated_from !== undefined).length,
+      storages: storageOptions(ctx.project),
+      storageLabels: [...new Set(all.map((m) => m.storage))].sort(),
+      defaultStorage: defaultName,
       publicBase,
       variantsMode: setting('media_variants') || '',
       hasSharp,
@@ -908,7 +1000,9 @@ export function createApp(configOverrides = {}) {
   }
 
   router.get('/admin/projects/:slug/media', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, mediaPage(mediaCtx(ctx, db)));
+    const raw = new URL(req.url, 'http://localhost').searchParams.get('path') || '';
+    const pathPrefix = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(raw) ? raw : '';
+    html(req, res, 200, mediaPage(mediaCtx(ctx, db, pathPrefix)));
   }));
 
   router.post('/admin/projects/:slug/media', withProject(async (req, res, params, ctx, db) => {
@@ -924,22 +1018,18 @@ export function createApp(configOverrides = {}) {
       if (wantsJson) return json(req, res, 400, { error: 'Choose a file to upload.' });
       return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: 'Choose a file to upload.' } }));
     }
-    const media = await createMedia(db, mediaBackendFor(ctx.project), file, {
+    const chosen = storageChoiceConfig(ctx.project, (upload.fields.storage || '').trim());
+    const media = await createMedia(db, chosen.backend, file, {
       withVariants: upload.fields.variants === '1',
-      folder: (upload.fields.folder || '').trim(),
     });
+    const pin = pinBaseFor(chosen);
+    if (pin !== null) db.prepare('UPDATE media SET base_url = ? WHERE id = ? AND base_url IS NULL').run(pin, media.id);
     // json=1: the entry editor uploads from the image picker via fetch and
     // needs the public URL back instead of a redirect.
     if (wantsJson) {
-      const { publicBase } = mediaConfigFor(ctx.project);
-      return json(req, res, 200, { id: media.id, key: media.key, url: publicBase ? `${publicBase}/${media.key}` : `/media/${ctx.project.slug}/${media.key}` });
+      const base = pin === null ? chosen.publicBase : pin || null;
+      return json(req, res, 200, { id: media.id, key: media.key, url: base ? `${base}/${media.key}` : `/media/${ctx.project.slug}/${media.key}` });
     }
-    redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
-  }));
-
-  router.post('/admin/projects/:slug/media/:id/folder', withProject(async (req, res, params, ctx, db) => {
-    const form = await readFormBody(req);
-    setMediaFolder(db, Number(params.id), (form.folder || '').trim());
     redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
   }));
 
@@ -947,7 +1037,7 @@ export function createApp(configOverrides = {}) {
   // register the row. Bytes never pass through the server.
   router.post('/admin/projects/:slug/media/presign', withProject(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    const backend = mediaBackendFor(ctx.project);
+    const backend = storageChoiceConfig(ctx.project, (form.storage || '').trim()).backend;
     if (!/^[0-9a-f]{64}$/.test(form.hash || '') || !form.filename) {
       return json(req, res, 400, { error: 'hash (sha256 hex) and filename required' });
     }
@@ -969,24 +1059,52 @@ export function createApp(configOverrides = {}) {
       size: Number(form.size) || 0,
       width: Number(form.width) || null,
       height: Number(form.height) || null,
-      folder: (form.folder || '').trim(),
     });
+    const pin = pinBaseFor(storageChoiceConfig(ctx.project, (form.storage || '').trim()));
+    if (pin !== null) db.prepare('UPDATE media SET base_url = ? WHERE id = ? AND base_url IS NULL').run(pin, media.id);
     json(req, res, 200, { id: media.id, key: media.key });
   }));
 
+  // Check-first sync: the default run only reports what would happen
+  // (adoptable files with preview links, rows whose object is gone); apply=1
+  // actually adopts. A storage select syncs any configured storage, with
+  // adopted rows pinned to where they live.
   router.post('/admin/projects/:slug/media/sync', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    const choice = (form.storage || '').trim();
+    const chosen = storageChoiceConfig(ctx.project, choice);
+    const apply = form.apply === '1';
     let report;
     try {
-      report = await syncMedia(db, mediaBackendFor(ctx.project));
+      report = await syncMedia(db, chosen.backend, { apply, allowNested: !!chosen.publicBase });
     } catch (err) {
       return html(req, res, 400, mediaPage({ ...mediaCtx(ctx, db), notice: { type: 'error', message: err.message } }));
     }
-    const summary = `${report.adopted.length} adopted, ${report.missing.length} missing of ${report.total} objects.`;
-    html(req, res, 200, mediaPage({ ...mediaCtx(ctx, db), report, notice: { type: 'success', message: `Storage synced: ${summary}` } }));
+    const pin = pinBaseFor(chosen);
+    if (apply && pin !== null) {
+      for (const key of report.adopted) {
+        db.prepare('UPDATE media SET base_url = ? WHERE key = ? AND base_url IS NULL').run(pin, key);
+      }
+    }
+    const summary = apply
+      ? `${report.adopted.length} adopted, ${report.missing.length} missing of ${report.total} objects.`
+      : `${report.adoptable.length} adoptable, ${report.missing.length} missing of ${report.total} objects. Nothing changed yet.`;
+    html(req, res, 200, mediaPage({
+      ...mediaCtx(ctx, db),
+      syncReport: { ...report, apply, storage: chosen.name, publicBase: chosen.publicBase },
+      notice: { type: 'success', message: apply ? `Storage synced: ${summary}` : `Sync check (${chosen.name}): ${summary}` },
+    }));
   }));
 
   router.post('/admin/projects/:slug/media/:id/delete', withProject(async (req, res, params, ctx, db) => {
-    await deleteMedia(db, mediaBackendFor(ctx.project), Number(params.id));
+    const m = getMedia(db, Number(params.id));
+    // Pinned rows live on another storage; delete the object there, not on
+    // the current default. Unknown base: remove the row, leave the object.
+    const backend = m && m.base_url !== null && m.base_url !== undefined
+      ? backendForBase(ctx.project, m.base_url)
+      : mediaBackendFor(ctx.project);
+    if (backend) await deleteMedia(db, backend, Number(params.id));
+    else if (m) db.prepare('DELETE FROM media WHERE id = ?').run(m.id);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/media`);
   }));
 
@@ -1064,19 +1182,6 @@ export function createApp(configOverrides = {}) {
     let gone = 0;
     let skipped = 0;
 
-    // Old base -> a backend with delete rights: local disk, or the shared
-    // storage whose public URL matches.
-    function backendForBase(base) {
-      if (base === '') return localBackend(localDir);
-      for (const name of listStorages()) {
-        const s = getStorage(name);
-        if (s && (s.public_url || '').replace(/\/+$/, '') === base) {
-          return s3Backend({ endpoint: s.endpoint, bucket: s.bucket, region: s.region || 'auto', accessKey: s.key, secretKey: s.secret });
-        }
-      }
-      return null;
-    }
-
     async function existsAt(base, key) {
       if (base === '') return existsSync(path.join(localDir, key));
       try {
@@ -1096,7 +1201,7 @@ export function createApp(configOverrides = {}) {
         lines.push(`SKIPPED ${m.key}: the old copy is the one currently in use`);
         continue;
       }
-      const backend = backendForBase(m.migrated_from);
+      const backend = backendForBase(ctx.project, m.migrated_from);
       if (!backend) {
         skipped += 1;
         lines.push(`SKIPPED ${m.key}: no storage configured for ${m.migrated_from}, cannot delete there`);

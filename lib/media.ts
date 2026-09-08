@@ -53,7 +53,7 @@ export function mediaKeyFor(hashHex: string, filename: string) {
 
 // Variants are strictly opt-in (withVariants), identified by a width suffix
 // in the key: <hash>-<stem>_320.ext. Never generated unless asked.
-export async function createMedia(db, backend, { filename, mime, data }, { withVariants = false, folder = '' } = {}) {
+export async function createMedia(db, backend, { filename, mime, data }, { withVariants = false } = {}) {
   const hashHex = createHash('sha256').update(data).digest('hex');
   const { key, hash, stem, ext } = mediaKeyFor(hashHex, filename);
 
@@ -84,26 +84,18 @@ export async function createMedia(db, backend, { filename, mime, data }, { withV
   }
 
   db.prepare('INSERT INTO media (filename, key, mime, size, width, height, variants, folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(filename, key, mime, data.length, width, height, JSON.stringify(variants), folder || '');
+    .run(filename, key, mime, data.length, width, height, JSON.stringify(variants), '');
   return getMediaByKey(db, key);
 }
 
 // Row for a file that already sits in the bucket (presigned browser upload
 // or adopted during sync). No bytes pass through the server.
-export function registerMedia(db, { filename, key, mime, size, width = null, height = null, folder = '' }) {
+export function registerMedia(db, { filename, key, mime, size, width = null, height = null }) {
   const existing = getMediaByKey(db, key);
   if (existing) return existing;
   db.prepare('INSERT INTO media (filename, key, mime, size, width, height, variants, folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(filename, key, mime, size, width, height, '{}', folder || '');
+    .run(filename, key, mime, size, width, height, '{}', '');
   return getMediaByKey(db, key);
-}
-
-export function setMediaFolder(db, id, folder) {
-  db.prepare('UPDATE media SET folder = ? WHERE id = ?').run(folder || '', id);
-}
-
-export function listMediaFolders(db) {
-  return db.prepare("SELECT DISTINCT folder FROM media WHERE folder != '' ORDER BY folder").all().map((r) => r.folder);
 }
 
 const EXT_MIME: Record<string, string> = {
@@ -117,20 +109,36 @@ export function guessMime(key: string) {
   return EXT_MIME[ext] || 'application/octet-stream';
 }
 
-// Reconcile the backend against the media table: adopt files uploaded
-// outside the CMS as rows, report rows whose object is gone. Variant keys
+// Keys the CMS can own: flat always; nested paths (a/b/c.jpg) only when the
+// caller says so (a public base exists, so the app serve route is not needed).
+export function adoptableKey(key: string, allowNested: boolean) {
+  if (/^[A-Za-z0-9._-]+$/.test(key)) return true;
+  return allowNested && /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)+$/.test(key);
+}
+
+// Reconcile a backend against the media table. Check-first: without apply it
+// only reports what a sync would do (adoptable files, rows whose object is
+// gone); with apply it adopts the adoptable files as rows. Variant keys
 // (referenced by any row) are left alone.
-export async function syncMedia(db, backend) {
+export async function syncMedia(db, backend, { apply = false, allowNested = false } = {}) {
   const objects = await backend.list();
   const objectKeys = new Set(objects.map((o) => o.key));
   const rows = listMedia(db);
   const known = new Set(rows.flatMap((m) => [m.key, ...Object.values(m.variants)]));
-  const report = { adopted: [] as string[], missing: [] as string[], total: objects.length };
+  const report = {
+    adoptable: [] as Array<{ key: string; size: number }>,
+    adopted: [] as string[],
+    missing: [] as string[],
+    total: objects.length,
+  };
   for (const o of objects) {
-    // Only flat keys the serve route can address; nested paths stay foreign.
-    if (known.has(o.key) || !/^[A-Za-z0-9._-]+$/.test(o.key)) continue;
-    registerMedia(db, { filename: o.key.replace(/^[0-9a-f]{8}-/, ''), key: o.key, mime: guessMime(o.key), size: o.size });
-    report.adopted.push(o.key);
+    if (known.has(o.key) || !adoptableKey(o.key, allowNested)) continue;
+    report.adoptable.push({ key: o.key, size: o.size });
+    if (apply) {
+      const name = o.key.split('/').pop().replace(/^[0-9a-f]{8}-/, '');
+      registerMedia(db, { filename: name, key: o.key, mime: guessMime(o.key), size: o.size });
+      report.adopted.push(o.key);
+    }
   }
   for (const m of rows) {
     if (!objectKeys.has(m.key)) report.missing.push(m.key);

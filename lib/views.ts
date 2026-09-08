@@ -1307,14 +1307,12 @@ function mediaPreviewUrl(projectSlug: string, m: any, publicBase: string | null,
   return `/media/${projectSlug}/${key}`;
 }
 
-export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, folders = [], staleCount = 0, oldCopyCount = 0, notice: pageNotice, report }: any): string {
+export function mediaPage({ user, projects, project, media, publicBase = null, variantsMode = '', hasSharp = false, directUpload = false, usage = {}, staleCount = 0, oldCopyCount = 0, storages = [], storageLabels = [], defaultStorage = 'local', pathPrefix = '', subfolders = [], notice: pageNotice, report, syncReport }: any): string {
   const base = `/admin/projects/${project.slug}`;
-  // Existing groups as visible, clickable chips (no datalist): tapping one
-  // fills the group input in the same form.
-  const groupChips = folders.length
-    ? `<div class="flex flex-wrap gap-1.5">${folders
-        .map((f: string) => `<button type="button" data-fill="folder" data-value="${escapeHtml(f)}" class="border border-border bg-muted px-2 py-0.5 text-xs cursor-pointer hover:border-primary hover:text-primary">${escapeHtml(f)}</button>`)
-        .join('')}</div>`
+  const storageSelect = (name: string, title: string) => storages.length > 1
+    ? `<select name="${name}" class="${SELECT_CLASS}" title="${escapeHtml(title)}">${storages
+        .map((s: any) => `<option value="${escapeHtml(s.name)}">${escapeHtml(s.label)}</option>`)
+        .join('')}</select>`
     : '';
   const cards = media
     .map((m: any) => {
@@ -1336,16 +1334,15 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
             </div>
           </details>`
         : '<span class="text-xs text-muted-foreground">Unused</span>';
-      return `<div class="border border-border bg-card shadow-xs flex flex-col" data-media-item data-media-name="${escapeHtml(`${m.filename} ${m.folder || ''}`.toLowerCase())}" data-media-folder="${escapeHtml(m.folder || '')}">
+      const storageBadge = m.storage && m.storage !== defaultStorage
+        ? `<span class="inline-flex w-fit items-center bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground" title="Stored on ${escapeHtml(m.storage)}">${escapeHtml(m.storage)}</span>`
+        : '';
+      return `<div class="border border-border bg-card shadow-xs flex flex-col" data-media-item data-media-name="${escapeHtml(m.filename.toLowerCase())}" data-media-storage="${escapeHtml(m.storage || '')}">
         <a href="${url}" target="_blank" rel="noopener">${preview}</a>
         <div class="p-3 flex flex-col gap-2 text-sm">
           <span class="font-medium truncate" title="${escapeHtml(m.filename)}">${escapeHtml(m.filename)}</span>
           <span class="text-xs text-muted-foreground">${formatSize(m.size)}${m.width ? ` · ${m.width}×${m.height}` : ''}</span>
-          ${staleBadge}
-          <form method="post" action="${base}/media/${m.id}/folder" class="flex items-center gap-1">
-            <input name="folder" value="${escapeHtml(m.folder || '')}" placeholder="No group" class="${INPUT_CLASS} h-7 text-xs" title="Group this file (featured, logos, temp...)">
-            ${button({ label: 'Set', variant: 'ghost', small: true })}
-          </form>
+          ${staleBadge}${storageBadge}
           ${usedBlock}
           <div class="flex items-center gap-2">
             <button type="button" data-copy="${escapeHtml(snippet)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy MD</button>
@@ -1363,6 +1360,70 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
     : '';
 
   const reportBlock = report ? preBlock(typeof report === 'string' ? report : JSON.stringify(report, null, 2)) : '';
+
+  // Check-first sync report: what a sync would adopt (with previews for
+  // images, by extension) and which rows lost their object. Adopting is the
+  // explicit second step.
+  let syncBlock = '';
+  if (syncReport) {
+    const thumb = (key: string) => {
+      const isImage = /\.(jpe?g|png|gif|webp|avif|svg)$/i.test(key);
+      if (!isImage || !syncReport.publicBase) return '';
+      return `<img src="https://wsrv.nl/?url=${encodeURIComponent(`${syncReport.publicBase}/${key}`)}&w=48&h=48&fit=cover" alt="" loading="lazy" class="h-8 w-8 object-cover bg-muted">`;
+    };
+    const fileLink = (key: string) => syncReport.publicBase
+      ? `<a class="text-primary hover:underline break-all" href="${escapeHtml(`${syncReport.publicBase}/${key}`)}" target="_blank" rel="noopener">${escapeHtml(key)}</a>`
+      : `<span class="break-all">${escapeHtml(key)}</span>`;
+    const adoptableRows = (syncReport.adoptable || [])
+      .map((o: any) => `<li class="flex items-center gap-2 text-sm">${thumb(o.key)}${fileLink(o.key)}<span class="text-xs text-muted-foreground ml-auto whitespace-nowrap">${formatSize(o.size)}</span></li>`)
+      .join('');
+    const missingRows = (syncReport.missing || [])
+      .map((k: string) => `<li class="text-sm text-destructive break-all">${escapeHtml(k)}</li>`)
+      .join('');
+    syncBlock = `<div class="${CARD_CLASS}">
+      <span class="text-sm font-medium">Sync check: ${escapeHtml(syncReport.storage)} (${syncReport.total} objects)</span>
+      ${adoptableRows
+        ? `<span class="text-xs text-muted-foreground">${syncReport.apply ? 'Adopted' : 'Not in the media library yet'} (${(syncReport.adoptable || []).length}):</span>
+          <ul class="list-none p-0 m-0 flex flex-col gap-1.5 max-h-80 overflow-y-auto">${adoptableRows}</ul>`
+        : '<p class="text-sm text-muted-foreground m-0">Every file in the storage is already in the media library.</p>'}
+      ${missingRows ? `<span class="text-xs text-muted-foreground">Rows whose file is gone from the storage (${syncReport.missing.length}):</span><ul class="list-none p-0 m-0 flex flex-col gap-1">${missingRows}</ul>` : ''}
+      ${!syncReport.apply && adoptableRows
+        ? `<form method="post" action="${base}/media/sync" class="flex items-center gap-2">
+            <input type="hidden" name="storage" value="${escapeHtml(syncReport.storage)}">
+            <input type="hidden" name="apply" value="1">
+            ${button({ label: `Adopt ${(syncReport.adoptable || []).length} file${(syncReport.adoptable || []).length === 1 ? '' : 's'}` })}
+          </form>`
+        : ''}
+    </div>`;
+  }
+
+  // Path drill-down over nested keys adopted from S3: folders come from the
+  // key paths themselves, nothing is stored.
+  const crumbs = pathPrefix ? pathPrefix.split('/') : [];
+  const breadcrumb = crumbs.length
+    ? `<nav class="flex items-center gap-1 text-sm flex-wrap">
+        <a class="text-primary hover:underline" href="${base}/media">All media</a>
+        ${crumbs.map((seg: string, i: number) => {
+          const target = crumbs.slice(0, i + 1).join('/');
+          const last = i === crumbs.length - 1;
+          return `<span class="text-muted-foreground">/</span>${last
+            ? `<span class="font-medium">${escapeHtml(seg)}</span>`
+            : `<a class="text-primary hover:underline" href="${base}/media?path=${encodeURIComponent(target)}">${escapeHtml(seg)}</a>`}`;
+        }).join('')}
+      </nav>`
+    : '';
+  const folderCards = subfolders.length
+    ? `<div class="grid gap-2 @lg:grid-cols-3 @3xl:grid-cols-4 @5xl:grid-cols-6">${subfolders
+        .map((f: any) => {
+          const target = pathPrefix ? `${pathPrefix}/${f.name}` : f.name;
+          return `<a href="${base}/media?path=${encodeURIComponent(target)}" class="border border-border bg-card shadow-xs p-3 flex items-center gap-2 text-sm hover:border-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" class="shrink-0 text-muted-foreground"><g fill="currentColor"><path d="M22 14V11.7979C22 9.16554 22 7.84935 21.2305 6.99383C21.1598 6.91514 21.0849 6.84024 21.0062 6.76946C20.1506 6 18.8345 6 16.2021 6H15.8284C14.6747 6 14.0979 6 13.5604 5.84678C13.2651 5.7626 12.9804 5.64471 12.7121 5.49543C12.2237 5.22367 11.8158 4.81578 11 4L10.4497 3.44975C10.1763 3.17633 10.0396 3.03961 9.89594 2.92051C9.27652 2.40704 8.51665 2.09229 7.71557 2.01738C7.52976 2 7.33642 2 6.94975 2C6.06722 2 5.62595 2 5.25839 2.06935C3.64031 2.37464 2.37464 3.64031 2.06935 5.25839C2 5.62595 2 6.06722 2 6.94975V14C2 17.7712 2 19.6569 3.17157 20.8284C4.34315 22 6.22876 22 10 22H14C17.7712 22 19.6569 22 20.8284 20.8284C22 19.6569 22 17.7712 22 14Z" opacity=".5"/><path d="M12.25 10C12.25 9.58579 12.5858 9.25 13 9.25H18C18.4142 9.25 18.75 9.58579 18.75 10C18.75 10.4142 18.4142 10.75 18 10.75H13C12.5858 10.75 12.25 10.4142 12.25 10Z"/></g></svg>
+            <span class="truncate font-medium">${escapeHtml(f.name)}</span>
+            <span class="text-xs text-muted-foreground ml-auto">${f.count}</span>
+          </a>`;
+        })
+        .join('')}</div>`
+    : '';
 
   // Rows still on a previous storage: their links keep working, and this
   // banner offers the safe move (copy, rewrite entry URLs, never delete).
@@ -1390,7 +1451,14 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
     notice: pageNotice,
     body: `
       ${pageHeader('Media', `<div class="flex items-center gap-2">
-        <form method="post" action="${base}/media/sync" title="Adopt files uploaded outside the CMS; flag rows whose file is gone">${button({ label: 'Sync storage', variant: 'outline' })}</form>
+        ${popover({
+          summary: 'Sync storage',
+          children: `<form method="post" action="${base}/media/sync" class="flex flex-col gap-4">
+            <p class="text-xs text-muted-foreground m-0">Check lists what a sync would do (files to adopt, rows whose file is gone) without changing anything. Adopt them from the report.</p>
+            ${storageSelect('storage', 'Which storage to check')}
+            ${button({ label: 'Check storage', variant: 'outline' })}
+          </form>`,
+        })}
         ${popover({
           summary: '+ Upload',
           children: `<form method="post" action="${base}/media" enctype="multipart/form-data" class="flex flex-col gap-4"${directUpload ? ` data-direct-upload="${base}/media"` : ''}>
@@ -1398,11 +1466,10 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
               <span class="font-medium text-foreground">File (50 MB max)</span>
               <input type="file" name="file" required class="${FILE_INPUT_CLASS}">
             </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="font-medium text-foreground">Group (optional)</span>
-              <input name="folder" placeholder="featured, logos, temp..." class="${INPUT_CLASS}">
-              ${groupChips}
-            </label>
+            ${storages.length > 1 ? `<label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">Storage</span>
+              ${storageSelect('storage', 'Where this file is stored')}
+            </label>` : ''}
             ${variantCheckbox}
             ${directUpload ? '<p class="text-xs text-muted-foreground m-0">Uploads go straight from the browser to the bucket (presigned). The bucket needs a CORS rule allowing PUT from this origin.</p>' : ''}
             ${button({ label: 'Upload' })}
@@ -1412,17 +1479,21 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
       ${migrateBanner}
       ${cleanupBanner}
       ${reportBlock}
+      ${syncBlock}
+      ${breadcrumb}
+      ${folderCards}
       ${media.length
         ? `<div class="flex items-center gap-2 max-w-md">
-            <input type="search" placeholder="Search by name or group" data-media-search class="${INPUT_CLASS}">
-            <select data-media-folder-filter class="${SELECT_CLASS} w-auto" title="Filter by group">
-              <option value="">All groups</option>
-              <option value="__none__">Ungrouped</option>
-              ${folders.map((f: string) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('')}
-            </select>
+            <input type="search" placeholder="Search by name" data-media-search class="${INPUT_CLASS}">
+            ${storageLabels.length > 1 ? `<select data-media-storage-filter class="${SELECT_CLASS} w-auto" title="Filter by storage">
+              <option value="">All storages</option>
+              ${storageLabels.map((s: string) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
+            </select>` : ''}
           </div>
           <div class="grid gap-4 @xl:grid-cols-2 @3xl:grid-cols-3 @5xl:grid-cols-4">${cards}</div>`
-        : '<p class="text-sm text-muted-foreground italic">No media yet. Upload with the + button.</p>'}
+        : subfolders.length
+          ? ''
+          : '<p class="text-sm text-muted-foreground italic">No media yet. Upload with the + button.</p>'}
     `,
   });
 }

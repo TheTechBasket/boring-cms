@@ -274,40 +274,39 @@ async function main() {
   const usageHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
   assert.ok(usageHtml.includes('Used in 1 entry'), 'usage scan should find the referencing entry');
 
+  // Check-first sync: the plain run only reports, apply=1 adopts.
   const { writeFileSync: wf, unlinkSync: ul } = await import('node:fs');
   const strayPath = path.join(dataDir, 'media', slug, 'deadbeef-stray.txt');
   wf(strayPath, 'outside upload');
-  const syncRes = await req('POST', `/admin/projects/${slug}/media/sync`);
-  assert.equal(syncRes.status, 200, 'sync should render a report');
-  const syncHtml = await syncRes.text();
-  assert.ok(syncHtml.includes('deadbeef-stray.txt'), 'sync should adopt the outside file as a media row');
-  assert.ok(syncHtml.includes('1 adopted'), 'sync report should count the adoption');
+  const syncCheck = await req('POST', `/admin/projects/${slug}/media/sync`);
+  assert.equal(syncCheck.status, 200, 'sync check should render a report');
+  const syncCheckHtml = await syncCheck.text();
+  assert.ok(syncCheckHtml.includes('deadbeef-stray.txt'), 'sync check should list the adoptable file');
+  assert.ok(syncCheckHtml.includes('Nothing changed yet'), 'sync check must not adopt anything');
+  assert.ok(!(await (await req('GET', `/admin/projects/${slug}/media`)).text()).includes('deadbeef-stray'), 'checked file must not become a row yet');
+
+  const syncApply = await req('POST', `/admin/projects/${slug}/media/sync`, { form: { apply: '1' } });
+  assert.equal(syncApply.status, 200, 'sync apply should render a report');
+  assert.ok((await syncApply.text()).includes('1 adopted'), 'sync apply should adopt the outside file');
 
   ul(strayPath);
   const sync2Html = await (await req('POST', `/admin/projects/${slug}/media/sync`)).text();
-  assert.ok(sync2Html.includes('1 missing') || sync2Html.includes('missing&quot;: [\n    &quot;deadbeef'), 'sync should flag the row whose file is gone');
+  assert.ok(sync2Html.includes('1 missing'), 'sync should flag the row whose file is gone');
 
-  // 11c. Stage 9: folders, JSON upload, storage registry, icon, MCP snippet
+  // 11c. JSON upload, storage registry, icon, MCP snippet
   const jsonUpload = await fetch(`${base}/admin/projects/${slug}/media`, {
     method: 'POST',
     redirect: 'manual',
     headers: withCookie({ 'Content-Type': `multipart/form-data; boundary=${boundary}` }),
-    body: `--${boundary}\r\nContent-Disposition: form-data; name="json"\r\n\r\n1\r\n--${boundary}\r\nContent-Disposition: form-data; name="folder"\r\n\r\nfeatured\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hero.txt"\r\nContent-Type: text/plain\r\n\r\nhero bytes\r\n--${boundary}--\r\n`,
+    body: `--${boundary}\r\nContent-Disposition: form-data; name="json"\r\n\r\n1\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hero.txt"\r\nContent-Type: text/plain\r\n\r\nhero bytes\r\n--${boundary}--\r\n`,
   });
   assert.equal(jsonUpload.status, 200, 'json=1 upload should return 200 JSON');
   const jsonUploadBody: any = await jsonUpload.json();
   assert.ok(jsonUploadBody.url.startsWith(`/media/${slug}/`), 'json upload should return the serve URL');
 
-  let foldersHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
-  assert.ok(foldersHtml.includes('data-media-folder="featured"'), 'uploaded file should carry its folder');
-  assert.ok(foldersHtml.includes('data-media-search'), 'media page should have a search box');
-  assert.ok(foldersHtml.includes('data-media-folder-filter'), 'media page should have a folder filter');
-
-  const folderChange = await req('POST', `/admin/projects/${slug}/media/${jsonUploadBody.id}/folder`, { form: { folder: 'logos' } });
-  assert.equal(folderChange.status, 302, 'folder change should redirect');
-  foldersHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
-  assert.ok(foldersHtml.includes('data-media-folder="logos"'), 'folder change should persist');
-  assert.ok(foldersHtml.includes('data-fill="folder"'), 'upload form should offer existing groups as chips');
+  const galleryHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(galleryHtml.includes('data-media-search'), 'media page should have a search box');
+  assert.ok(!galleryHtml.includes('data-media-folder'), 'group/folder feature should be gone');
 
   // Unreachable storage must fail the probe and save nothing.
   const badStorage = await req('POST', '/admin/settings/storage', {
@@ -355,6 +354,41 @@ async function main() {
   assert.ok(s3MediaHtml.includes('old storage'), 'pinned rows should be badged');
   assert.ok(s3MediaHtml.includes('Migrate media to current storage'), 'media page should offer migration');
   assert.ok(!s3MediaHtml.includes(`https://cdn.example.com/${slug}/`), 'public URLs must not embed the project slug');
+
+  // Multi-storage: with the default on r2-main, an upload can still target
+  // local disk; the row is pinned to local and serves through the app.
+  const localChoiceUpload = await fetch(`${base}/admin/projects/${slug}/media`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: withCookie({ 'Content-Type': `multipart/form-data; boundary=${boundary}` }),
+    body: `--${boundary}\r\nContent-Disposition: form-data; name="json"\r\n\r\n1\r\n--${boundary}\r\nContent-Disposition: form-data; name="storage"\r\n\r\nlocal\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pinned.txt"\r\nContent-Type: text/plain\r\n\r\npinned to disk\r\n--${boundary}--\r\n`,
+  });
+  assert.equal(localChoiceUpload.status, 200, 'upload with an explicit storage should work');
+  const localChoiceBody: any = await localChoiceUpload.json();
+  assert.ok(localChoiceBody.url.startsWith(`/media/${slug}/`), 'local-storage upload should serve through the app');
+  const multiHtml = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(multiHtml.includes('data-media-storage="local"'), 'row uploaded to a non-default storage should carry its storage label');
+  const servedPinned = await fetch(`${base}${localChoiceBody.url}`);
+  assert.equal(servedPinned.status, 200, 'row pinned to local disk should serve from disk while the default is S3');
+  await req('POST', `/admin/projects/${slug}/media/${localChoiceBody.id}/delete`);
+
+  // Folder drill-down from nested keys (adopted S3 paths).
+  projectDb.prepare("INSERT INTO media (filename, key, mime, size, variants, folder, base_url) VALUES ('pic.png', 'docs/2024/pic.png', 'image/png', 10, '{}', '', 'https://cdn.example.com')").run();
+  const rootGallery = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+  assert.ok(rootGallery.includes('?path=docs'), 'nested keys should show as a folder card at the root');
+  assert.ok(!rootGallery.includes('data-media-name="pic.png"'), 'nested files should not flood the root gallery');
+  assert.ok(rootGallery.includes('data-media-storage-filter'), 'gallery should offer a storage filter when rows span storages');
+  const midGallery = await (await req('GET', `/admin/projects/${slug}/media?path=docs`)).text();
+  assert.ok(midGallery.includes('?path=docs%2F2024'), 'drill-down should show the next path level');
+  const leafGallery = await (await req('GET', `/admin/projects/${slug}/media?path=docs/2024`)).text();
+  assert.ok(leafGallery.includes('data-media-name="pic.png"'), 'leaf level should list the nested file');
+  assert.ok(leafGallery.includes('All media'), 'drill-down should render a breadcrumb');
+  projectDb.prepare("DELETE FROM media WHERE key = 'docs/2024/pic.png'").run();
+
+  // Check-first sync of a non-default storage with a public base allows
+  // nested keys; against the fake bucket it just fails cleanly.
+  const badSync = await req('POST', `/admin/projects/${slug}/media/sync`, { form: { storage: 'r2-main' } });
+  assert.equal(badSync.status, 400, 'sync check against an unreachable storage should fail cleanly');
 
   // Migration against the fake bucket fails per row, gracefully: nothing is
   // rewritten and rows stay pinned to the working old URLs.
