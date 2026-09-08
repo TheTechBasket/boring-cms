@@ -6,6 +6,7 @@
 
 ## Backlog
 
+- Webhook debounce/coalesce window per project ("fire at most once per N minutes, batched events") so batch pushes (hundreds of entries) do not queue a build per entry. Not needed yet: thetechbasket triggers its deploy hook once at the end of a publishing run instead. Build when a consumer actually wants per-entry webhooks as a build trigger.
 - Relation field API expansion on `?include=`: the relation field type itself is shipped (picker, target collection, multiple, one-save type switch from text); only the API-side expansion of referenced entries remains, build when a consumer needs it.
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
 - Media alt text + caption fields on the media row, included in the copy-markdown snippet.
