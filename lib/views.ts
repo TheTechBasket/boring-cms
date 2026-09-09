@@ -474,6 +474,7 @@ export function accountPage({ user, projects, credentials = [], google = false, 
           <tbody>${passkeyRows || '<tr><td colspan="3" class="p-3 text-muted-foreground italic">No passkeys yet.</td></tr>'}</tbody>
         </table>`)}
         <div class="flex items-center gap-3">
+          <input type="text" data-passkey-name placeholder="Name (e.g. MacBook, phone)" class="${INPUT_CLASS} h-8 w-56 text-sm" />
           <button type="button" data-passkey-register class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-8 px-3 text-sm">Add a passkey</button>
           <p data-passkey-error class="text-sm text-destructive" hidden></p>
         </div>

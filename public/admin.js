@@ -236,6 +236,7 @@ if (registerBtn) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: cred.id,
+          name: (document.querySelector('[data-passkey-name]')?.value || '').trim(),
           attestationObject: bufToB64u(cred.response.attestationObject),
           clientDataJSON: bufToB64u(cred.response.clientDataJSON),
           transports: cred.response.getTransports ? cred.response.getTransports() : [],
