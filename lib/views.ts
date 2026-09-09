@@ -1267,6 +1267,9 @@ function apiDocs(origin: string, slug: string, collections: any[]): string {
   const endpointRows = [
     { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;`, desc: 'List published entries. Query: <code>limit</code> (default 50), <code>offset</code>, <code>updated_since</code> (ISO 8601 UTC, only entries changed after it).' },
     { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;/&lt;entry-id&gt;`, desc: 'One published entry by its id.' },
+    { method: 'GET', path: `/api/v1/${slug}/schema`, desc: 'Full project schema: every collection with its complete field list and options.' },
+    { method: 'GET', path: `/api/v1/${slug}/field-types`, desc: 'Field type introspection: value shapes and the options each type accepts.' },
+    { method: 'POST', path: `/api/v1/${slug}/schema`, desc: 'Apply a schema document (write scope): collections matched by slug, created or updated, field lists replaced. <code>?delete_missing=1</code> also deletes collections absent from it.' },
     { method: 'POST', path: `/mcp/${slug}`, desc: 'MCP endpoint (JSON-RPC). Read tools with any key; write tools need write scope.' },
   ]
     .map((e) => `<tr class="border-b border-border">

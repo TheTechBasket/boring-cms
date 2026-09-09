@@ -4,17 +4,61 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 
-export const FIELD_TYPES = ['text', 'markdown', 'number', 'boolean', 'date', 'datetime', 'json', 'image', 'relation'];
+// Single source of truth for the type system. FIELD_TYPES, FIELD_OPTIONS and
+// the API's field-type introspection (describeFieldTypes) all derive from this
+// registry, so a new type added here shows up everywhere at once.
+// Options are stored inside the collection's fields JSON; only set values are
+// stored, absence means "no constraint".
+export const UNIVERSAL_FIELD_OPTIONS = {
+  required: 'Reject empty values on save.',
+  unique: 'Value must be unique across entries in the collection.',
+  help: 'Help text shown under the input in the editor.',
+  placeholder: 'Input placeholder in the editor.',
+  default: 'Default value pre-filled for new entries.',
+};
 
-// Optional per-field options stored inside the collection's fields JSON.
-// Only set values are stored; absence means "no constraint".
-// `collection` (relation target slug) and `multiple` (relation only) piggyback
-// on the same mechanism.
+const LENGTH_OPTIONS = {
+  minlength: 'Minimum length in characters.',
+  maxlength: 'Maximum length in characters.',
+  pattern: 'Regex the whole value must match (anchored).',
+};
+
+export const FIELD_TYPE_DEFS = {
+  text: { value: 'string', options: { ...LENGTH_OPTIONS } },
+  markdown: { value: 'string (Markdown source)', options: { ...LENGTH_OPTIONS } },
+  number: { value: 'number', options: { min: 'Minimum value.', max: 'Maximum value.', step: 'Editor input step (not validated server-side).' } },
+  boolean: { value: 'boolean', options: {} },
+  date: { value: 'string "YYYY-MM-DD"', options: { min: 'Earliest date (YYYY-MM-DD).', max: 'Latest date (YYYY-MM-DD).' } },
+  datetime: { value: 'string ISO 8601 UTC "YYYY-MM-DDTHH:MM:SSZ"', options: { min: 'Earliest datetime (same format).', max: 'Latest datetime (same format).' } },
+  json: { value: 'any JSON value', options: {} },
+  image: { value: 'string (media path or URL)', options: { ...LENGTH_OPTIONS, accept: 'Accept list for the editor file picker, e.g. "image/*".' } },
+  relation: { value: 'string entry slug, or array of slugs when multiple', options: { collection: 'Target collection slug (required for relations).', multiple: 'Allow multiple related entries (value becomes an array).' } },
+};
+
+export const FIELD_TYPES = Object.keys(FIELD_TYPE_DEFS);
+
 export const FIELD_OPTIONS = [
-  'required', 'unique', 'help', 'placeholder', 'default',
-  'min', 'max', 'step', 'minlength', 'maxlength', 'pattern', 'accept',
-  'collection', 'multiple',
+  ...new Set([
+    ...Object.keys(UNIVERSAL_FIELD_OPTIONS),
+    ...FIELD_TYPES.flatMap((t) => Object.keys(FIELD_TYPE_DEFS[t].options)),
+  ]),
 ];
+
+// Option names that apply to a given type (universal + type-specific).
+export function validOptionsFor(type) {
+  return new Set([...Object.keys(UNIVERSAL_FIELD_OPTIONS), ...Object.keys(FIELD_TYPE_DEFS[type]?.options ?? {})]);
+}
+
+// Introspection payload for the API/MCP surface: every type with its value
+// shape and the full option set (universal + type-specific) it accepts.
+export function describeFieldTypes() {
+  return {
+    types: Object.fromEntries(
+      FIELD_TYPES.map((t) => [t, { value: FIELD_TYPE_DEFS[t].value, options: { ...UNIVERSAL_FIELD_OPTIONS, ...FIELD_TYPE_DEFS[t].options } }]),
+    ),
+    reserved_field_names: [...RESERVED_FIELD_NAMES],
+  };
+}
 
 // Default retention; a collection can override keep via revisions_keep
 // (NULL = default, 0 = revisions off for frequently rewritten collections).

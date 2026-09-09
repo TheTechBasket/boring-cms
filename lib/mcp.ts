@@ -16,7 +16,16 @@ import {
   listPublished,
   getPublished,
   slugify,
+  createCollection,
+  addCollectionField,
+  updateCollectionField,
+  removeCollectionField,
+  describeFieldTypes,
+  validOptionsFor,
+  FIELD_TYPES,
+  FIELD_OPTIONS,
 } from './content.ts';
+import { exportSchema, applySchema } from './transfer.ts';
 import { APP_VERSION } from './views.ts';
 
 const PROTOCOL_VERSION = '2025-03-26';
@@ -67,6 +76,19 @@ function normalizeJsonFields(collection, data) {
 // ---- Tools -----------------------------------------------------------------
 
 const str = (desc: string) => ({ type: 'string', description: desc });
+const bool = (desc: string) => ({ type: 'boolean', description: desc });
+
+// Validates an options object against the registry for the given type.
+// null option values pass through so update_field can clear an option.
+function checkFieldOptions(type, options) {
+  if (options == null) return {};
+  if (typeof options !== 'object' || Array.isArray(options)) throw new ToolError('options must be an object.');
+  const allowed = validOptionsFor(type);
+  for (const k of Object.keys(options)) {
+    if (!allowed.has(k)) throw new ToolError(`Option "${k}" does not apply to type "${type}". See describe_field_types.`);
+  }
+  return options;
+}
 
 const TOOLS = [
   {
@@ -313,6 +335,143 @@ const TOOLS = [
         storage: args.storage || '',
         variants: !!args.variants,
       });
+    },
+  },
+
+  // ---- Schema management ---------------------------------------------------
+
+  {
+    name: 'get_schema',
+    description: 'Full project schema: every collection with name, slug and complete field list (each field carries its type and all stored options). Same document shape apply_schema accepts.',
+    scope: 'read',
+    inputSchema: { type: 'object', properties: {} },
+    handler: (db) => exportSchema(db),
+  },
+  {
+    name: 'describe_field_types',
+    description: 'Introspect the field type system: every field type with its value shape and the options it accepts (with meanings), plus the reserved field names the builder never mints. Derived from the server type registry, so it is always current.',
+    scope: 'read',
+    inputSchema: { type: 'object', properties: {} },
+    handler: () => describeFieldTypes(),
+  },
+  {
+    name: 'create_collection',
+    description: 'Create an empty collection. The slug is derived from the name (suffixed when taken); add fields with add_field.',
+    scope: 'write',
+    inputSchema: { type: 'object', properties: { name: str('Collection display name') }, required: ['name'] },
+    handler: (db, args) => {
+      if (typeof args.name !== 'string' || !args.name.trim()) throw new ToolError('name is required.');
+      const c = createCollection(db, args.name.trim());
+      return { name: c.name, slug: c.slug, fields: c.fields };
+    },
+  },
+  {
+    name: 'add_field',
+    description: 'Add a field to a collection. name is the data key (derived from label when omitted; reserved and duplicate names get suffixed, so read the returned field for the final name). options takes any option valid for the type (see describe_field_types). Returns the created field.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: str('Collection slug'),
+        label: str('Human label shown in the editor'),
+        type: str(`Field type: ${FIELD_TYPES.join(', ')}`),
+        name: str('Explicit data key (optional; slugified, immutable after creation)'),
+        required: bool('Reject empty values on save'),
+        unique: bool('Value must be unique in the collection'),
+        options: { type: 'object', description: 'Extra options keyed by option name, e.g. {"maxlength": 80} (see describe_field_types)' },
+      },
+      required: ['collection', 'label', 'type'],
+    },
+    handler: (db, args, collection) => {
+      if (!FIELD_TYPES.includes(args.type)) throw new ToolError(`Unknown field type: ${args.type}. See describe_field_types.`);
+      if (typeof args.label !== 'string' || !args.label.trim()) throw new ToolError('label is required.');
+      const opts = checkFieldOptions(args.type, args.options);
+      let updated = addCollectionField(db, collection.slug, {
+        label: args.label.trim(),
+        type: args.type,
+        name: args.name ?? '',
+        required: !!args.required,
+        unique: !!args.unique,
+      });
+      const field = updated.fields[updated.fields.length - 1];
+      if (Object.keys(opts).length) {
+        updated = updateCollectionField(db, collection.slug, field.name, { ...field, ...opts });
+      }
+      return updated.fields.find((f) => f.name === field.name);
+    },
+  },
+  {
+    name: 'update_field',
+    description: 'Update a field: label, type, required/unique and options. The field name (data key) is immutable. Unmentioned options keep their current value; set an option to null (or required/unique to false) to clear it. Changing the type drops options the new type does not accept. Returns the updated field.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: str('Collection slug'),
+        field: str('Field name (data key)'),
+        label: str('New label (optional)'),
+        type: str(`New field type (optional): ${FIELD_TYPES.join(', ')}`),
+        required: bool('Set or clear required'),
+        unique: bool('Set or clear unique'),
+        options: { type: 'object', description: 'Options to set, merged into the current ones; null clears an option' },
+      },
+      required: ['collection', 'field'],
+    },
+    handler: (db, args, collection) => {
+      const existing = collection.fields.find((f) => f.name === args.field);
+      if (!existing) throw new ToolError(`Field not found: ${args.field}`);
+      const type = args.type ?? existing.type;
+      if (!FIELD_TYPES.includes(type)) throw new ToolError(`Unknown field type: ${args.type}. See describe_field_types.`);
+      const opts = checkFieldOptions(type, args.options);
+      const allowed = validOptionsFor(type);
+      const carried = Object.fromEntries(
+        Object.entries(existing).filter(([k]) => FIELD_OPTIONS.includes(k) && allowed.has(k)),
+      );
+      const props = {
+        label: args.label ?? existing.label,
+        type,
+        ...carried,
+        ...(args.required === undefined ? {} : { required: args.required }),
+        ...(args.unique === undefined ? {} : { unique: args.unique }),
+        ...opts,
+      };
+      const updated = updateCollectionField(db, collection.slug, args.field, props);
+      return updated.fields.find((f) => f.name === args.field);
+    },
+  },
+  {
+    name: 'remove_field',
+    description: 'Remove a field from a collection schema. Stored entry values for the field stay in the entry data (re-adding a field with the same name brings them back) and already-published output keeps them until each entry is republished.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: { collection: str('Collection slug'), field: str('Field name (data key)') },
+      required: ['collection', 'field'],
+    },
+    handler: (db, args, collection) => {
+      if (!collection.fields.some((f) => f.name === args.field)) throw new ToolError(`Field not found: ${args.field}`);
+      removeCollectionField(db, collection.slug, args.field);
+      return { removed: args.field, fields: collection.fields.filter((f) => f.name !== args.field) };
+    },
+  },
+  {
+    name: 'apply_schema',
+    description: 'Apply a full schema document (the shape get_schema returns): collections are matched by slug and created or updated to match; each field list is replaced wholesale. Idempotent. Project collections missing from the document are reported under "missing"; they are only deleted (with all their entries, destructive) when delete_missing is true.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        schema: { type: 'object', description: 'Schema document: {collections: [{slug, name, fields: [{name, label, type, ...options}]}]}' },
+        delete_missing: bool('Delete collections (and their entries) not present in the document (default false)'),
+      },
+      required: ['schema'],
+    },
+    handler: (db, args) => {
+      try {
+        return applySchema(db, args.schema, { deleteMissing: !!args.delete_missing });
+      } catch (err) {
+        throw new ToolError(err instanceof Error ? err.message : String(err));
+      }
     },
   },
 ];

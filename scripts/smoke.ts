@@ -421,6 +421,52 @@ async function main() {
   const mcpReadOnlyJson: any = await mcpReadOnly.json();
   assert.ok(mcpReadOnlyJson.error, 'read-only key should be rejected for upload_media');
 
+  // 9c. Schema over the API: introspection, MCP schema tools, REST apply
+  const mcpTool = async (key: string, name: string, args: any = {}) => {
+    const r = await fetch(`${base}/mcp/${slug}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    });
+    return ((await r.json()) as any).result;
+  };
+
+  const fieldTypesRes = await fetch(`${base}/api/v1/${slug}/field-types`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const typesJson: any = await fieldTypesRes.json();
+  assert.ok(typesJson.types.relation.options.collection, 'field-types should carry relation-specific options');
+  assert.ok(typesJson.reserved_field_names.includes('slug'), 'field-types should list reserved names');
+
+  const schemaReadRes = await fetch(`${base}/api/v1/${slug}/schema`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.ok(((await schemaReadRes.json()) as any).collections.some((c: any) => c.slug === 'blog-posts'), 'schema read should list blog-posts');
+
+  const createdCol = JSON.parse((await mcpTool(upWriteKey, 'create_collection', { name: 'Authors' })).content[0].text);
+  assert.equal(createdCol.slug, 'authors', 'create_collection should derive the slug');
+  const addedField = JSON.parse((await mcpTool(upWriteKey, 'add_field', { collection: 'authors', label: 'Bio', type: 'markdown', options: { maxlength: 500 } })).content[0].text);
+  assert.equal(addedField.maxlength, 500, 'add_field should store options');
+  const badOpt = await mcpTool(upWriteKey, 'add_field', { collection: 'authors', label: 'Age', type: 'number', options: { pattern: 'x' } });
+  assert.ok(badOpt.isError, 'an option invalid for the type should be rejected');
+  const updatedField = JSON.parse((await mcpTool(upWriteKey, 'update_field', { collection: 'authors', field: 'bio', required: true, options: { help: 'Short bio' } })).content[0].text);
+  assert.ok(updatedField.required === true && updatedField.help === 'Short bio' && updatedField.maxlength === 500, 'update_field should merge options');
+  const removedField = JSON.parse((await mcpTool(upWriteKey, 'remove_field', { collection: 'authors', field: 'bio' })).content[0].text);
+  assert.equal(removedField.fields.length, 0, 'remove_field should drop the field');
+
+  const applyDenied = await fetch(`${base}/api/v1/${slug}/schema`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ collections: [] }),
+  });
+  assert.equal(applyDenied.status, 403, 'REST schema apply with a read key should be 403');
+  const schemaApplyRes = await fetch(`${base}/api/v1/${slug}/schema`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${upWriteKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ collections: [{ slug: 'authors', name: 'Writers', fields: [{ name: 'bio', label: 'Bio', type: 'markdown' }] }] }),
+  });
+  const applyJson: any = await schemaApplyRes.json();
+  assert.ok(applyJson.updated.includes('authors'), 'REST apply should update the collection by slug');
+  assert.ok(applyJson.missing.includes('blog-posts'), 'REST apply without delete_missing should only report absent collections');
+  const mcpSchema = JSON.parse((await mcpTool(apiKey, 'get_schema')).content[0].text);
+  assert.ok(mcpSchema.collections.some((c: any) => c.slug === 'authors' && c.name === 'Writers'), 'get_schema should reflect the applied change');
+
   // 10. Atomic revert to the first revision
   const revertRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/revert`, {
     form: { revision_id: String(revisions[0].id) },

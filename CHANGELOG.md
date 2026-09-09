@@ -4,6 +4,8 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## 0.10.0 (2026-09-09)
 
+- Schema management over the API-key surface. MCP gains `get_schema` and `describe_field_types` (read scope) plus `create_collection`, `add_field`, `update_field`, `remove_field` and `apply_schema` (write scope). REST mirrors it: `GET /api/v1/<project>/schema`, `GET /api/v1/<project>/field-types`, and `POST /api/v1/<project>/schema` applying a full schema document (collections matched by slug, field lists replaced; `?delete_missing=1` opts into deleting absent collections with their entries).
+- Field type registry: `FIELD_TYPES`, `FIELD_OPTIONS` and the introspection payload all derive from one registry in `lib/content.ts` (per type: value shape plus the options it accepts), so a new type shows up in the API by itself. Schema tools reject options that do not apply to the field's type.
 - Sidebar marks the current section: black active row (white in dark mode) with inverted icon, driven by `aria-current` set client-side.
 - Contrast: `muted-foreground` darkened in light mode (4.6:1 to 5.9:1 on gray chips and badges) and lightened in dark mode; page declares `color-scheme` so native controls (project switcher, scrollbars) follow the theme.
 - Publish webhooks: per-project URL plus optional HMAC secret in project settings, fired whenever published content changes (publish, unpublish, published-entry edit or delete).

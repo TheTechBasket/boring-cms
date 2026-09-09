@@ -44,6 +44,7 @@ import { handleMcp, rateLimitOk, retryAfterSeconds, ToolError, DEFAULT_RATE_LIMI
 import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
+  describeFieldTypes,
   contentVersion,
   bumpContentVersion,
   listCollections,
@@ -1649,6 +1650,65 @@ export function createApp(configOverrides = {}) {
       return handler(req, res, params, { db, collection, etag });
     };
   }
+
+  // Bearer-key project auth without a collection, for the schema routes.
+  // Returns null after responding when auth fails.
+  function apiProject(req, res, params, { write = false } = {}) {
+    const project = getProjectBySlug(coreDb, params.project);
+    if (!project) { json(req, res, 404, { error: 'not_found' }); return null; }
+    const db = projectDbs.get(project.slug);
+    const auth = req.headers.authorization || '';
+    const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
+    if (!apiKey) { json(req, res, 401, { error: 'unauthorized' }); return null; }
+    if (write && apiKey.scope !== 'write') {
+      json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' });
+      return null;
+    }
+    return { project, db, apiKey };
+  }
+
+  // Schema routes register before the generic :collection routes so the
+  // literal segments win the first-match router. (A collection slugged
+  // exactly "schema" or "field-types" is shadowed on the list route; the
+  // MCP tools still reach it.)
+
+  router.get('/api/v1/:project/schema', (req, res, params) => {
+    const ctx = apiProject(req, res, params);
+    if (!ctx) return;
+    json(req, res, 200, exportSchema(ctx.db));
+  });
+
+  router.get('/api/v1/:project/field-types', (req, res, params) => {
+    if (!apiProject(req, res, params)) return;
+    json(req, res, 200, describeFieldTypes());
+  });
+
+  // Apply a full schema document, same semantics as the MCP apply_schema
+  // tool: match by slug, create or update, replace field lists wholesale.
+  // ?delete_missing=1 also deletes collections absent from the document
+  // (destructive: their entries go too).
+  router.post('/api/v1/:project/schema', async (req, res, params) => {
+    const ctx = apiProject(req, res, params, { write: true });
+    if (!ctx) return;
+    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    if (!rateLimitOk(`${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) {
+      const retryAfter = retryAfterSeconds(`${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit);
+      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return json(req, res, 400, { error: 'bad_request', message: 'Body must be JSON: {collections: [...]}' });
+    }
+    const url = new URL(req.url, 'http://localhost');
+    try {
+      const report = applySchema(ctx.db, body, { deleteMissing: url.searchParams.get('delete_missing') === '1' });
+      json(req, res, 200, report);
+    } catch (err: any) {
+      json(req, res, 400, { error: 'bad_request', message: err.message });
+    }
+  });
 
   router.get('/api/v1/:project/:collection', apiHandler((req, res, params, { db, collection, etag }) => {
     const url = new URL(req.url, 'http://localhost');
