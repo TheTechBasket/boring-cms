@@ -17,6 +17,7 @@ import {
   getPublished,
   slugify,
 } from './content.ts';
+import { APP_VERSION } from './views.ts';
 
 const PROTOCOL_VERSION = '2025-03-26';
 
@@ -340,7 +341,7 @@ export async function handleMcp(db, projectName: string, message: any, scope: st
       return rpcResult(id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: `Boring CMS (${projectName})`, version: '0.9.0' },
+        serverInfo: { name: `Boring CMS (${projectName})`, version: APP_VERSION },
       });
     case 'ping':
       return rpcResult(id, {});

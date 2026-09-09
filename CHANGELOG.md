@@ -2,8 +2,10 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
-## Unreleased
+## 0.10.0 (2026-09-09)
 
+- Publish webhooks: per-project URL plus optional HMAC secret in project settings, fired whenever published content changes (publish, unpublish, published-entry edit or delete).
+- REST list endpoints accept `updated_since` (parity with MCP `list_entries`) for incremental static-site builds.
 - Passkeys can be named when added (account page input, sent as `name` to `/webauthn/register`); unnamed ones still save as "Passkey".
 - `.env.example` documents `TRUST_PROXY=1`, required behind a TLS-terminating proxy for the WebAuthn origin check and Secure session cookies.
 - Headless media upload: `POST /api/v1/<project>/media` (multipart, write-scope Bearer key, same rate limit as MCP) returns `{id, key, url}` with the full public URL. MCP gets a matching `upload_media` tool (base64 body, fits ~6 MB files under the 8 MB request cap).
