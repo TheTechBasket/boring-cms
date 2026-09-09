@@ -2,12 +2,11 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
-## Unreleased
+## 0.11.0 (2026-09-09)
 
 - Link contrast: admin links get a dedicated `--link` token (readable violet, 7:1 on white; brighter lavender in dark mode) instead of the pale `primary` background color, which made Transfer export links and inline links nearly invisible.
 - Destructive row actions (Revoke key, Delete media) render in the destructive color instead of plain ghost text.
 - REST API endpoint table no longer pushes its description column off the card edge; long endpoint paths wrap.
-
 - Static asset caching: admin.css, admin.js and vendor scripts are linked with `?v=<mtime>` so browsers pick up new builds after a deploy restart. Versioned URLs are served with `Cache-Control: public, max-age=31536000, immutable`; bare URLs get `no-cache` with `Last-Modified`/304 revalidation.
 - Rate-limited API endpoints (schema apply, media upload, MCP) now send standard `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers on every response, alongside the existing `Retry-After` on 429.
 
