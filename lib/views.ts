@@ -74,6 +74,7 @@ const BUTTON_VARIANTS: Record<string, string> = {
   destructive: 'bg-destructive text-white shadow-xs hover:bg-destructive/90',
   outline: 'border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground',
   ghost: 'hover:bg-accent hover:text-accent-foreground',
+  'ghost-destructive': 'text-destructive hover:bg-destructive/10',
 };
 
 function button({ label, variant = 'default', type = 'submit', small = false, name, value }: {
@@ -159,7 +160,7 @@ function secretsTable(settingKeys: any[], base: string): string {
         <td class="p-3"><code class="text-sm">${escapeHtml(s.key)}</code></td>
         <td class="p-3 text-sm text-muted-foreground">${timeAgo(s.updated_at)}</td>
         <td class="p-3 text-right whitespace-nowrap">
-          <a href="${base}?edit=${encodeURIComponent(s.key)}" class="text-primary text-sm no-underline hover:underline mr-3">Edit</a>
+          <a href="${base}?edit=${encodeURIComponent(s.key)}" class="text-link text-sm no-underline hover:underline mr-3">Edit</a>
           <form method="post" action="${base}/delete" class="inline" data-confirm="delete-secret">
             <input type="hidden" name="key" value="${escapeHtml(s.key)}">
             <button type="submit" class="text-destructive text-sm bg-transparent border-0 p-0 cursor-pointer hover:underline">Delete</button>
@@ -527,11 +528,11 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
   const rows = projects
     .map(
       (p: any) => `<tr class="border-b border-border">
-        <td class="p-3 text-left"><a class="flex items-center gap-2 text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${encodeURIComponent(p.slug)}/collections">${projectAvatar(p)}${escapeHtml(p.name)}</a></td>
+        <td class="p-3 text-left"><a class="flex items-center gap-2 text-foreground font-medium no-underline hover:text-link" href="/admin/projects/${encodeURIComponent(p.slug)}/collections">${projectAvatar(p)}${escapeHtml(p.name)}</a></td>
         <td class="p-3 text-left"><code class="text-sm text-muted-foreground">${escapeHtml(p.slug)}</code></td>
         <td class="p-3 text-left @max-lg:hidden text-sm text-muted-foreground">${timeAgo(p.created_at)}</td>
         <td class="p-3 text-right">
-          <a class="text-primary text-sm hover:underline" href="/admin/projects/${encodeURIComponent(p.slug)}">Settings</a>
+          <a class="text-link text-sm hover:underline" href="/admin/projects/${encodeURIComponent(p.slug)}">Settings</a>
         </td>
       </tr>`,
     )
@@ -684,7 +685,7 @@ export function globalSettingsPage({ user, projects, settingKeys, editKey = '', 
         <td class="p-3 text-sm text-muted-foreground break-all">${escapeHtml(st.bucket)} @ ${escapeHtml(st.endpoint)}</td>
         <td class="p-3 text-sm text-muted-foreground">${escapeHtml(st.public_url || '')}</td>
         <td class="p-3 text-right whitespace-nowrap">
-          <a href="/admin/settings?storage=${encodeURIComponent(st.name)}" class="text-primary text-sm no-underline hover:underline mr-3">Edit</a>
+          <a href="/admin/settings?storage=${encodeURIComponent(st.name)}" class="text-link text-sm no-underline hover:underline mr-3">Edit</a>
           <form method="post" action="/admin/settings/storage/delete" class="inline" data-confirm="delete-secret">
             <input type="hidden" name="name" value="${escapeHtml(st.name)}">
             <button type="submit" class="text-destructive text-sm bg-transparent border-0 p-0 cursor-pointer hover:underline">Delete</button>
@@ -752,7 +753,7 @@ export function collectionsPage({ user, projects, project, collections, stats, n
   const rows = collections
     .map(
       (c: any) => `<tr class="border-b border-border">
-        <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-primary" href="/admin/projects/${project.slug}/collections/${c.slug}">${escapeHtml(c.name)}</a></td>
+        <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-link" href="/admin/projects/${project.slug}/collections/${c.slug}">${escapeHtml(c.name)}</a></td>
         <td class="p-3"><code class="text-sm text-muted-foreground">${escapeHtml(c.slug)}</code></td>
         <td class="p-3 text-sm text-muted-foreground">${c.fields.length} field${c.fields.length === 1 ? '' : 's'}</td>
       </tr>`,
@@ -871,7 +872,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
           <span class="text-muted-foreground">${escapeHtml(f.type)}</span>
           ${f.required ? '<span class="text-xs font-medium text-primary-foreground bg-primary px-1.5 py-0.5">required</span>' : ''}
           ${f.unique ? '<span class="text-xs font-medium text-primary-foreground bg-primary px-1.5 py-0.5">unique</span>' : ''}
-          <button type="button" data-field-edit class="ml-auto text-xs text-primary hover:underline cursor-pointer bg-transparent border-0 p-0">Edit</button>
+          <button type="button" data-field-edit class="ml-auto text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Edit</button>
           <form method="post" action="${base}/fields/remove">
             <input type="hidden" name="field" value="${escapeHtml(f.name)}">
             ${button({ label: 'Remove', variant: 'ghost', small: true })}
@@ -904,7 +905,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
   const entryRows = entries
     .map(
       (e: any) => `<tr class="border-b border-border">
-        <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-primary" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
+        <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-link" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
         <td class="p-3 @max-lg:hidden"><code class="text-xs text-muted-foreground">${escapeHtml(e.slug)}</code></td>
         <td class="p-3">${statusBadge(e.status)}</td>
         <td class="p-3 text-sm text-muted-foreground @max-lg:hidden">${timeAgo(e.updated_at)}</td>
@@ -947,8 +948,8 @@ export function collectionPage({ user, projects, project, collection, entries, p
       ${totalPages > 1 ? `<div class="flex items-center justify-between gap-4 mt-3 text-sm text-muted-foreground">
         <span>Page ${page} of ${totalPages}</span>
         <div class="flex gap-2">
-          ${page > 1 ? `<a class="text-primary no-underline hover:underline" href="${base}${qs(page - 1)}">&larr; Prev</a>` : ''}
-          ${page < totalPages ? `<a class="text-primary no-underline hover:underline" href="${base}${qs(page + 1)}">Next &rarr;</a>` : ''}
+          ${page > 1 ? `<a class="text-link no-underline hover:underline" href="${base}${qs(page - 1)}">&larr; Prev</a>` : ''}
+          ${page < totalPages ? `<a class="text-link no-underline hover:underline" href="${base}${qs(page + 1)}">Next &rarr;</a>` : ''}
         </div>
       </div>` : ''}
 
@@ -1059,7 +1060,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
       return `<div class="flex flex-col gap-1.5 text-sm" data-markdown-field>
         <div class="flex items-center justify-between">
           <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
-          <button type="button" data-preview-toggle class="text-xs text-primary hover:underline cursor-pointer bg-transparent border-0 p-0">Preview</button>
+          <button type="button" data-preview-toggle class="text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Preview</button>
         </div>
         <textarea name="field_${f.name}" class="${TEXTAREA_CLASS}" rows="14" ${constraintAttrs}>${escapeHtml(v)}</textarea>
         ${help}
@@ -1243,7 +1244,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
     project,
     notice: pageNotice,
     body: `
-      <p class="text-sm"><a class="text-primary hover:underline" href="${base}">&larr; ${escapeHtml(collection.name)}</a></p>
+      <p class="text-sm"><a class="text-link hover:underline" href="${base}">&larr; ${escapeHtml(collection.name)}</a></p>
       <div class="grid gap-8 @4xl:grid-cols-[minmax(0,1fr)_320px] items-start">
         <form method="post" action="${action}" class="flex flex-col gap-5 min-w-0">
           <label class="flex flex-col gap-1.5 text-sm">
@@ -1288,8 +1289,8 @@ function apiDocs(origin: string, slug: string, collections: any[]): string {
   ]
     .map((e) => `<tr class="border-b border-border">
       <td class="p-2 text-xs font-medium">${e.method}</td>
-      <td class="p-2"><code class="text-xs">${e.path}</code></td>
-      <td class="p-2 text-sm text-muted-foreground">${e.desc}</td>
+      <td class="p-2"><code class="text-xs break-all">${e.path}</code></td>
+      <td class="p-2 text-sm text-muted-foreground min-w-40">${e.desc}</td>
     </tr>`)
     .join('');
   const collectionLinks = collections.length
@@ -1321,7 +1322,7 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, origin 
         <td class="p-2 text-sm text-muted-foreground">${k.last_used_at ? timeAgo(k.last_used_at) : 'never'}</td>
         <td class="p-2 text-right">
           <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/revoke">
-            ${button({ label: 'Revoke', variant: 'ghost', small: true })}
+            ${button({ label: 'Revoke', variant: 'ghost-destructive', small: true })}
           </form>
         </td>
       </tr>`,
@@ -1427,9 +1428,9 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
       const used = usage[m.key] || [];
       const usedBlock = used.length
         ? `<details class="relative" data-popover>
-            <summary class="text-xs text-primary cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden hover:underline">Used in ${used.length} ${used.length === 1 ? 'entry' : 'entries'}</summary>
+            <summary class="text-xs text-link cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden hover:underline">Used in ${used.length} ${used.length === 1 ? 'entry' : 'entries'}</summary>
             <div class="absolute left-0 top-full mt-1 z-10 w-64 border border-border bg-popover shadow-lg p-2 flex flex-col gap-1">
-              ${used.map((u: any) => `<a class="text-xs text-primary hover:underline truncate" href="${base}/collections/${u.collection}/${u.slug}">${escapeHtml(u.collectionName)}: ${u.slug.slice(0, 8)}…</a>`).join('')}
+              ${used.map((u: any) => `<a class="text-xs text-link hover:underline truncate" href="${base}/collections/${u.collection}/${u.slug}">${escapeHtml(u.collectionName)}: ${u.slug.slice(0, 8)}…</a>`).join('')}
             </div>
           </details>`
         : '<span class="text-xs text-muted-foreground">Unused</span>';
@@ -1446,7 +1447,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
           <div class="flex items-center gap-2">
             <button type="button" data-copy="${escapeHtml(snippet)}" class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-7 px-2.5 text-xs">Copy MD</button>
             <form method="post" action="${base}/media/${m.id}/delete" data-confirm="delete-media">
-              ${button({ label: 'Delete', variant: 'ghost', small: true })}
+              ${button({ label: 'Delete', variant: 'ghost-destructive', small: true })}
             </form>
           </div>
         </div>
@@ -1471,7 +1472,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
       return `<img src="https://wsrv.nl/?url=${encodeURIComponent(`${syncReport.publicBase}/${key}`)}&w=48&h=48&fit=cover" alt="" loading="lazy" class="h-8 w-8 object-cover bg-muted">`;
     };
     const fileLink = (key: string) => syncReport.publicBase
-      ? `<a class="text-primary hover:underline break-all" href="${escapeHtml(`${syncReport.publicBase}/${key}`)}" target="_blank" rel="noopener">${escapeHtml(key)}</a>`
+      ? `<a class="text-link hover:underline break-all" href="${escapeHtml(`${syncReport.publicBase}/${key}`)}" target="_blank" rel="noopener">${escapeHtml(key)}</a>`
       : `<span class="break-all">${escapeHtml(key)}</span>`;
     const adoptableRows = (syncReport.adoptable || [])
       .map((o: any) => `<li class="flex items-center gap-2 text-sm">${thumb(o.key)}${fileLink(o.key)}<span class="text-xs text-muted-foreground ml-auto whitespace-nowrap">${formatSize(o.size)}</span></li>`)
@@ -1501,13 +1502,13 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
   const crumbs = pathPrefix ? pathPrefix.split('/') : [];
   const breadcrumb = crumbs.length
     ? `<nav class="flex items-center gap-1 text-sm flex-wrap">
-        <a class="text-primary hover:underline" href="${base}/media">All media</a>
+        <a class="text-link hover:underline" href="${base}/media">All media</a>
         ${crumbs.map((seg: string, i: number) => {
           const target = crumbs.slice(0, i + 1).join('/');
           const last = i === crumbs.length - 1;
           return `<span class="text-muted-foreground">/</span>${last
             ? `<span class="font-medium">${escapeHtml(seg)}</span>`
-            : `<a class="text-primary hover:underline" href="${base}/media?path=${encodeURIComponent(target)}">${escapeHtml(seg)}</a>`}`;
+            : `<a class="text-link hover:underline" href="${base}/media?path=${encodeURIComponent(target)}">${escapeHtml(seg)}</a>`}`;
         }).join('')}
       </nav>`
     : '';
@@ -1602,7 +1603,7 @@ export function mediaPage({ user, projects, project, media, publicBase = null, v
 export function transferPage({ user, projects, project, collections, fieldTypes, notice: pageNotice, report }: any): string {
   const base = `/admin/projects/${project.slug}`;
   const exportLinks = collections
-    .map((c: any) => `<li><a class="text-primary hover:underline" href="${base}/collections/${c.slug}/export.json" download>${escapeHtml(c.name)} (JSON)</a></li>`)
+    .map((c: any) => `<li><a class="text-link hover:underline" href="${base}/collections/${c.slug}/export.json" download>${escapeHtml(c.name)} (JSON)</a></li>`)
     .join('');
   const reportBlock = report ? preBlock(JSON.stringify(report, null, 2)) : '';
   return layout({
@@ -1617,8 +1618,8 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
         <div class="${CARD_CLASS}">
           <span class="text-sm font-medium">Export</span>
           <ul class="list-none p-0 m-0 flex flex-col gap-1 text-sm">
-            <li><a class="text-primary hover:underline" href="${base}/export.json" download>Whole project (schema + entries)</a></li>
-            <li><a class="text-primary hover:underline" href="${base}/schema.json" download>Schema only (collections + fields)</a></li>
+            <li><a class="text-link hover:underline" href="${base}/export.json" download>Whole project (schema + entries)</a></li>
+            <li><a class="text-link hover:underline" href="${base}/schema.json" download>Schema only (collections + fields)</a></li>
             ${exportLinks}
           </ul>
         </div>
@@ -1641,7 +1642,7 @@ export function transferPage({ user, projects, project, collections, fieldTypes,
         </div>
         <div class="${CARD_CLASS} @3xl:col-span-2">
           <span class="text-sm font-medium">Apply schema</span>
-          <p class="text-xs text-muted-foreground m-0">Round trip: <a class="text-primary hover:underline" href="${base}/schema.json" download>export this project's schema</a>, keep it in your site repo as the source of truth, paste it back here to sync. Missing collections are created, changed ones updated, nothing is deleted unless the checkbox is on. Safe to re-apply.</p>
+          <p class="text-xs text-muted-foreground m-0">Round trip: <a class="text-link hover:underline" href="${base}/schema.json" download>export this project's schema</a>, keep it in your site repo as the source of truth, paste it back here to sync. Missing collections are created, changed ones updated, nothing is deleted unless the checkbox is on. Safe to re-apply.</p>
           <form method="post" action="${base}/schema/apply" class="flex flex-col gap-4">
             <textarea name="schema" rows="10" required spellcheck="false" placeholder='{ "collections": [ { "name": "Posts", "slug": "posts", "fields": [ { "name": "title", "label": "Title", "type": "text" } ] } ] }' class="${TEXTAREA_CLASS}"></textarea>
             ${checkbox({ name: 'delete_missing', label: 'Delete collections not in the schema (destructive)' })}
