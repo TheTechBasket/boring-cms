@@ -1,5 +1,17 @@
 // Vanilla JS, no framework, no build step.
 
+// Sidebar: mark the nav link for the current page (longest matching href
+// prefix wins, so /media beats the bare project-settings link). Styling
+// hangs off aria-current in the link's class list.
+{
+  const links = [...document.querySelectorAll('[data-nav]')];
+  const here = location.pathname;
+  const best = links
+    .filter((a) => here === a.getAttribute('href') || here.startsWith(a.getAttribute('href') + '/'))
+    .sort((a, b) => b.getAttribute('href').length - a.getAttribute('href').length)[0];
+  if (best) best.setAttribute('aria-current', 'page');
+}
+
 // Confirm destructive forms. Forms with a confirm input (project and
 // collection delete) require the typed slug to match; forms without one
 // (entry delete) just ask.

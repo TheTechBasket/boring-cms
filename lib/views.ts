@@ -306,7 +306,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 </html>`;
 }
 
-const SIDEBAR_LINK = 'flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
+const SIDEBAR_LINK = 'flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
 
 function sidebar({ user, projects, project }: {
   user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
@@ -322,11 +322,11 @@ function sidebar({ user, projects, project }: {
   const projectNav = project
     ? `<div class="flex flex-col gap-0.5 mt-4">
         <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-2">${projectAvatar(project, 'size-5 text-[10px]')}${escapeHtml(project.name)}</span>
-        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}Content</a>
-        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}Media</a>
-        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
-        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}Transfer</a>
-        <a class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}Project settings</a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}Content</a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}Media</a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}Transfer</a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}Project settings</a>
       </div>`
     : '';
 
@@ -336,9 +336,9 @@ function sidebar({ user, projects, project }: {
     ${projectNav}
     <div class="mt-auto flex flex-col gap-0.5 border-t border-sidebar-border pt-3">
       <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Instance</span>
-      <a class="${SIDEBAR_LINK}" href="/admin/projects">${icon('folder')}Projects</a>
-      <a class="${SIDEBAR_LINK}" href="/admin/settings">${icon('settings')}Global settings</a>
-      <a class="${SIDEBAR_LINK}" href="/account">${icon('user')}Account</a>
+      <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects">${icon('folder')}Projects</a>
+      <a data-nav class="${SIDEBAR_LINK}" href="/admin/settings">${icon('settings')}Global settings</a>
+      <a data-nav class="${SIDEBAR_LINK}" href="/account">${icon('user')}Account</a>
       <div class="mt-2 border-t border-sidebar-border pt-3 px-3 flex flex-col gap-2">
         <span class="text-xs text-muted-foreground truncate">${escapeHtml(user.email)}</span>
         <span class="text-xs text-muted-foreground">${APP_NAME} v${APP_VERSION}</span>

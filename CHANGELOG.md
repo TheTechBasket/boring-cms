@@ -4,6 +4,8 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## 0.10.0 (2026-09-09)
 
+- Sidebar marks the current section: black active row (white in dark mode) with inverted icon, driven by `aria-current` set client-side.
+- Contrast: `muted-foreground` darkened in light mode (4.6:1 to 5.9:1 on gray chips and badges) and lightened in dark mode; page declares `color-scheme` so native controls (project switcher, scrollbars) follow the theme.
 - Publish webhooks: per-project URL plus optional HMAC secret in project settings, fired whenever published content changes (publish, unpublish, published-entry edit or delete).
 - REST list endpoints accept `updated_since` (parity with MCP `list_entries`) for incremental static-site builds.
 - Passkeys can be named when added (account page input, sent as `name` to `/webauthn/register`); unnamed ones still save as "Passkey".
