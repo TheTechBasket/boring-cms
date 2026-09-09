@@ -2,6 +2,11 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## Unreleased
+
+- Versioned benchmark suite in `bench/` (driver, matrix orchestrator, summary generator, constraints doc). Runs the full CRUD/media/schema surface against a fresh temp data dir per run, pinned to 1/2/4 vCPUs, on node/bun/deno; results committed under `bench/results/v<version>/`, including an interactive HTML report (`report.html`: throughput bars per phase, CPU/RSS timelines with phase bands). No change to the served app.
+- `npx boring-cms` works: `bin/boring-cms.js` launcher plus `bin`/`files` entries in package.json. Runs the TypeScript sources natively (engines bumped to Node >=24), data and generated `.env` land in the invoking directory. Publish to npm still pending.
+
 ## 0.11.0 (2026-09-09)
 
 - Link contrast: admin links get a dedicated `--link` token (readable violet, 7:1 on white; brighter lavender in dark mode) instead of the pale `primary` background color, which made Transfer export links and inline links nearly invisible.

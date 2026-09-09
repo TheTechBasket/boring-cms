@@ -1,2 +1,0 @@
-[     644ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:4555/login:0
-[    1523ms] [INFO] Autofocus processing was blocked because a document already has a focused element. @ http://localhost:4555/login:0

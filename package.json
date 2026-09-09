@@ -4,8 +4,20 @@
   "description": "Open-source headless CMS. One deploy, many projects.",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "boring-cms": "bin/boring-cms.js"
+  },
+  "files": [
+    "bin/",
+    "server.ts",
+    "lib/",
+    "migrations/",
+    "public/",
+    ".env.example",
+    "ARCHITECTURE.md"
+  ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "start": "node server.ts",

@@ -6,6 +6,7 @@
 
 ## Backlog
 
+- Packaging/distribution: npm-first path shipped 2026-09-09 (`bin/boring-cms.js`, `bin` + `files` in package.json, engines >=24, verified boot from a temp dir); remaining: npm publish flow (account, `npm publish`, version tagging). Later candidates: (2) single binary via `deno compile` (deno 2.6.8 runs the server unmodified, verified in bench v0.11.0); (3) `bun build --compile` single binary: viable since bun 1.4.2 added `node:sqlite` (1.3.14 failed at import; 1.4.2 passes the full bench and posts the best numbers and lowest RSS). Decide npm-first, binary later; keep sharp optional in all of them.
 - Webhook debounce/coalesce window per project ("fire at most once per N minutes, batched events") so batch pushes (hundreds of entries) do not queue a build per entry. Not needed yet: thetechbasket triggers its deploy hook once at the end of a publishing run instead. Build when a consumer actually wants per-entry webhooks as a build trigger.
 - Relation field API expansion on `?include=`: the relation field type itself is shipped (picker, target collection, multiple, one-save type switch from text); only the API-side expansion of referenced entries remains, build when a consumer needs it.
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
