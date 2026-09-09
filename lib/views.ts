@@ -1,10 +1,24 @@
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { entryLabel, isoUtc, REVISIONS_KEEP } from './content.ts';
 
 export const APP_NAME = 'Boring CMS';
 export const APP_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
+// Cache-busting version per static asset: file mtime at process start.
+// Deploys rewrite the files, restart the process, and the query string
+// changes, so serveStatic can send long immutable cache headers.
+function assetVersion(rel: string): string {
+  try {
+    return Math.round(statSync(new URL(`../public/${rel}`, import.meta.url)).mtimeMs).toString(36);
+  } catch {
+    return APP_VERSION;
+  }
+}
+const ADMIN_CSS_V = assetVersion('admin.css');
+const ADMIN_JS_V = assetVersion('admin.js');
+const MARKED_V = assetVersion('vendor/marked.esm.js');
 
 // Inline Solar duotone icons (allsvgicons MCP, solar:*-bold-duotone).
 const ICONS: Record<string, string> = {
@@ -296,12 +310,12 @@ function layout({ title, body, user = null, projects = [], project = null, notic
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} · ${APP_NAME}</title>
   <link rel="icon" href="${favicon(project)}">
-  <link rel="stylesheet" href="/public/admin.css">
+  <link rel="stylesheet" href="/public/admin.css?v=${ADMIN_CSS_V}">
 </head>
 <body class="min-h-screen bg-background text-foreground">
   ${shell}
-  <script type="module">import { marked } from '/public/vendor/marked.esm.js'; window.marked = marked;</script>
-  <script src="/public/admin.js"></script>
+  <script type="module">import { marked } from '/public/vendor/marked.esm.js?v=${MARKED_V}'; window.marked = marked;</script>
+  <script src="/public/admin.js?v=${ADMIN_JS_V}"></script>
 </body>
 </html>`;
 }

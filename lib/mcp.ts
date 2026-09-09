@@ -59,6 +59,19 @@ export function retryAfterSeconds(bucketKey: string, limit = DEFAULT_RATE_LIMIT)
   return Math.max(1, Math.ceil(((1 - b.tokens) / limit) * 60));
 }
 
+// Standard draft RateLimit-* headers for HTTP API responses. Reset is
+// seconds until the bucket is full again (or until one token when empty).
+export function rateLimitHeaders(bucketKey: string, limit = DEFAULT_RATE_LIMIT): Record<string, string> {
+  const b = buckets.get(bucketKey);
+  const tokens = b ? Math.min(limit, b.tokens + ((Date.now() - b.ts) / 60000) * limit) : limit;
+  const remaining = Math.max(0, Math.floor(tokens));
+  return {
+    'RateLimit-Limit': String(limit),
+    'RateLimit-Remaining': String(remaining),
+    'RateLimit-Reset': String(Math.ceil(((limit - tokens) / limit) * 60)),
+  };
+}
+
 // Accept arrays/objects natively for json fields, and parse string values
 // that are themselves JSON so older double-encoding clients keep working.
 function normalizeJsonFields(collection, data) {

@@ -40,7 +40,7 @@ import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, mediaPrefixFrom, adoptableKey, guessMime, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
-import { handleMcp, rateLimitOk, retryAfterSeconds, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
+import { handleMcp, rateLimitOk, retryAfterSeconds, rateLimitHeaders, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
 import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
@@ -1651,6 +1651,17 @@ export function createApp(configOverrides = {}) {
     };
   }
 
+  // Consume one rate-limit token and set RateLimit-* headers on every
+  // response. Returns false after sending the 429 when the bucket is empty.
+  function applyRateLimit(req, res, bucketKey, limit) {
+    const allowed = rateLimitOk(bucketKey, limit);
+    for (const [h, v] of Object.entries(rateLimitHeaders(bucketKey, limit))) res.setHeader(h, v);
+    if (allowed) return true;
+    const retryAfter = retryAfterSeconds(bucketKey, limit);
+    json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
+    return false;
+  }
+
   // Bearer-key project auth without a collection, for the schema routes.
   // Returns null after responding when auth fails.
   function apiProject(req, res, params, { write = false } = {}) {
@@ -1691,10 +1702,7 @@ export function createApp(configOverrides = {}) {
     const ctx = apiProject(req, res, params, { write: true });
     if (!ctx) return;
     const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
-    if (!rateLimitOk(`${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) {
-      const retryAfter = retryAfterSeconds(`${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit);
-      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
-    }
+    if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
     let body;
     try {
       body = JSON.parse(await readBody(req));
@@ -1740,10 +1748,7 @@ export function createApp(configOverrides = {}) {
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
     if (apiKey.scope !== 'write') return json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' });
     const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
-    if (!rateLimitOk(`${project.slug}:${apiKey.id}`, rateLimit)) {
-      const retryAfter = retryAfterSeconds(`${project.slug}:${apiKey.id}`, rateLimit);
-      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
-    }
+    if (!applyRateLimit(req, res, `${project.slug}:${apiKey.id}`, rateLimit)) return;
     let upload;
     try {
       upload = await readMultipart(req);
@@ -1778,10 +1783,7 @@ export function createApp(configOverrides = {}) {
     const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
     const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
-    if (!rateLimitOk(`${project.slug}:${apiKey.id}`, rateLimit)) {
-      const retryAfter = retryAfterSeconds(`${project.slug}:${apiKey.id}`, rateLimit);
-      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { 'Retry-After': String(retryAfter) });
-    }
+    if (!applyRateLimit(req, res, `${project.slug}:${apiKey.id}`, rateLimit)) return;
     let message;
     try {
       message = JSON.parse(await readBody(req, { limit: MCP_BODY_LIMIT }));
@@ -1814,6 +1816,16 @@ export function createApp(configOverrides = {}) {
     }
     const ext = path.extname(filePath);
     const type = { '.css': 'text/css', '.js': 'application/javascript' }[ext] || 'application/octet-stream';
+    // Versioned URLs (?v=mtime, emitted by views) cache forever; bare URLs
+    // revalidate so a deploy without a version bump still shows up.
+    const versioned = new URL(req.url, 'http://localhost').searchParams.has('v');
+    res.setHeader('Cache-Control', versioned ? 'public, max-age=31536000, immutable' : 'no-cache');
+    const mtime = statSync(filePath).mtime;
+    res.setHeader('Last-Modified', mtime.toUTCString());
+    if (!versioned && req.headers['if-modified-since'] === mtime.toUTCString()) {
+      res.writeHead(304);
+      return res.end();
+    }
     const ms = performance.now() - req._start;
     res.setHeader('Server-Timing', `total;dur=${ms.toFixed(2)}`);
     res.setHeader('Content-Type', type);

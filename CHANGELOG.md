@@ -2,6 +2,11 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## Unreleased
+
+- Static asset caching: admin.css, admin.js and vendor scripts are linked with `?v=<mtime>` so browsers pick up new builds after a deploy restart. Versioned URLs are served with `Cache-Control: public, max-age=31536000, immutable`; bare URLs get `no-cache` with `Last-Modified`/304 revalidation.
+- Rate-limited API endpoints (schema apply, media upload, MCP) now send standard `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` headers on every response, alongside the existing `Retry-After` on 429.
+
 ## 0.10.0 (2026-09-09)
 
 - Schema management over the API-key surface. MCP gains `get_schema` and `describe_field_types` (read scope) plus `create_collection`, `add_field`, `update_field`, `remove_field` and `apply_schema` (write scope). REST mirrors it: `GET /api/v1/<project>/schema`, `GET /api/v1/<project>/field-types`, and `POST /api/v1/<project>/schema` applying a full schema document (collections matched by slug, field lists replaced; `?delete_missing=1` opts into deleting absent collections with their entries).
