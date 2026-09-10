@@ -331,7 +331,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 }
 
 const SIDEBAR_LINK = 'flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
-const SIDEBAR_SUBLINK = 'flex items-center gap-2 pl-2 pr-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium aria-[current=page]:text-sidebar-foreground';
+const SIDEBAR_SUBLINK = 'flex items-center gap-2 pl-2 pr-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
 
 function sidebar({ user, projects, project }: {
   user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
