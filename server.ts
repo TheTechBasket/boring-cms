@@ -53,6 +53,7 @@ import {
   addCollectionField,
   updateCollectionField,
   removeCollectionField,
+  fieldUsage,
   validateEntryData,
   reorderCollectionFields,
   deleteCollection,
@@ -1384,7 +1385,8 @@ export function createApp(configOverrides = {}) {
     const filter = { q, status };
     const total = countEntries(db, ctx.collection.id, filter);
     const entries = listEntries(db, ctx.collection.id, { limit, offset: (page - 1) * limit, ...filter });
-    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES, collections: listCollections(db) }));
+    const usage = Object.fromEntries(ctx.collection.fields.map((f) => [f.name, fieldUsage(db, ctx.collection.id, f.name)]));
+    html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES, collections: listCollections(db), fieldUsage: usage }));
   }));
 
   router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(async (req, res, params, ctx, db) => {

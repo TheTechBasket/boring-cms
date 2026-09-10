@@ -4,6 +4,11 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.12.0 (2026-09-10)
+
+- Revision history shows a diff, not just a revert. Each revision in the entry editor has a Diff button that opens a modal listing every changed field with its before and after values in scrollable blocks (large diffs stay readable instead of overflowing the sidebar). The Revert button lives inside that modal, so a revert can no longer be clicked by accident.
+- Republish surfaced for entries with unpublished draft edits. A published entry whose draft differs from what the API serves (after an edit or a revert) now shows a "Draft has changes that are not live yet" note and a Republish button in the editor, instead of forcing an unpublish/publish cycle. MCP authoring calls (`create_entry`, `update_entry`) return `has_unpublished_changes: true` while a republish is pending, and `get_entry` accepts `draft: true` to read the latest saved version with that flag. The flag is authoring-only and omitted when false; the public read API still serves published data only.
+- Field delete is gated. Removing a field on the collection page now asks to confirm and states how many of the total entries carry a value for it, plus how unique those values are (every value unique, all share one value, or a distinct-count). Each field row also shows a live `filled/total` count. The remove itself is not stored as a revision, so the confirmation says so.
 - Versioned benchmark suite in `bench/` (driver, matrix orchestrator, summary generator, constraints doc). Runs the full CRUD/media/schema surface against a fresh temp data dir per run, pinned to 1/2/4 vCPUs, on node/bun/deno; results committed under `bench/results/v<version>/`, including an interactive HTML report (`report.html`: throughput bars per phase, CPU/RSS timelines with phase bands). No change to the served app.
 - `npx boring-cms` works: `bin/boring-cms.js` launcher plus `bin`/`files` entries in package.json. Runs the TypeScript sources natively (engines bumped to Node >=24), data and generated `.env` land in the invoking directory. Publish to npm still pending.
 

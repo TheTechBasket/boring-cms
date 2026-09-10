@@ -467,6 +467,22 @@ async function main() {
   const mcpSchema = JSON.parse((await mcpTool(apiKey, 'get_schema')).content[0].text);
   assert.ok(mcpSchema.collections.some((c: any) => c.slug === 'authors' && c.name === 'Writers'), 'get_schema should reflect the applied change');
 
+  // 9b. Draft-vs-published signal: editing a published entry leaves
+  // has_unpublished_changes set until it is republished; the flag is
+  // authoring-only and never rides on a default (published) read.
+  const pubEntry = JSON.parse((await mcpTool(upWriteKey, 'create_entry', { collection: 'blog-posts', slug: 'dirty-demo', data: { body: 'live' }, publish: true })).content[0].text);
+  assert.ok(!pubEntry.has_unpublished_changes, 'a freshly published entry is not dirty');
+  const editedEntry = JSON.parse((await mcpTool(upWriteKey, 'update_entry', { collection: 'blog-posts', slug: 'dirty-demo', data: { body: 'edited' } })).content[0].text);
+  assert.equal(editedEntry.has_unpublished_changes, true, 'editing a published entry sets has_unpublished_changes');
+  const liveRead = JSON.parse((await mcpTool(apiKey, 'get_entry', { collection: 'blog-posts', slug: 'dirty-demo' })).content[0].text);
+  assert.ok(liveRead.body === 'live' && liveRead.has_unpublished_changes === undefined, 'default get_entry serves published data with no authoring flag');
+  const draftRead = JSON.parse((await mcpTool(apiKey, 'get_entry', { collection: 'blog-posts', slug: 'dirty-demo', draft: true })).content[0].text);
+  assert.ok(draftRead.body === 'edited' && draftRead.has_unpublished_changes === true, 'draft get_entry shows the edited value and the flag');
+  await mcpTool(upWriteKey, 'publish_entry', { collection: 'blog-posts', slug: 'dirty-demo' });
+  const cleanRead = JSON.parse((await mcpTool(apiKey, 'get_entry', { collection: 'blog-posts', slug: 'dirty-demo', draft: true })).content[0].text);
+  assert.ok(cleanRead.has_unpublished_changes === undefined, 'republish clears has_unpublished_changes');
+  await mcpTool(upWriteKey, 'delete_entry', { collection: 'blog-posts', slug: 'dirty-demo' });
+
   // 10. Atomic revert to the first revision
   const revertRes = await req('POST', `/admin/projects/${slug}/collections/blog-posts/${entrySlug}/revert`, {
     form: { revision_id: String(revisions[0].id) },

@@ -793,7 +793,7 @@ export function collectionsPage({ user, projects, project, collections, stats, n
   });
 }
 
-export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, q = '', status = '', fieldTypes, collections = [], notice: pageNotice }: any): string {
+export function collectionPage({ user, projects, project, collection, entries, page = 1, totalPages = 1, q = '', status = '', fieldTypes, collections = [], fieldUsage = {}, notice: pageNotice }: any): string {
   const base = `/admin/projects/${project.slug}/collections/${collection.slug}`;
   const qs = (p: number) => {
     const params = new URLSearchParams();
@@ -862,9 +862,20 @@ export function collectionPage({ user, projects, project, collection, entries, p
     </form>`;
   };
 
+  // Plain-language uniqueness read for a field's stored values.
+  const uniqDesc = (u: any) => {
+    if (!u || u.filled === 0) return 'no entries have a value';
+    if (u.distinct === u.filled) return 'every value is unique';
+    if (u.distinct === 1) return 'all share one value';
+    return `${u.distinct} distinct values`;
+  };
+
   const fieldRows = collection.fields
     .map(
-      (f: any) => `<div draggable="true" data-field="${escapeHtml(f.name)}" class="bg-card">
+      (f: any) => {
+        const u = fieldUsage[f.name] || { total: 0, filled: 0, distinct: 0 };
+        const delMsg = `Delete field "${f.label}" (${f.name})? ${u.filled} of ${u.total} entries have a value (${uniqDesc(u)}). This cannot be undone and is not stored as a revision.`;
+        return `<div draggable="true" data-field="${escapeHtml(f.name)}" class="bg-card">
         <div class="flex items-center gap-3 border-b border-border px-3 py-2 text-sm cursor-grab">
           <span class="text-muted-foreground shrink-0" aria-hidden="true">${gripIcon}</span>
           <span class="font-medium">${escapeHtml(f.label)}</span>
@@ -872,14 +883,16 @@ export function collectionPage({ user, projects, project, collection, entries, p
           <span class="text-muted-foreground">${escapeHtml(f.type)}</span>
           ${f.required ? '<span class="text-xs font-medium text-primary-foreground bg-primary px-1.5 py-0.5">required</span>' : ''}
           ${f.unique ? '<span class="text-xs font-medium text-primary-foreground bg-primary px-1.5 py-0.5">unique</span>' : ''}
+          <span class="text-xs text-muted-foreground" title="${escapeHtml(uniqDesc(u))}">${u.filled}/${u.total} filled</span>
           <button type="button" data-field-edit class="ml-auto text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Edit</button>
-          <form method="post" action="${base}/fields/remove">
+          <form method="post" action="${base}/fields/remove" data-confirm="delete-field" data-confirm-message="${escapeHtml(delMsg)}">
             <input type="hidden" name="field" value="${escapeHtml(f.name)}">
             ${button({ label: 'Remove', variant: 'ghost', small: true })}
           </form>
         </div>
         <div data-field-editor hidden>${fieldEditor(f)}</div>
-      </div>`,
+      </div>`;
+      },
     )
     .join('\n');
 
@@ -1174,15 +1187,58 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
     })
     .join('\n');
 
+  // Show what each revision changed, from-value to to-value, so a revert is
+  // deliberate. Deltas store the PREVIOUS value; the resulting ("to") value
+  // is reconstructed by walking newest-first from the current draft state.
+  // A single changed value, rendered as a scrollable block so long diffs
+  // stay readable inside the modal instead of overflowing the sidebar.
+  const fmtVal = (v: any, tone: string) => {
+    if (v === undefined || v === null || v === '') return `<div class="text-xs italic text-muted-foreground px-2 py-1.5 border border-border">(empty)</div>`;
+    const s = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
+    const shown = s.length > 4000 ? `${s.slice(0, 4000)}\n…(${s.length - 4000} more characters)` : s;
+    return `<pre class="text-xs px-2 py-1.5 border border-border max-h-64 overflow-auto whitespace-pre-wrap break-all m-0 ${tone}">${escapeHtml(shown)}</pre>`;
+  };
+  let after: Record<string, any> = entry ? { ...entry.data } : {};
   const revisionRows = revisions
     .map((r: any) => {
+      const rows = Object.entries(r.changed)
+        .filter(([k]) => k !== '__title')
+        .map(([field, before]) => `<div class="flex flex-col gap-1">
+            <code class="text-xs font-medium">${escapeHtml(field)}</code>
+            <span class="text-xs text-muted-foreground">Before</span>
+            ${fmtVal(before, 'text-destructive')}
+            <span class="text-xs text-muted-foreground">After</span>
+            ${fmtVal(after[field], 'text-foreground')}
+          </div>`)
+        .join('');
+      // Step the after-state back to before this revision for older entries.
+      const next = { ...after };
+      for (const [field, before] of Object.entries(r.changed)) {
+        if (field === '__title') continue;
+        if (before === null || before === undefined) delete next[field];
+        else next[field] = before;
+      }
+      after = next;
       const fields = Object.keys(r.changed).map((k) => (k === '__title' ? 'title' : k)).join(', ');
+      const dlgId = `revdiff-${r.id}`;
       return `<li class="flex items-center justify-between gap-2 py-1.5 border-b border-border text-sm">
-        <span class="text-muted-foreground min-w-0 truncate">${timeAgo(r.created_at)} · changed: ${escapeHtml(fields)}</span>
-        <form method="post" action="${base}/${entry.slug}/revert" class="shrink-0">
-          <input type="hidden" name="revision_id" value="${r.id}">
-          ${button({ label: 'Revert', variant: 'outline', small: true })}
-        </form>
+        <span class="text-muted-foreground min-w-0 truncate">${timeAgo(r.created_at)} · ${escapeHtml(fields)}</span>
+        <button type="button" data-open-dialog="${dlgId}" class="shrink-0 text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Diff</button>
+        <dialog id="${dlgId}" class="w-[min(90vw,640px)] max-h-[85vh] p-0 border border-border bg-card text-card-foreground shadow-lg backdrop:bg-black/50">
+          <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sticky top-0 bg-card">
+            <span class="text-sm font-medium">Revision · ${timeAgo(r.created_at)}</span>
+            <button type="button" data-close-dialog class="text-sm text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-0 p-0">Close</button>
+          </div>
+          <div class="flex flex-col gap-4 px-4 py-4 overflow-auto">
+            ${rows || '<p class="text-sm text-muted-foreground italic">No field changes recorded.</p>'}
+          </div>
+          <div class="border-t border-border px-4 py-3 flex justify-end sticky bottom-0 bg-card">
+            <form method="post" action="${base}/${entry.slug}/revert">
+              <input type="hidden" name="revision_id" value="${r.id}">
+              ${button({ label: 'Revert to before this', variant: 'outline', small: true })}
+            </form>
+          </div>
+        </dialog>
       </li>`;
     })
     .join('\n');
@@ -1190,6 +1246,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   // What the API serves (or would serve after publish) for this entry, so
   // the editor never has to guess what a consumer sees.
   let apiPreviewCard = '';
+  let dirty = false; // published entry whose draft differs from what is live
   if (!isNew) {
     const next: Record<string, any> = { published_at: isoUtc(entry.published_at), slug: entry.slug, ...entry.data, updated_at: isoUtc(entry.updated_at) };
     if (!next.slug) next.slug = entry.slug;
@@ -1200,6 +1257,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
       if (!live.slug) live.slug = entry.slug;
       liveJson = JSON.stringify(live, null, 2);
     }
+    dirty = !!(liveJson && liveJson !== nextJson);
     const endpoint = `/api/v1/${project.slug}/${collection.slug}/${entry.slug}`;
     const blocks = liveJson && liveJson !== nextJson
       ? `<span class="text-xs font-medium">Live now</span>${preBlock(liveJson)}
@@ -1223,9 +1281,10 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
             ${statusBadge(entry.status)}
           </div>
           <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
+          ${dirty ? '<p class="text-xs font-medium text-primary">Draft has changes that are not live yet. Republish to push them to the API.</p>' : ''}
           <div class="flex gap-2 flex-wrap">
             ${entry.status === 'published'
-              ? `<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
+              ? `${dirty ? `<form method="post" action="${base}/${entry.slug}/publish">${button({ label: 'Republish' })}</form>` : ''}<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
               : `<form method="post" action="${base}/${entry.slug}/publish">${button({ label: 'Publish' })}</form>`}
             <form method="post" action="${base}/${entry.slug}/delete" data-confirm="delete-entry">${button({ label: 'Delete', variant: 'destructive' })}</form>
           </div>

@@ -12,6 +12,7 @@ import {
   publishEntry,
   unpublishEntry,
   deleteEntry,
+  hasUnpublishedChanges,
   validateEntryData,
   listPublished,
   getPublished,
@@ -25,6 +26,7 @@ import {
   FIELD_TYPES,
   FIELD_OPTIONS,
 } from './content.ts';
+import { isoUtc } from './content.ts';
 import { exportSchema, applySchema } from './transfer.ts';
 import { APP_VERSION } from './views.ts';
 
@@ -129,14 +131,28 @@ const TOOLS = [
   },
   {
     name: 'get_entry',
-    description: 'Get one published entry by slug.',
+    description: 'Get one published entry by slug. Pass draft: true to get the latest saved (draft) version instead, which also reports has_unpublished_changes: true when a published entry has edits not yet republished.',
     scope: 'read',
     inputSchema: {
       type: 'object',
-      properties: { collection: str('Collection slug'), slug: str('Entry slug') },
+      properties: {
+        collection: str('Collection slug'),
+        slug: str('Entry slug'),
+        draft: { type: 'boolean', description: 'Return the draft version (latest saved, may differ from live) plus has_unpublished_changes, instead of the published version. Default false.' },
+      },
       required: ['collection', 'slug'],
     },
     handler: (db, args, collection) => {
+      if (args.draft) {
+        const entry = getEntry(db, collection.id, args.slug);
+        if (!entry) throw new ToolError('Entry not found.');
+        // Same flat shape as the published read, so draft: true is a drop-in;
+        // status and has_unpublished_changes are the only extra keys.
+        const out: Record<string, any> = { ...entry.data, slug: entry.slug, status: entry.status, updated_at: isoUtc(entry.updated_at) };
+        if (entry.published_at) out.published_at = isoUtc(entry.published_at);
+        if (hasUnpublishedChanges(entry)) out.has_unpublished_changes = true;
+        return out;
+      }
       const item = getPublished(db, collection.id, args.slug);
       if (!item) throw new ToolError('Entry not found or not published.');
       return item;
@@ -166,7 +182,9 @@ const TOOLS = [
         entry = publishEntry(db, entry.id);
         ctx?.onWebhook?.('entry.publish', collection.slug, entry.slug);
       }
-      return { slug: entry.slug, status: entry.status, data: entry.data, upserted: !!existing };
+      const out: Record<string, any> = { slug: entry.slug, status: entry.status, data: entry.data, upserted: !!existing };
+      if (hasUnpublishedChanges(entry)) out.has_unpublished_changes = true;
+      return out;
     },
   },
   {
@@ -235,7 +253,7 @@ const TOOLS = [
   },
   {
     name: 'update_entry',
-    description: 'Update fields on an entry (merged into existing data, recorded as a revertable revision). Set publish: true to republish in the same call; otherwise republish with publish_entry to update the live version.',
+    description: 'Update fields on an entry (merged into existing data, recorded as a revertable revision). Editing a published entry changes only its draft: the return carries has_unpublished_changes: true until you republish. Set publish: true to republish in the same call; otherwise republish with publish_entry to update the live version.',
     scope: 'write',
     inputSchema: {
       type: 'object',
@@ -258,7 +276,9 @@ const TOOLS = [
         updated = publishEntry(db, updated.id);
         ctx?.onWebhook?.('entry.publish', collection.slug, updated.slug);
       }
-      return { slug: updated.slug, status: updated.status, data: updated.data };
+      const out: Record<string, any> = { slug: updated.slug, status: updated.status, data: updated.data };
+      if (hasUnpublishedChanges(updated)) out.has_unpublished_changes = true;
+      return out;
     },
   },
   {

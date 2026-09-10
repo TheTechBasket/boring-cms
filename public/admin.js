@@ -27,7 +27,11 @@ const CONFIRM_MESSAGES = {
 document.addEventListener('submit', (event) => {
   const form = event.target;
   const kind = form.dataset.confirm;
-  if (!kind || !(kind in CONFIRM_MESSAGES)) return;
+  if (!kind) return;
+  // A form may carry its own rendered message (e.g. field delete with usage
+  // stats); otherwise fall back to the static keyed message.
+  const message = form.dataset.confirmMessage || CONFIRM_MESSAGES[kind];
+  if (!message) return;
   const input = form.querySelector('input[name="confirm"]');
   if (input) {
     const expected = input.placeholder;
@@ -37,7 +41,7 @@ document.addEventListener('submit', (event) => {
       return;
     }
   }
-  if (!window.confirm(CONFIRM_MESSAGES[kind])) {
+  if (!window.confirm(message)) {
     event.preventDefault();
   }
 });
@@ -61,6 +65,23 @@ document.addEventListener('click', (event) => {
     btn.textContent = 'Copied';
     setTimeout(() => { btn.textContent = original; }, 1200);
   });
+});
+
+// Revision diff modals: open on [data-open-dialog], close on [data-close-dialog]
+// or a backdrop click. Native <dialog> gives ESC + focus trap for free.
+document.addEventListener('click', (event) => {
+  const opener = event.target.closest('[data-open-dialog]');
+  if (opener) {
+    document.getElementById(opener.dataset.openDialog)?.showModal();
+    return;
+  }
+  const closer = event.target.closest('[data-close-dialog]');
+  if (closer) {
+    closer.closest('dialog')?.close();
+    return;
+  }
+  // Click on the backdrop (the dialog element itself, outside its content).
+  if (event.target.matches('dialog[open]')) event.target.close();
 });
 
 // "+" popovers are <details data-popover>: close any open one on outside click.

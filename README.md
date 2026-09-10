@@ -42,6 +42,14 @@ field-level deltas as revisions (last 20 kept, 90-day cap) with atomic
 revert. Publishing materializes a snapshot served by the API, so reads
 never touch draft data.
 
+Editing a published entry (including reverting to a revision) changes
+only its draft; the live snapshot stays put until you republish. The
+editor shows a "Draft has changes that are not live yet" note plus a
+Republish button, and MCP write calls return `has_unpublished_changes:
+true` until the republish. Consumers of the public read API only ever
+see published data, so that flag is authoring-only: it is never added to
+public REST or `get_entry` responses, and only appears when true.
+
 ## Content API
 
 Create an API key under Project, then:
@@ -209,7 +217,9 @@ the REST API. Keys have a scope: `read` (default) exposes
 `list_collections`, `list_entries`, `get_entry`; `write` adds
 `create_entry`, `update_entry`, `publish_entry`, `unpublish_entry`.
 Agent edits go through the normal content layer, so every change is a
-revertable revision. Requests are rate limited per key (60/min, `429`
+revertable revision. `get_entry` returns the published version by
+default; pass `draft: true` to read the latest saved version and see
+`has_unpublished_changes` when a republish is pending. Requests are rate limited per key (60/min, `429`
 with `Retry-After`).
 
 The API keys page shows a ready-to-paste Claude Code `.mcp.json` using

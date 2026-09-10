@@ -253,6 +253,23 @@ export function removeCollectionField(db, collectionSlug, fieldName) {
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
 }
 
+// How many entries carry a real value for a field, and how unique those
+// values are. Shown before a field delete so its impact is visible.
+export function fieldUsage(db, collectionId, fieldName) {
+  const path = `$.${fieldName}`;
+  const total = db.prepare('SELECT COUNT(*) AS n FROM entries WHERE collection_id = ?').get(collectionId).n;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS filled, COUNT(DISTINCT json_extract(data, ?)) AS distinct_
+         FROM entries
+        WHERE collection_id = ?
+          AND json_extract(data, ?) IS NOT NULL
+          AND json_extract(data, ?) != ''`,
+    )
+    .get(path, collectionId, path, path);
+  return { total, filled: row.filled, distinct: row.distinct_ };
+}
+
 export function deleteCollection(db, slug) {
   db.prepare('DELETE FROM collections WHERE slug = ?').run(slug);
   bumpContentVersion(db);
@@ -383,6 +400,16 @@ export function publishEntry(db, entryId) {
   ).run(JSON.stringify(snapshot), entryId);
   bumpContentVersion(db);
   return getEntryById(db, entryId);
+}
+
+// True when a published entry's draft data differs from what the API is
+// currently serving, i.e. a republish is pending. Draft-only entries return
+// false: they are simply unpublished, not "changed since publish".
+export function hasUnpublishedChanges(entry) {
+  if (!entry || entry.status !== 'published' || !entry.published_data) return false;
+  const snapshot: Record<string, any> = { slug: entry.slug, ...entry.data };
+  if (!snapshot.slug) snapshot.slug = entry.slug;
+  return JSON.stringify(snapshot) !== JSON.stringify(entry.published_data);
 }
 
 export function unpublishEntry(db, entryId) {
