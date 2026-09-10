@@ -490,6 +490,10 @@ export function revokeApiKey(db, id) {
   db.prepare('DELETE FROM api_keys WHERE id = ?').run(id);
 }
 
+export function setApiKeyMcp(db, id, mcp) {
+  db.prepare('UPDATE api_keys SET mcp = ? WHERE id = ?').run(mcp ? 1 : 0, id);
+}
+
 // Truthy result carries { id, scope, mcp } for scope/MCP checks and rate limiting.
 export function verifyApiKey(db, key) {
   if (!key) return null;

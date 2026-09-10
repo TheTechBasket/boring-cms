@@ -22,6 +22,9 @@ const MARKED_V = assetVersion('vendor/marked.esm.js');
 
 // Inline Solar duotone icons (allsvgicons MCP, solar:*-bold-duotone).
 const ICONS: Record<string, string> = {
+  menu: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M20 7L4 7"/><path d="M20 12L4 12" opacity=".5"/><path d="M20 17L4 17"/></g></svg>`,
+  x: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12C2 7.28595 2 4.92893 3.46447 3.46447C4.92893 2 7.28595 2 12 2C16.714 2 19.0711 2 20.5355 3.46447C22 4.92893 22 7.28595 22 12C22 16.714 22 19.0711 20.5355 20.5355C19.0711 22 16.714 22 12 22C7.28595 22 4.92893 22 3.46447 20.5355C2 19.0711 2 16.714 2 12Z" opacity=".5"/><path stroke-linecap="round" d="M14.5 9.50002L9.5 14.5M9.49998 9.5L14.5 14.5"/></g></svg>`,
+  chevron: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 9L12 15L5 9"/></svg>`,
   document: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M3 8C3 5.17157 3 3.75736 3.87868 2.87868C4.75736 2 6.17157 2 9 2H15C17.8284 2 19.2426 2 20.1213 2.87868C21 3.75736 21 5.17157 21 8V16C21 18.8284 21 20.2426 20.1213 21.1213C19.2426 22 17.8284 22 15 22H9C6.17157 22 4.75736 22 3.87868 21.1213C3 20.2426 3 18.8284 3 16V8Z" opacity=".5"/><path fill-rule="evenodd" d="M8.75 2.01221V22.0111H7.25V2.01221H8.75Z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M1.25 8C1.25 7.58579 1.58579 7.25 2 7.25H4C4.41421 7.25 4.75 7.58579 4.75 8C4.75 8.41421 4.41421 8.75 4 8.75H2C1.58579 8.75 1.25 8.41421 1.25 8ZM1.25 12C1.25 11.5858 1.58579 11.25 2 11.25H4C4.41421 11.25 4.75 11.5858 4.75 12C4.75 12.4142 4.41421 12.75 4 12.75H2C1.58579 12.75 1.25 12.4142 1.25 12ZM1.25 16C1.25 15.5858 1.58579 15.25 2 15.25H4C4.41421 15.25 4.75 15.5858 4.75 16C4.75 16.4142 4.41421 16.75 4 16.75H2C1.58579 16.75 1.25 16.4142 1.25 16Z" clip-rule="evenodd"/><path d="M10.75 6.5C10.75 6.08579 11.0858 5.75 11.5 5.75H16.5C16.9142 5.75 17.25 6.08579 17.25 6.5C17.25 6.91421 16.9142 7.25 16.5 7.25H11.5C11.0858 7.25 10.75 6.91421 10.75 6.5Z"/><path d="M10.75 10C10.75 9.58579 11.0858 9.25 11.5 9.25H16.5C16.9142 9.25 17.25 9.58579 17.25 10C17.25 10.4142 16.9142 10.75 16.5 10.75H11.5C11.0858 10.75 10.75 10.4142 10.75 10Z"/></g></svg>`,
   gallery: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M18.5116 10.0767C18.5116 10.8153 17.8869 11.4142 17.1163 11.4142C16.3457 11.4142 15.7209 10.8153 15.7209 10.0767C15.7209 9.33801 16.3457 8.7392 17.1163 8.7392C17.8869 8.7392 18.5116 9.33801 18.5116 10.0767Z"/><path fill-rule="evenodd" d="M18.0363 5.53205C16.9766 5.39548 15.6225 5.39549 13.9129 5.39551H10.0871C8.37751 5.39549 7.02343 5.39548 5.9637 5.53205C4.87308 5.6726 3.99033 5.96873 3.29418 6.63601C2.59803 7.30329 2.28908 8.14942 2.14245 9.19481C1.99997 10.2106 1.99999 11.5085 2 13.1472V13.2478C1.99999 14.8864 1.99997 16.1843 2.14245 17.2001C2.28908 18.2455 2.59803 19.0916 3.29418 19.7589C3.99033 20.4262 4.87307 20.7223 5.9637 20.8629C7.02344 20.9994 8.37751 20.9994 10.0871 20.9994H13.9129C15.6225 20.9994 16.9766 20.9994 18.0363 20.8629C19.1269 20.7223 20.0097 20.4262 20.7058 19.7589C21.402 19.0916 21.7109 18.2455 21.8575 17.2001C22 16.1843 22 14.8864 22 13.2478V13.1472C22 11.5085 22 10.2106 21.8575 9.19481C21.7109 8.14942 21.402 7.30329 20.7058 6.63601C20.0097 5.96873 19.1269 5.6726 18.0363 5.53205ZM6.14963 6.8576C5.21373 6.97821 4.67452 7.2044 4.28084 7.58175C3.88716 7.95911 3.65119 8.47595 3.52536 9.37303C3.42443 10.0926 3.40184 10.9919 3.3968 12.1682L3.86764 11.7733C4.99175 10.8305 6.68596 10.8846 7.74215 11.897L11.7326 15.7219C12.1321 16.1049 12.7611 16.1571 13.2234 15.8457L13.5008 15.6589C14.8313 14.7626 16.6314 14.8664 17.8402 15.9092L20.2479 17.9862C20.3463 17.7222 20.4206 17.4071 20.4746 17.0219C20.6032 16.1056 20.6047 14.8977 20.6047 13.1975C20.6047 11.4972 20.6032 10.2893 20.4746 9.37303C20.3488 8.47595 20.1128 7.95911 19.7192 7.58175C19.3255 7.2044 18.7863 6.97821 17.8504 6.8576C16.8944 6.73441 15.6343 6.73298 13.8605 6.73298H10.1395C8.36575 6.73298 7.10559 6.73441 6.14963 6.8576Z" clip-rule="evenodd"/><path d="M17.0866 2.61039C16.2268 2.49997 15.1321 2.49998 13.7675 2.5H10.6778C9.31314 2.49998 8.21844 2.49997 7.35863 2.61039C6.46826 2.72473 5.72591 2.96835 5.13712 3.53075C4.79755 3.8551 4.56886 4.22833 4.41309 4.64928C4.91729 4.41928 5.48734 4.28374 6.12735 4.20084C7.21173 4.06037 8.5973 4.06038 10.3466 4.06039H14.2615C16.0108 4.06038 17.3963 4.06037 18.4807 4.20084C19.0397 4.27325 19.5453 4.38581 20.0003 4.56638C19.8457 4.17917 19.6253 3.83365 19.3081 3.53075C18.7193 2.96835 17.977 2.72473 17.0866 2.61039Z" opacity=".5"/></g></svg>`,
   key: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M2 12C2 7.28595 2 4.92893 3.46447 3.46447C4.92893 2 7.28595 2 12 2C16.714 2 19.0711 2 20.5355 3.46447C22 4.92893 22 7.28595 22 12C22 16.714 22 19.0711 20.5355 20.5355C19.0711 22 16.714 22 12 22C7.28595 22 4.92893 22 3.46447 20.5355C2 19.0711 2 16.714 2 12Z" opacity=".5"/><path fill-rule="evenodd" d="M22 6.72008C22 9.3269 19.8781 11.4402 17.2606 11.4402C16.7829 11.4402 15.6954 11.3304 15.1664 10.8913L14.505 11.5499C14.1162 11.9372 14.2212 12.0512 14.3942 12.239C14.4664 12.3174 14.5504 12.4086 14.6153 12.5378C14.6153 12.5378 15.1664 13.3062 14.6153 14.0746C14.2846 14.5137 13.3588 15.1284 12.3007 14.0746L12.0802 14.2942C12.0802 14.2942 12.7415 15.0625 12.1904 15.8309C11.8598 16.27 10.978 16.7091 10.2065 15.9407L9.43495 16.7091C8.90589 17.236 8.25929 16.9286 8.00212 16.7091L7.3408 16.0505C6.72357 15.4358 7.08363 14.7698 7.3408 14.5137L13.0722 8.80569C13.0722 8.80569 12.5211 7.92754 12.5211 6.72008C12.5211 4.11325 14.643 2 17.2606 2C19.8781 2 22 4.11325 22 6.72008ZM18.914 6.72003C18.914 7.62938 18.1738 8.36656 17.2607 8.36656C16.3476 8.36656 15.6074 7.62938 15.6074 6.72003C15.6074 5.81067 16.3476 5.07349 17.2607 5.07349C18.1738 5.07349 18.914 5.81067 18.914 6.72003Z" clip-rule="evenodd"/></g></svg>`,
@@ -297,8 +300,11 @@ function layout({ title, body, user = null, projects = [], project = null, notic
         ${body}
       </main>`
     : `<div class="flex min-h-screen">
+        <input type="checkbox" id="nav-toggle" class="peer sr-only">
+        <label for="nav-toggle" aria-label="Close menu" class="fixed inset-0 z-30 bg-black/50 hidden peer-checked:block md:hidden"></label>
         ${sidebar({ user: user!, projects, project })}
-        <main class="@container flex-1 min-w-0 px-8 py-8">
+        <main class="@container flex-1 min-w-0 px-4 py-4 md:px-8 md:py-8">
+          <label for="nav-toggle" class="md:hidden inline-flex items-center gap-2 mb-4 px-3 py-1.5 text-sm border border-border cursor-pointer select-none">${icon('menu')}Menu</label>
           <div class="w-full max-w-6xl flex flex-col gap-5">
             ${pageNotice ? notice(pageNotice) : ''}
             ${body}
@@ -325,6 +331,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 }
 
 const SIDEBAR_LINK = 'flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
+const SIDEBAR_SUBLINK = 'flex items-center gap-2 pl-2 pr-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium aria-[current=page]:text-sidebar-foreground';
 
 function sidebar({ user, projects, project }: {
   user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
@@ -333,9 +340,18 @@ function sidebar({ user, projects, project }: {
     project ? '' : `<option value="" disabled selected hidden>Select a project</option>`,
     ...projects.map(
       (p) =>
-        `<option value="${escapeHtml(p.slug)}"${project && p.slug === project.slug ? ' selected' : ''}>${p.icon && !/^(https?:)?\//.test(p.icon) ? `${escapeHtml(p.icon)} ` : ''}${escapeHtml(p.name)}</option>`,
+        `<option value="${escapeHtml(p.slug)}"${project && p.slug === project.slug ? ' selected' : ''}>${escapeHtml(p.name)}</option>`,
     ),
   ].join('');
+
+  const switcherMark = project
+    ? projectAvatar(project, 'size-5 text-[11px]')
+    : `<span class="size-5 flex items-center justify-center text-muted-foreground">${icon('folder')}</span>`;
+  const switcher = `<div class="relative mb-1">
+    <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2">${switcherMark}</span>
+    <select id="project-switcher" class="${SELECT_CLASS} bg-sidebar appearance-none pl-9 pr-8 font-medium" title="Switch project">${options}</select>
+    <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">${icon('chevron')}</span>
+  </div>`;
 
   const groupLabel = (text: string) =>
     `<span class="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">${text}</span>`;
@@ -343,23 +359,24 @@ function sidebar({ user, projects, project }: {
   const projectNav = project
     ? `<div class="flex flex-col gap-0.5 mt-4">
         <span class="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">Project</span>
-        <span class="px-3 pb-1 text-sm font-medium text-sidebar-foreground flex items-center gap-2 truncate">${projectAvatar(project, 'size-5 text-[10px]')}${escapeHtml(project.name)}</span>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}Content</a>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}Media</a>
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}Transfer</a>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}Settings &amp; secrets</a>
+        <div class="ml-[1.375rem] pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
+          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
+          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}Import / export schema</a>
+        </div>
       </div>`
     : '';
 
-  return `<aside class="w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3 sticky top-0 h-screen">
+  return `<aside class="w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3 h-screen fixed inset-y-0 left-0 z-40 -translate-x-full transition-transform peer-checked:translate-x-0 md:sticky md:top-0 md:translate-x-0 md:transition-none">
+    <label for="nav-toggle" aria-label="Close menu" class="md:hidden absolute right-2 top-2 p-1 cursor-pointer text-muted-foreground">${icon('x')}</label>
     <a class="px-3 py-2 font-bold text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
-    <select id="project-switcher" class="${SELECT_CLASS} bg-sidebar mb-1" title="Switch project">${options}</select>
+    ${switcher}
     ${projectNav}
     <div class="mt-auto flex flex-col gap-0.5">
       <div class="flex flex-col gap-0.5 border-t border-sidebar-border pt-3">
         ${groupLabel('Instance')}
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects">${icon('folder')}Projects</a>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/settings">${icon('settings')}Global settings &amp; secrets</a>
         <a data-nav class="${SIDEBAR_LINK}" href="/account">${icon('user')}Account</a>
       </div>
@@ -1421,9 +1438,15 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, created
         <td class="p-2 text-sm text-muted-foreground">${timeAgo(k.created_at)}</td>
         <td class="p-2 text-sm text-muted-foreground">${k.last_used_at ? timeAgo(k.last_used_at) : 'never'}</td>
         <td class="p-2 text-right">
-          <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/revoke">
-            ${button({ label: 'Revoke', variant: 'ghost-destructive', small: true })}
-          </form>
+          <div class="inline-flex gap-1 justify-end">
+            <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/mcp">
+              <input type="hidden" name="mcp" value="${k.mcp ? '0' : '1'}">
+              ${button({ label: k.mcp ? 'Disable MCP' : 'Enable MCP', variant: 'outline', small: true })}
+            </form>
+            <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/revoke">
+              ${button({ label: 'Revoke', variant: 'ghost-destructive', small: true })}
+            </form>
+          </div>
         </td>
       </tr>`,
     )

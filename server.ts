@@ -73,6 +73,7 @@ import {
   createApiKey,
   listApiKeys,
   revokeApiKey,
+  setApiKeyMcp,
   verifyApiKey,
   listPublished,
   getPublished,
@@ -1618,6 +1619,12 @@ export function createApp(configOverrides = {}) {
 
   router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {
     revokeApiKey(db, Number.parseInt(params.keyId, 10));
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
+  }));
+
+  router.post('/admin/projects/:slug/api-keys/:keyId/mcp', withProject(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    setApiKeyMcp(db, Number.parseInt(params.keyId, 10), form.mcp === '1');
     redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
   }));
 

@@ -4,6 +4,13 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.13.1 (2026-09-10)
+
+- MCP access is now editable on existing keys. The API keys table has an "Enable MCP" / "Disable MCP" button per key, so a key created before the MCP opt-in (which defaulted to no MCP access) can be granted access without recreating it. No new migration.
+- Admin is usable on mobile. The sidebar is now an off-canvas drawer under a "Menu" button on narrow screens (opened and closed with a CSS-only toggle, no extra JS), instead of a fixed 240px panel that squeezed the content column off the screen. Content padding tightens on small viewports; wide tables already scroll horizontally.
+- Project switcher restyled. The dropdown now shows the current project's avatar on the left and a chevron on the right (native select underneath, still no JS), instead of a plain box with the icon crammed into the option text.
+- Sidebar nav tidied. The current project's name is no longer repeated below the switcher, and "API keys" and "Import / export schema" (was "Transfer") are now nested under "Settings & secrets" as a sub-list.
+
 ## 0.13.0 (2026-09-10)
 
 - MCP access is now an opt-in capability per API key, separate from read/write scope. Creating a key has an "Enable MCP access" checkbox: a read + MCP key exposes read-only tools over `/mcp/<project>`, a read + write + MCP key exposes the editing tools too, and a key without it is refused at the MCP endpoint (403) while still working on the REST API. Existing keys default to no MCP access; the keys table shows an MCP tag on keys that have it. A per-project migration adds the `mcp` column automatically.
