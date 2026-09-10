@@ -334,7 +334,7 @@ async function main() {
     form: { webhook_url: webhookUrl, webhook_secret: webhookSecret },
   });
 
-  const keyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke' } });
+  const keyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke', mcp: '1' } });
   assert.equal(keyPage.status, 200, 'creating an API key should render the key once');
   const keyHtml = await keyPage.text();
   const apiKey = (keyHtml.match(/yn_[A-Za-z0-9_-]+/) || [])[0];
@@ -368,9 +368,19 @@ async function main() {
   assert.equal(sinceBad.status, 400, 'invalid updated_since should be 400');
 
   // 9b. Headless media upload: Bearer key, write scope, {id, key, url} back
-  const upKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-write', scope: 'write' } });
+  const upKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-write', scope: 'write', mcp: '1' } });
   const upWriteKey = ((await upKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
   assert.ok(upWriteKey, 'write-scope API key should appear once');
+
+  // 9a. A key created without MCP access is refused at the /mcp endpoint.
+  const noMcpPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-nomcp' } });
+  const noMcpKey = ((await noMcpPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
+  const noMcpRes = await fetch(`${base}/mcp/${slug}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${noMcpKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+  });
+  assert.equal(noMcpRes.status, 403, 'a key without MCP access should be 403 at /mcp');
 
   const apiUploadBody = (name: string) =>
     `--smokeapib\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: text/plain\r\n\r\napi upload\r\n--smokeapib--\r\n`;
@@ -799,7 +809,7 @@ async function main() {
   ).json();
   assert.ok(writeDenied.error.message.includes('read-only'), 'write tool with read key should be refused');
 
-  const writeKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'agent', scope: 'write' } });
+  const writeKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'agent', scope: 'write', mcp: '1' } });
   const writeKey = ((await writeKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
   assert.ok(writeKey, 'write-scope key should be created');
 

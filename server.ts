@@ -1611,8 +1611,9 @@ export function createApp(configOverrides = {}) {
     const form = await readFormBody(req);
     const name = (form.name || '').trim();
     if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
-    const createdKey = createApiKey(db, name, form.scope);
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT }));
+    const mcp = !!form.mcp;
+    const createdKey = createApiKey(db, name, form.scope, mcp);
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, createdKeyMcp: mcp, collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT }));
   }));
 
   router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {
@@ -1784,6 +1785,7 @@ export function createApp(configOverrides = {}) {
     const auth = req.headers.authorization || '';
     const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
+    if (!apiKey.mcp) return json(req, res, 403, { error: 'forbidden', message: 'This API key does not have MCP access enabled.' });
     const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
     if (!applyRateLimit(req, res, `${project.slug}:${apiKey.id}`, rateLimit)) return;
     let message;

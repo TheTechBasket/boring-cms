@@ -12,6 +12,20 @@
   if (best) best.setAttribute('aria-current', 'page');
 }
 
+// Theme toggle: explicit light/dark choice on <html>, persisted. The
+// no-FOUC inline script in <head> applies it on load; this just flips it.
+{
+  const toggle = document.getElementById('theme-toggle');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const dark = document.documentElement.classList.toggle('dark');
+      try {
+        localStorage.theme = dark ? 'dark' : 'light';
+      } catch (e) {}
+    });
+  }
+}
+
 // Confirm destructive forms. Forms with a confirm input (project and
 // collection delete) require the typed slug to match; forms without one
 // (entry delete) just ask.

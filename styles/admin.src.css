@@ -4,6 +4,10 @@
 @source "../lib";
 @source "../public/admin.js";
 
+/* Dark mode is an explicit .dark class on <html>, not the OS setting, so
+   dark: utilities must key off the class instead of prefers-color-scheme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
@@ -88,44 +92,8 @@
 	--sidebar-ring: oklch(0.205 0.006 285);
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--background: oklch(0.185 0.005 285);
-		--foreground: oklch(0.965 0.002 286);
-		--card: oklch(0.23 0.006 285);
-		--card-foreground: oklch(0.965 0.002 286);
-		--popover: oklch(0.23 0.006 285);
-		--popover-foreground: oklch(0.965 0.002 286);
-		--primary: oklch(0.855 0.065 285);
-		--primary-foreground: oklch(0.205 0.006 285);
-		--link: oklch(0.8 0.09 285);
-		--secondary: oklch(0.29 0.007 285);
-		--secondary-foreground: oklch(0.965 0.002 286);
-		--muted: oklch(0.29 0.007 285);
-		--muted-foreground: oklch(0.76 0.01 285);
-		--accent: oklch(0.855 0.065 285);
-		--accent-foreground: oklch(0.205 0.006 285);
-		--destructive: oklch(0.7 0.19 22);
-		--border: oklch(1 0 0 / 10%);
-		--input: oklch(1 0 0 / 15%);
-		--ring: oklch(0.855 0.065 285);
-		--chart-1: oklch(0.855 0.065 285);
-		--chart-2: oklch(0.75 0.1 285);
-		--chart-3: oklch(0.62 0.13 285);
-		--chart-4: oklch(0.5 0.13 285);
-		--chart-5: oklch(0.4 0.11 285);
-		--sidebar: oklch(0.23 0.006 285);
-		--sidebar-foreground: oklch(0.965 0.002 286);
-		--sidebar-primary: oklch(0.965 0.002 286);
-		--sidebar-primary-foreground: oklch(0.205 0.006 285);
-		--sidebar-accent: oklch(0.965 0.002 286);
-		--sidebar-accent-foreground: oklch(0.205 0.006 285);
-		--sidebar-border: oklch(1 0 0 / 10%);
-		--sidebar-ring: oklch(0.855 0.065 285);
-	}
-}
-
-/* Explicit .dark class also wins, in case a future toggle sets it. */
+/* Theme is an explicit choice, not the OS setting: the sidebar toggle sets
+   .dark on <html> and persists it. No prefers-color-scheme auto-switch. */
 .dark {
 	--background: oklch(0.185 0.005 285);
 	--foreground: oklch(0.965 0.002 286);
@@ -135,6 +103,7 @@
 	--popover-foreground: oklch(0.965 0.002 286);
 	--primary: oklch(0.855 0.065 285);
 	--primary-foreground: oklch(0.205 0.006 285);
+	--link: oklch(0.8 0.09 285);
 	--secondary: oklch(0.29 0.007 285);
 	--secondary-foreground: oklch(0.965 0.002 286);
 	--muted: oklch(0.29 0.007 285);
@@ -169,7 +138,7 @@
 	}
 	html {
 		@apply font-sans;
-		color-scheme: light dark;
+		color-scheme: light;
 	}
 	.dark {
 		color-scheme: dark;

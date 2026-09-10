@@ -4,6 +4,12 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.13.0 (2026-09-10)
+
+- MCP access is now an opt-in capability per API key, separate from read/write scope. Creating a key has an "Enable MCP access" checkbox: a read + MCP key exposes read-only tools over `/mcp/<project>`, a read + write + MCP key exposes the editing tools too, and a key without it is refused at the MCP endpoint (403) while still working on the REST API. Existing keys default to no MCP access; the keys table shows an MCP tag on keys that have it. A per-project migration adds the `mcp` column automatically.
+- Explicit light/dark theme, no OS auto-switch. A theme toggle in the sidebar sets the choice and persists it in the browser (applied before first paint, so no flash). Dark mode now follows the toggled `.dark` class rather than the operating-system setting.
+- Sidebar redesign: fresh Solar duotone icons throughout, project-scoped and instance-scoped navigation split into clearly labelled "Project" and "Instance" groups (each settings link annotated as covering settings and secrets), and the signed-in email removed from the sidebar.
+
 ## 0.12.0 (2026-09-10)
 
 - Revision history shows a diff, not just a revert. Each revision in the entry editor has a Diff button that opens a centered modal with a line-level diff per changed field: only the changed lines show (removed in red, added in green) with a little context, and long unchanged runs collapse to a count, so the modal reflects what changed instead of dumping the whole field body. Large diffs stay scrollable inside the modal. The Revert button lives inside that modal, so a revert can no longer be clicked by accident.
