@@ -1190,13 +1190,44 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
   // Show what each revision changed, from-value to to-value, so a revert is
   // deliberate. Deltas store the PREVIOUS value; the resulting ("to") value
   // is reconstructed by walking newest-first from the current draft state.
-  // A single changed value, rendered as a scrollable block so long diffs
-  // stay readable inside the modal instead of overflowing the sidebar.
-  const fmtVal = (v: any, tone: string) => {
-    if (v === undefined || v === null || v === '') return `<div class="text-xs italic text-muted-foreground px-2 py-1.5 border border-border">(empty)</div>`;
-    const s = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
-    const shown = s.length > 4000 ? `${s.slice(0, 4000)}\n…(${s.length - 4000} more characters)` : s;
-    return `<pre class="text-xs px-2 py-1.5 border border-border max-h-64 overflow-auto whitespace-pre-wrap break-all m-0 ${tone}">${escapeHtml(shown)}</pre>`;
+  // Line-level diff so the modal shows exactly what changed, not the whole
+  // field body. LCS over lines, then only changed lines plus a little context
+  // are rendered; long unchanged runs collapse to a count.
+  const toStr = (v: any) => (v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v));
+  const diffField = (before: any, after: any) => {
+    const bs = toStr(before);
+    const as = toStr(after);
+    if (bs === as) return `<div class="text-xs italic text-muted-foreground px-2 py-1.5 border border-border">(no textual change)</div>`;
+    // ponytail: cap at 500 lines/side so LCS stays cheap on huge bodies.
+    const a = bs.split('\n').slice(0, 500);
+    const b = as.split('\n').slice(0, 500);
+    const m = a.length, n = b.length;
+    const dp: Int32Array[] = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+    for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    const ops: [string, string][] = [];
+    let i = 0, j = 0;
+    while (i < m && j < n) {
+      if (a[i] === b[j]) { ops.push(['=', a[i]]); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push(['-', a[i]]); i++; }
+      else { ops.push(['+', b[j]]); j++; }
+    }
+    while (i < m) { ops.push(['-', a[i++]]); }
+    while (j < n) { ops.push(['+', b[j++]]); }
+    const CTX = 2;
+    const visible = new Array(ops.length).fill(false);
+    ops.forEach(([t], k) => { if (t !== '=') for (let d = -CTX; d <= CTX; d++) { const idx = k + d; if (idx >= 0 && idx < ops.length) visible[idx] = true; } });
+    let body = '';
+    let hidden = 0;
+    const flush = () => { if (hidden) { body += `<div class="text-xs italic text-muted-foreground px-2 py-0.5">… ${hidden} unchanged line${hidden === 1 ? '' : 's'}</div>`; hidden = 0; } };
+    ops.forEach(([t, line], k) => {
+      if (!visible[k]) { hidden++; return; }
+      flush();
+      const cls = t === '+' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : t === '-' ? 'bg-destructive/10 text-destructive' : 'text-foreground';
+      const sign = t === '+' ? '+' : t === '-' ? '-' : ' ';
+      body += `<div class="px-2 py-0.5 ${cls}"><span class="select-none opacity-60">${sign} </span>${escapeHtml(line) || '&nbsp;'}</div>`;
+    });
+    flush();
+    return `<pre class="text-xs border border-border max-h-80 overflow-auto whitespace-pre-wrap break-all m-0 py-1">${body}</pre>`;
   };
   let after: Record<string, any> = entry ? { ...entry.data } : {};
   const revisionRows = revisions
@@ -1205,10 +1236,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
         .filter(([k]) => k !== '__title')
         .map(([field, before]) => `<div class="flex flex-col gap-1">
             <code class="text-xs font-medium">${escapeHtml(field)}</code>
-            <span class="text-xs text-muted-foreground">Before</span>
-            ${fmtVal(before, 'text-destructive')}
-            <span class="text-xs text-muted-foreground">After</span>
-            ${fmtVal(after[field], 'text-foreground')}
+            ${diffField(before, after[field])}
           </div>`)
         .join('');
       // Step the after-state back to before this revision for older entries.
@@ -1224,7 +1252,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
       return `<li class="flex items-center justify-between gap-2 py-1.5 border-b border-border text-sm">
         <span class="text-muted-foreground min-w-0 truncate">${timeAgo(r.created_at)} · ${escapeHtml(fields)}</span>
         <button type="button" data-open-dialog="${dlgId}" class="shrink-0 text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Diff</button>
-        <dialog id="${dlgId}" class="w-[min(90vw,640px)] max-h-[85vh] p-0 border border-border bg-card text-card-foreground shadow-lg backdrop:bg-black/50">
+        <dialog id="${dlgId}" class="m-auto w-[min(90vw,640px)] max-h-[85vh] p-0 border border-border bg-card text-card-foreground shadow-lg backdrop:bg-black/50">
           <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3 sticky top-0 bg-card">
             <span class="text-sm font-medium">Revision · ${timeAgo(r.created_at)}</span>
             <button type="button" data-close-dialog class="text-sm text-muted-foreground hover:text-foreground cursor-pointer bg-transparent border-0 p-0">Close</button>
