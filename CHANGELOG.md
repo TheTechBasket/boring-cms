@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.14.0 (2026-09-11)
+
+- Whole-project backup and restore over the public API, so a build-from-CMS project can safely gitignore its synced content and keep one snapshot as the outage fallback instead of thousands of tracked files. `GET /api/v1/<project>/export` returns a single JSON dump of the schema plus every entry (read-scope key, same shape as the admin export). `POST /api/v1/<project>/import` rehydrates from that dump (write-scope key): an idempotent upsert by slug that applies the schema, then creates or updates each entry and preserves published/draft status. Entries absent from the dump are left alone, a no-op restore bumps nothing (build clients keep their `ETag`/`304`), and `?delete_missing=1` forwards to the schema apply only. Accepts dumps up to 64 MB. No new migration.
+
 ## 0.13.1 (2026-09-10)
 
 - MCP access is now editable on existing keys. The API keys table has an "Enable MCP" / "Disable MCP" button per key, so a key created before the MCP opt-in (which defaulted to no MCP access) can be granted access without recreating it. No new migration.

@@ -81,6 +81,34 @@ app's `/media/...` route on local disk), ready to embed in content.
 Folder paths need a storage with a public base URL. The MCP endpoint has
 the same thing as an `upload_media` tool (base64 body, 8 MB request cap).
 
+### Backup and restore
+
+The whole project is a single JSON dump (schema plus every entry), so a
+project can keep one restorable snapshot instead of thousands of tracked
+files:
+
+```bash
+# Snapshot: schema + all entries, one file (read-scope key).
+curl -H "Authorization: Bearer yn_..." \
+  http://localhost:3000/api/v1/<project>/export > backup.json
+
+# Restore: rehydrate from a dump (write-scope key). Round-trips /export.
+curl -X POST -H "Authorization: Bearer yn_..." \
+  -H "Content-Type: application/json" --data-binary @backup.json \
+  http://localhost:3000/api/v1/<project>/import
+```
+
+Restore is an idempotent upsert by slug: it applies the schema, then creates
+or updates each entry and preserves published/draft status. Entries absent
+from the dump are left alone, and a no-op restore bumps nothing (build clients
+keep their `ETag`/`304`). `?delete_missing=1` forwards to the schema apply only
+(drops collections absent from the dump, entries included); it never deletes
+entries within a kept collection. Import accepts dumps up to 64 MB.
+
+This lets a build-from-CMS project safely gitignore its synced content: the
+build pulls live from the API, and a committed or backed-up `export.json`
+is the one fallback if the CMS is unreachable at build time.
+
 ## Webhooks
 
 Configure a webhook URL and optional secret per project under Project settings. Fired automatically when published content changes, so static site consumers can trigger rebuilds:

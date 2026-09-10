@@ -35,7 +35,7 @@ import {
 } from './lib/store.ts';
 import { verifyRegistration, verifyAssertion, b64url } from './lib/webauthn.ts';
 import { readMultipart } from './lib/multipart.ts';
-import { exportSchema, exportCollection, exportProject, applySchema, parseImportFile, applyImport } from './lib/transfer.ts';
+import { exportSchema, exportCollection, exportProject, applySchema, restoreProject, parseImportFile, applyImport } from './lib/transfer.ts';
 import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, mediaPrefixFrom, adoptableKey, guessMime, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
@@ -1722,6 +1722,39 @@ export function createApp(configOverrides = {}) {
     const url = new URL(req.url, 'http://localhost');
     try {
       const report = applySchema(ctx.db, body, { deleteMissing: url.searchParams.get('delete_missing') === '1' });
+      json(req, res, 200, report);
+    } catch (err: any) {
+      json(req, res, 400, { error: 'bad_request', message: err.message });
+    }
+  });
+
+  // Whole-project snapshot: single-file dump of schema + every entry, so a
+  // project keeps ONE restorable backup instead of thousands of tracked
+  // files. Read-scope key, same shape as the admin export.json.
+  router.get('/api/v1/:project/export', (req, res, params) => {
+    const ctx = apiProject(req, res, params);
+    if (!ctx) return;
+    json(req, res, 200, exportProject(ctx.db, ctx.project));
+  });
+
+  // Rehydrate a project from an export dump (disaster recovery / bootstrap).
+  // Write-scope key. Non-destructive upsert by slug; ?delete_missing=1 only
+  // forwards to the schema apply. Round-trips GET /export.
+  router.post('/api/v1/:project/import', async (req, res, params) => {
+    const ctx = apiProject(req, res, params, { write: true });
+    if (!ctx) return;
+    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
+    let body;
+    try {
+      body = JSON.parse(await readBody(req, { limit: 64 * 1024 * 1024 }));
+    } catch (err: any) {
+      const message = err?.code === 'body_too_large' ? 'Dump exceeds 64 MB.' : 'Body must be a Boring CMS project export (JSON).';
+      return json(req, res, 400, { error: 'bad_request', message });
+    }
+    const url = new URL(req.url, 'http://localhost');
+    try {
+      const report = restoreProject(ctx.db, body, { deleteMissing: url.searchParams.get('delete_missing') === '1' });
       json(req, res, 200, report);
     } catch (err: any) {
       json(req, res, 400, { error: 'bad_request', message: err.message });

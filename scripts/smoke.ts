@@ -372,6 +372,21 @@ async function main() {
   const upWriteKey = ((await upKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
   assert.ok(upWriteKey, 'write-scope API key should appear once');
 
+  // 9a-2. Project export + restore round-trip (backup / disaster recovery).
+  const dump: any = await (await fetch(`${base}/api/v1/${slug}/export`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+  assert.ok(dump.schema && Array.isArray(dump.collections), 'export dump carries schema + collections');
+  assert.equal((await fetch(`${base}/api/v1/${slug}/export`)).status, 401, 'export requires a key');
+  const importReadKey = await fetch(`${base}/api/v1/${slug}/import`, {
+    method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: '{}',
+  });
+  assert.equal(importReadKey.status, 403, 'import needs a write-scope key');
+  const restore = await fetch(`${base}/api/v1/${slug}/import`, {
+    method: 'POST', headers: { Authorization: `Bearer ${upWriteKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(dump),
+  });
+  assert.equal(restore.status, 200, 'restoring own dump should succeed');
+  const restoreReport: any = await restore.json();
+  assert.equal(restoreReport.collections['blog-posts'].created, 0, 'restoring own dump creates nothing (idempotent upsert)');
+
   // 9a. A key created without MCP access is refused at the /mcp endpoint.
   const noMcpPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-nomcp' } });
   const noMcpKey = ((await noMcpPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];

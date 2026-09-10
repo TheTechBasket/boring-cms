@@ -217,7 +217,9 @@ async function main() {
 
   const readKeyPage = await form('POST', `/admin/projects/${project}/api-keys`, { name: 'bench-read' });
   readKey = ((await readKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
-  const writeKeyPage = await form('POST', `/admin/projects/${project}/api-keys`, { name: 'bench-write', scope: 'write' });
+  // mcp:'1' required since v0.13.0: MCP access is opt-in per key, and the
+  // write phases below drive create/update/delete through the MCP endpoint.
+  const writeKeyPage = await form('POST', `/admin/projects/${project}/api-keys`, { name: 'bench-write', scope: 'write', mcp: '1' });
   writeKey = ((await writeKeyPage.text()).match(/yn_[A-Za-z0-9_-]+/) || [])[0];
   if (!readKey || !writeKey) throw new Error('could not extract API keys');
   const bootstrapMs = Date.now() - t0;

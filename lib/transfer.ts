@@ -8,6 +8,8 @@ import {
   createEntry,
   updateEntry,
   publishEntry,
+  unpublishEntry,
+  hasUnpublishedChanges,
   bumpContentVersion,
 } from './content.ts';
 
@@ -76,6 +78,52 @@ export function applySchema(db, schema, { deleteMissing = false } = {}) {
     }
   }
   if (report.created.length || report.updated.length || report.deleted.length) bumpContentVersion(db);
+  return report;
+}
+
+// ---- Project restore ------------------------------------------------------
+
+// Round-trips exportProject for disaster recovery / new-machine bootstrap:
+// apply the schema, then upsert every entry by its native slug, preserving
+// published/draft status. No column mapping (unlike applyImport): the dump
+// is already in native shape. Idempotent and non-destructive: entries absent
+// from the dump are left alone (deleteMissing only forwards to the schema
+// apply, never touches entries), and an unchanged restore bumps nothing, so
+// build clients keep their ETag/304. Restoring an outage snapshot cannot
+// clobber content newer than the snapshot.
+export function restoreProject(db, dump, { deleteMissing = false } = {}) {
+  if (!dump?.schema || !Array.isArray(dump?.collections)) {
+    throw new Error('Dump must be a Boring CMS project export: { schema, collections }.');
+  }
+  const report: any = { schema: applySchema(db, dump.schema, { deleteMissing }), collections: {} };
+  for (const block of dump.collections) {
+    const slug = block?.collection?.slug;
+    const collection = slug ? getCollection(db, slug) : null;
+    if (!collection) throw new Error(`Collection "${slug}" missing after schema apply.`);
+    const existing = new Map<string, any>(
+      db.prepare('SELECT id, collection_id, slug, data, status, published_data FROM entries WHERE collection_id = ?')
+        .all(collection.id)
+        .map((r) => [r.slug, { ...r, data: JSON.parse(r.data), published_data: r.published_data ? JSON.parse(r.published_data) : null }]),
+    );
+    let created = 0;
+    let updated = 0;
+    for (const e of block.entries ?? []) {
+      if (!e?.slug) throw new Error(`Entry without a slug in "${slug}".`);
+      const wantPublished = e.status === 'published';
+      const match = existing.get(e.slug);
+      if (match) {
+        const after = updateEntry(db, match, { data: e.data ?? {} });
+        if (wantPublished && (match.status !== 'published' || hasUnpublishedChanges(after))) publishEntry(db, match.id);
+        else if (!wantPublished && match.status === 'published') unpublishEntry(db, match.id);
+        updated++;
+      } else {
+        const entry = createEntry(db, collection, { data: e.data ?? {}, slug: e.slug });
+        if (wantPublished) publishEntry(db, entry.id);
+        created++;
+      }
+    }
+    report.collections[collection.slug] = { created, updated };
+  }
   return report;
 }
 
