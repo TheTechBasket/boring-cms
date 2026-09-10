@@ -11,8 +11,9 @@ if (!dir) {
 }
 
 const runs = readdirSync(dir)
-  .filter((f) => f.endsWith('.json'))
+  .filter((f) => f.endsWith('.json') && f !== 'toolchain.json')
   .map((f) => JSON.parse(readFileSync(path.join(dir, f), 'utf8')))
+  .filter((r) => r.phases || r.failed) // skip any non-run json in the dir
   .sort((a, b) => (a.label || '').localeCompare(b.label || ''));
 
 const ok = runs.filter((r) => !r.failed);
@@ -64,4 +65,13 @@ console.log('| Run | Runtime | vCPUs | Peak RSS (MB) | Wall (s) |');
 console.log('| --- | --- | ---: | ---: | ---: |');
 for (const r of ok) {
   console.log(`| ${r.label} | ${r.runtime_version || r.runtime} | ${r.vcpus} | ${r.server_peak_rss_mb ?? 'n/a'} | ${Math.round((r.total_wall_ms || 0) / 1000)} |`);
+}
+
+// Fail loud: a bench dataset with a dead combo or a phase throwing errors is
+// not comparable, so exit nonzero and let run.sh propagate it. Threshold: any
+// failed-to-start combo, or a phase where >5% of ops errored.
+const errored = ok.filter((r) => r.phases.some((p) => p.errors > (p.count || 0) * 0.05));
+if (failed.length || errored.length) {
+  console.error(`bench FAILED: ${failed.length} dead combo(s), ${errored.length} run(s) with >5% phase errors`);
+  process.exit(1);
 }

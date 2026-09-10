@@ -28,6 +28,27 @@ mkdir -p "$OUTDIR"
 PORT=4710
 SERVER_PID=""
 DATA_DIR=""
+FAILED=0
+
+# Toolchain + constraints record: makes each dataset self-describing so runs
+# taken on different days stay comparable. Lists every runtime (node, bun,
+# deno) plus pnpm with its version, the date, and the fixed constraints.
+NODE_V=$("$NODE_BIN" -v 2>/dev/null)
+BUN_V=$([ -x "$BUN_BIN" ] && "$BUN_BIN" --version 2>/dev/null || echo "")
+DENO_V=$([ -x "$DENO_BIN" ] && "$DENO_BIN" --version 2>/dev/null | head -1 | awk '{print $2}' || echo "")
+PNPM_V=$(command -v pnpm >/dev/null 2>&1 && pnpm -v 2>/dev/null || echo "")
+HOST=$(uname -srm)
+"$NODE_BIN" -e "
+  const fs = require('fs');
+  fs.writeFileSync('$OUTDIR/toolchain.json', JSON.stringify({
+    date: new Date().toISOString(),
+    cms_version: '$VERSION',
+    host: '$HOST',
+    node: '$NODE_V', bun: '$BUN_V', deno: '$DENO_V', pnpm: '$PNPM_V',
+    constraints: { heap_mb: 768, rate_limit_per_min: 100000000, cpu_pinning: 'taskset', client_runtime: 'node $NODE_V' },
+  }, null, 2) + '\n');
+"
+echo "toolchain: node=$NODE_V bun=${BUN_V:-n/a} deno=${DENO_V:-n/a} pnpm=${PNPM_V:-n/a} ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
 
 cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
@@ -134,5 +155,8 @@ for rt in "${RT[@]}"; do
   done
 done
 
-"$NODE_BIN" bench/summarize.mjs "$OUTDIR" > "$OUTDIR/summary.md"
+# summarize.mjs exits nonzero if any combo failed or a phase errored past
+# threshold; propagate that so a broken bench run fails loud (CI, callers).
+"$NODE_BIN" bench/summarize.mjs "$OUTDIR" > "$OUTDIR/summary.md" || FAILED=1
 echo "summary: $OUTDIR/summary.md"
+[ "$FAILED" = 0 ] || { echo "bench had failures; see $OUTDIR/summary.md"; exit 1; }
