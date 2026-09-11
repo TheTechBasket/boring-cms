@@ -26,6 +26,27 @@
   }
 }
 
+// Sidebar collapse: one toggle, both breakpoints. The head script applies the
+// state before paint (and forces the rail on phones). Desktop preference is
+// persisted; phone open/close is transient so pages open with the menu closed.
+{
+  const root = document.documentElement;
+  const wide = () => matchMedia('(min-width: 768px)').matches;
+  const set = (collapsed) => {
+    root.classList.toggle('nav-collapsed', collapsed);
+    if (wide()) {
+      try {
+        localStorage.nav = collapsed ? 'collapsed' : 'expanded';
+      } catch (e) {}
+    }
+  };
+  for (const el of document.querySelectorAll('[data-nav-toggle]')) {
+    el.addEventListener('click', () => set(!root.classList.contains('nav-collapsed')));
+  }
+  const scrim = document.querySelector('[data-nav-scrim]');
+  if (scrim) scrim.addEventListener('click', () => set(true));
+}
+
 // Confirm destructive forms. Forms with a confirm input (project and
 // collection delete) require the typed slug to match; forms without one
 // (entry delete) just ask.

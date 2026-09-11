@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.16.0 (2026-09-11)
+
+- Collapsible sidebar, one mechanism for every screen. The nav has a single toggle (top of the sidebar) that flips between the full labelled panel and a compact icon rail; there is no longer a separate mobile-drawer code path. On desktop the panel and rail sit inline and the content reflows to fill the freed width; on a phone the slim rail stays pinned to the left and the expanded panel slides over the content with a dim backdrop that closes it on tap. The state is applied before paint (so there is no flash), the desktop choice is remembered per browser, and phones always open on the rail so no page loads with the menu covering the content. The switcher, nav links, and instance links are unchanged in behavior. No new migration.
+
 ## 0.15.2 (2026-09-11)
 
 - Project switcher dropdown is readable. On the black sidebar the switcher was rendered with a light color scheme, so the native option list came up as light-grey text on white (nearly invisible) and the closed control had no solid fill. It is now a solid dark control with `color-scheme: dark`, so both the selected project and the open list of projects read as light text on dark, matching the nav. No new migration.

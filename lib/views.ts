@@ -300,12 +300,10 @@ function layout({ title, body, user = null, projects = [], project = null, notic
         ${pageNotice ? notice(pageNotice) : ''}
         ${body}
       </main>`
-    : `<div class="flex min-h-screen">
-        <input type="checkbox" id="nav-toggle" class="peer sr-only">
-        <label for="nav-toggle" aria-label="Close menu" class="fixed inset-0 z-30 bg-black/50 hidden peer-checked:block md:hidden"></label>
+    : `<div class="admin-shell flex min-h-screen">
+        <div data-nav-scrim class="nav-scrim"></div>
         ${sidebar({ user: user!, projects, project })}
-        <main class="@container flex-1 min-w-0 px-4 py-4 md:px-8 md:py-8">
-          <label for="nav-toggle" class="md:hidden inline-flex items-center gap-2 mb-4 px-3 py-1.5 text-sm border border-border cursor-pointer select-none">${icon('menu')}Menu</label>
+        <main class="admin-main @container flex-1 min-w-0 px-4 py-4 md:px-8 md:py-8">
           <div class="w-full max-w-6xl flex flex-col gap-5">
             ${pageNotice ? notice(pageNotice) : ''}
             ${body}
@@ -321,7 +319,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
   <title>${escapeHtml(title)} · ${APP_NAME}</title>
   <link rel="icon" href="${favicon(project)}">
   <link rel="stylesheet" href="/public/admin.css?v=${ADMIN_CSS_V}">
-  <script>try{if(localStorage.theme==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
+  <script>try{var d=document.documentElement;if(localStorage.theme==='dark')d.classList.add('dark');var c=localStorage.nav==='collapsed';if(innerWidth<768)c=true;if(c)d.classList.add('nav-collapsed')}catch(e){}</script>
 </head>
 <body class="min-h-screen bg-background text-foreground">
   ${shell}
@@ -330,8 +328,8 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 </html>`;
 }
 
-const SIDEBAR_LINK = 'flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
-const SIDEBAR_SUBLINK = 'flex items-center gap-2 pl-2 pr-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
+const SIDEBAR_LINK = 'nav-item flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
+const SIDEBAR_SUBLINK = 'nav-item flex items-center gap-2 pl-2 pr-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
 
 function sidebar({ user, projects, project }: {
   user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
@@ -355,46 +353,48 @@ function sidebar({ user, projects, project }: {
     'flex h-9 w-full items-center border border-sidebar-border bg-sidebar-accent ' +
     'text-sidebar-foreground [color-scheme:dark] appearance-none pl-9 pr-8 py-1 text-sm ' +
     'font-medium shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer';
-  const switcher = `<div class="relative mb-1">
-    <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-10">${switcherMark}</span>
+  const switcher = `<div class="nav-switch relative mb-1">
+    <span class="nav-switch-av pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-10">${switcherMark}</span>
     <select id="project-switcher" class="${switcherClass}" title="Switch project">${options}</select>
-    <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sidebar-foreground/60">${icon('chevron')}</span>
+    <span class="nav-switch-chev pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sidebar-foreground/60">${icon('chevron')}</span>
   </div>`;
 
   const groupLabel = (text: string) =>
-    `<span class="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">${text}</span>`;
+    `<span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">${text}</span>`;
 
   const projectNav = project
     ? `<div class="flex flex-col gap-0.5 mt-4">
-        <span class="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">Project</span>
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}Content</a>
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}Media</a>
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}Settings &amp; secrets</a>
-        <div class="ml-[1.375rem] pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
-          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}API keys</a>
-          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}Import / export schema</a>
+        <span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">Project</span>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}<span class="nav-label">Content</span></a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}<span class="nav-label">Media</span></a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}<span class="nav-label">Settings &amp; secrets</span></a>
+        <div class="nav-sublinks ml-[1.375rem] pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
+          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}<span class="nav-label">API keys</span></a>
+          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}<span class="nav-label">Import / export schema</span></a>
         </div>
       </div>`
     : '';
 
-  return `<aside class="w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3 h-screen fixed inset-y-0 left-0 z-40 -translate-x-full transition-transform peer-checked:translate-x-0 md:sticky md:top-0 md:translate-x-0 md:transition-none">
-    <label for="nav-toggle" aria-label="Close menu" class="md:hidden absolute right-2 top-2 p-1 cursor-pointer text-muted-foreground">${icon('x')}</label>
-    <a class="px-3 py-2 font-bold font-mono tracking-tight text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
+  return `<aside class="admin-sidebar shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3">
+    <div class="nav-brand flex items-center gap-2 px-3 py-2">
+      <a class="nav-brand-text font-bold font-mono tracking-tight text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
+      <button type="button" data-nav-toggle aria-label="Toggle navigation" class="nav-toggle-btn ml-auto inline-flex size-7 shrink-0 items-center justify-center border-0 bg-transparent text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">${icon('menu')}</button>
+    </div>
     ${switcher}
     ${projectNav}
     <div class="mt-auto flex flex-col gap-0.5">
       <div class="flex flex-col gap-0.5 border-t border-sidebar-border pt-3">
         ${groupLabel('Instance')}
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/settings">${icon('settings')}Global settings &amp; secrets</a>
-        <a data-nav class="${SIDEBAR_LINK}" href="/account">${icon('user')}Account</a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/settings">${icon('settings')}<span class="nav-label">Global settings &amp; secrets</span></a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/account">${icon('user')}<span class="nav-label">Account</span></a>
       </div>
       <div class="mt-2 border-t border-sidebar-border pt-2 flex flex-col gap-0.5">
         <button type="button" id="theme-toggle" class="${SIDEBAR_LINK} w-full bg-transparent border-0 cursor-pointer" aria-label="Toggle theme">
-          <span class="contents dark:hidden">${icon('moon')}Dark mode</span>
-          <span class="hidden dark:contents">${icon('sun')}Light mode</span>
+          <span class="contents dark:hidden">${icon('moon')}<span class="nav-label">Dark mode</span></span>
+          <span class="hidden dark:contents">${icon('sun')}<span class="nav-label">Light mode</span></span>
         </button>
-        <form method="post" action="/logout" class="px-3 pt-2">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
-        <span class="px-3 pt-1 text-xs text-muted-foreground">${APP_NAME} v${APP_VERSION}</span>
+        <form method="post" action="/logout" class="nav-logout px-3 pt-2">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
+        <span class="nav-version px-3 pt-1 text-xs text-muted-foreground">${APP_NAME} v${APP_VERSION}</span>
       </div>
     </div>
   </aside>`;

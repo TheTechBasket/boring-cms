@@ -198,7 +198,88 @@ details[data-popover][open] > .popover-panel {
 	select,
 	input:not([type="checkbox"]):not([type="radio"]),
 	a[data-nav],
-	label[for="nav-toggle"] {
+	[data-nav-toggle] {
 		min-height: 2.75rem;
+	}
+}
+
+/* ===== Collapsible sidebar =================================================
+   One state (`.nav-collapsed` on <html>), one toggle, both breakpoints.
+   Expanded = full labelled panel; collapsed = icon rail. Desktop keeps the
+   panel/rail inline and reflows the content; phone pins the rail and slides
+   the expanded panel over the content with a scrim. The collapsed state is
+   applied before paint by the head script (and forced on phones there), so
+   there is no flash and no separate mobile-drawer mechanism. */
+.admin-sidebar {
+	width: 15rem;
+	overflow-x: hidden;
+	overflow-y: auto;
+	transition: width 0.2s ease;
+}
+.nav-scrim {
+	display: none;
+}
+
+/* Rail: hide labels, center the icons. Same rules feed desktop-collapsed and
+   the phone rail (phone is forced collapsed on load). */
+.nav-collapsed .nav-label,
+.nav-collapsed .nav-grouplabel,
+.nav-collapsed .nav-version,
+.nav-collapsed .nav-brand-text,
+.nav-collapsed .nav-switch-chev,
+.nav-collapsed .nav-sublinks,
+.nav-collapsed .nav-logout {
+	display: none;
+}
+.nav-collapsed .nav-item,
+.nav-collapsed .nav-brand {
+	justify-content: center;
+	padding-inline: 0;
+	gap: 0;
+}
+.nav-collapsed .nav-toggle-btn {
+	margin-left: 0;
+}
+.nav-collapsed .nav-switch-av {
+	left: 50%;
+	transform: translate(-50%, -50%);
+}
+.nav-collapsed .nav-switch select {
+	color: transparent;
+	padding-inline: 0;
+}
+
+@media (min-width: 768px) {
+	.admin-sidebar {
+		position: sticky;
+		top: 0;
+		height: 100vh;
+	}
+	.nav-collapsed .admin-sidebar {
+		width: 3.5rem;
+	}
+}
+
+@media (max-width: 767px) {
+	.admin-sidebar {
+		position: fixed;
+		inset: 0 auto 0 0;
+		height: 100vh;
+		z-index: 40;
+		box-shadow: 2px 0 12px rgb(0 0 0 / 0.3);
+	}
+	.nav-collapsed .admin-sidebar {
+		width: 3.5rem;
+		box-shadow: none;
+	}
+	.admin-main {
+		padding-left: 4.5rem;
+	}
+	html:not(.nav-collapsed) .nav-scrim {
+		display: block;
+		position: fixed;
+		inset: 0;
+		z-index: 30;
+		background: rgb(0 0 0 / 0.45);
 	}
 }

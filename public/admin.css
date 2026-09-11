@@ -211,17 +211,6 @@
   .visible {
     visibility: visible;
   }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-    border-width: 0;
-  }
   .absolute {
     position: absolute;
   }
@@ -237,29 +226,17 @@
   .sticky {
     position: sticky;
   }
-  .inset-0 {
-    inset: 0px;
-  }
-  .inset-y-0 {
-    inset-block: 0px;
-  }
   .top-0 {
     top: 0px;
   }
   .top-1\/2 {
     top: calc(1 / 2 * 100%);
   }
-  .top-2 {
-    top: calc(var(--spacing) * 2);
-  }
   .top-full {
     top: 100%;
   }
   .right-0 {
     right: 0px;
-  }
-  .right-2 {
-    right: calc(var(--spacing) * 2);
   }
   .right-2\.5 {
     right: calc(var(--spacing) * 2.5);
@@ -275,12 +252,6 @@
   }
   .z-10 {
     z-index: 10;
-  }
-  .z-30 {
-    z-index: 30;
-  }
-  .z-40 {
-    z-index: 40;
   }
   .col-span-2 {
     grid-column: span 2 / span 2;
@@ -400,9 +371,6 @@
   .h-auto {
     height: auto;
   }
-  .h-screen {
-    height: 100vh;
-  }
   .max-h-40 {
     max-height: calc(var(--spacing) * 40);
   }
@@ -420,9 +388,6 @@
   }
   .w-56 {
     width: calc(var(--spacing) * 56);
-  }
-  .w-60 {
-    width: calc(var(--spacing) * 60);
   }
   .w-64 {
     width: calc(var(--spacing) * 64);
@@ -480,10 +445,6 @@
   }
   .border-collapse {
     border-collapse: collapse;
-  }
-  .-translate-x-full {
-    --tw-translate-x: -100%;
-    translate: var(--tw-translate-x) var(--tw-translate-y);
   }
   .-translate-y-1\/2 {
     --tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
@@ -638,12 +599,6 @@
   .bg-background {
     background-color: var(--background);
   }
-  .bg-black\/50 {
-    background-color: color-mix(in srgb, #000 50%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix(in oklab, var(--color-black) 50%, transparent);
-    }
-  }
   .bg-card {
     background-color: var(--card);
   }
@@ -697,9 +652,6 @@
   }
   .p-0 {
     padding: 0px;
-  }
-  .p-1 {
-    padding: var(--spacing);
   }
   .p-2 {
     padding: calc(var(--spacing) * 2);
@@ -857,9 +809,6 @@
   .text-wrap {
     text-wrap: wrap;
   }
-  .break-words {
-    overflow-wrap: break-word;
-  }
   .break-all {
     word-break: break-all;
   }
@@ -971,11 +920,6 @@
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
-  .transition-transform {
-    transition-property: transform, translate, scale, rotate;
-    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
-    transition-duration: var(--tw-duration, var(--default-transition-duration));
-  }
   .select-all {
     -webkit-user-select: all;
     user-select: all;
@@ -983,13 +927,6 @@
   .select-none {
     -webkit-user-select: none;
     user-select: none;
-  }
-  .peer-checked\:block:is(:where(.peer):checked ~ *) {
-    display: block;
-  }
-  .peer-checked\:translate-x-0:is(:where(.peer):checked ~ *) {
-    --tw-translate-x: 0px;
-    translate: var(--tw-translate-x) var(--tw-translate-y);
   }
   .file\:mr-3::file-selector-button {
     margin-right: calc(var(--spacing) * 3);
@@ -1112,27 +1049,11 @@
     color: var(--sidebar-accent-foreground);
   }
   @media (width >= 48rem) {
-    .md\:sticky {
-      position: sticky;
-    }
-    .md\:top-0 {
-      top: 0px;
-    }
-    .md\:hidden {
-      display: none;
-    }
-    .md\:translate-x-0 {
-      --tw-translate-x: 0px;
-      translate: var(--tw-translate-x) var(--tw-translate-y);
-    }
     .md\:px-8 {
       padding-inline: calc(var(--spacing) * 8);
     }
     .md\:py-8 {
       padding-block: calc(var(--spacing) * 8);
-    }
-    .md\:transition-none {
-      transition-property: none;
     }
   }
   @container (width < 32rem) {
@@ -1175,9 +1096,6 @@
     }
     .\@4xl\:grid-cols-4 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-    .\@4xl\:grid-cols-\[\.\.\.320px\] {
-      grid-template-columns: ...320px;
     }
     .\@4xl\:grid-cols-\[minmax\(0\,1fr\)_320px\] {
       grid-template-columns: minmax(0,1fr) 320px;
@@ -1744,8 +1662,69 @@ details[data-popover][open] > .popover-panel {
   }
 }
 @media (pointer: coarse) {
-  button,	select,	input:not([type="checkbox"]):not([type="radio"]),	a[data-nav],	label[for="nav-toggle"] {
+  button,	select,	input:not([type="checkbox"]):not([type="radio"]),	a[data-nav],	[data-nav-toggle] {
     min-height: 2.75rem;
+  }
+}
+.admin-sidebar {
+  width: 15rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  transition: width 0.2s ease;
+}
+.nav-scrim {
+  display: none;
+}
+.nav-collapsed .nav-label, .nav-collapsed .nav-grouplabel, .nav-collapsed .nav-version, .nav-collapsed .nav-brand-text, .nav-collapsed .nav-switch-chev, .nav-collapsed .nav-sublinks, .nav-collapsed .nav-logout {
+  display: none;
+}
+.nav-collapsed .nav-item, .nav-collapsed .nav-brand {
+  justify-content: center;
+  padding-inline: 0;
+  gap: 0;
+}
+.nav-collapsed .nav-toggle-btn {
+  margin-left: 0;
+}
+.nav-collapsed .nav-switch-av {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.nav-collapsed .nav-switch select {
+  color: transparent;
+  padding-inline: 0;
+}
+@media (min-width: 768px) {
+  .admin-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .nav-collapsed .admin-sidebar {
+    width: 3.5rem;
+  }
+}
+@media (max-width: 767px) {
+  .admin-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    height: 100vh;
+    z-index: 40;
+    box-shadow: 2px 0 12px rgb(0 0 0 / 0.3);
+  }
+  .nav-collapsed .admin-sidebar {
+    width: 3.5rem;
+    box-shadow: none;
+  }
+  .admin-main {
+    padding-left: 4.5rem;
+  }
+  html:not(.nav-collapsed) .nav-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgb(0 0 0 / 0.45);
   }
 }
 @property --tw-translate-x {
