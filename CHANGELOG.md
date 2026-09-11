@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.16.1 (2026-09-11)
+
+- Sidebar refinements. The project switcher is now a quiet ghost control that fills only on hover (with an up/down affordance), instead of a heavy always-on dark block. The project sub-items (API keys, Import / export) are flat single-line rows instead of a cramped indented group with a left rule, so "Import / export" no longer wraps to two lines. The "Log out" control is a muted icon row at the foot of the nav rather than an outlined button competing for attention. The collapse control uses a sidebar glyph (not a hamburger) and flips to point the other way when the nav is on the rail. Small delight: the current page's icon is tinted in the utility blue, nav rows transition color on hover, and the collapse glyph animates. Behavior and links are unchanged. No new migration.
+
 ## 0.16.0 (2026-09-11)
 
 - Collapsible sidebar, one mechanism for every screen. The nav has a single toggle (top of the sidebar) that flips between the full labelled panel and a compact icon rail; there is no longer a separate mobile-drawer code path. On desktop the panel and rail sit inline and the content reflows to fill the freed width; on a phone the slim rail stays pinned to the left and the expanded panel slides over the content with a dim backdrop that closes it on tap. The state is applied before paint (so there is no flash), the desktop choice is remembered per browser, and phones always open on the rail so no page loads with the menu covering the content. The switcher, nav links, and instance links are unchanged in behavior. No new migration.

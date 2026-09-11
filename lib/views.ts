@@ -35,6 +35,9 @@ const ICONS: Record<string, string> = {
   user: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M14 4H10C6.22876 4 4.34315 4 3.17157 5.17157C2 6.34315 2 8.22876 2 12C2 15.7712 2 17.6569 3.17157 18.8284C4.34315 20 6.22876 20 10 20H14C17.7712 20 19.6569 20 20.8284 18.8284C22 17.6569 22 15.7712 22 12C22 8.22876 22 6.34315 20.8284 5.17157C19.6569 4 17.7712 4 14 4Z" opacity=".5"/><path d="M13.25 9C13.25 8.58579 13.5858 8.25 14 8.25H19C19.4142 8.25 19.75 8.58579 19.75 9C19.75 9.41421 19.4142 9.75 19 9.75H14C13.5858 9.75 13.25 9.41421 13.25 9Z"/><path d="M14.25 12C14.25 11.5858 14.5858 11.25 15 11.25H19C19.4142 11.25 19.75 11.5858 19.75 12C19.75 12.4142 19.4142 12.75 19 12.75H15C14.5858 12.75 14.25 12.4142 14.25 12Z"/><path d="M15.25 15C15.25 14.5858 15.5858 14.25 16 14.25H19C19.4142 14.25 19.75 14.5858 19.75 15C19.75 15.4142 19.4142 15.75 19 15.75H16C15.5858 15.75 15.25 15.4142 15.25 15Z"/><path d="M9 11C10.1046 11 11 10.1046 11 9C11 7.89543 10.1046 7 9 7C7.89543 7 7 7.89543 7 9C7 10.1046 7.89543 11 9 11Z"/><path d="M9 17C13 17 13 16.1046 13 15C13 13.8954 11.2091 13 9 13C6.79086 13 5 13.8954 5 15C5 16.1046 5 17 9 17Z"/></g></svg>`,
   sun: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M17 12C17 14.7614 14.7614 17 12 17C9.23858 17 7 14.7614 7 12C7 9.23858 9.23858 7 12 7C14.7614 7 17 9.23858 17 12Z"/><path fill-rule="evenodd" d="M12 1.25C12.4142 1.25 12.75 1.58579 12.75 2V4C12.75 4.41421 12.4142 4.75 12 4.75C11.5858 4.75 11.25 4.41421 11.25 4V2C11.25 1.58579 11.5858 1.25 12 1.25ZM1.25 12C1.25 11.5858 1.58579 11.25 2 11.25H4C4.41421 11.25 4.75 11.5858 4.75 12C4.75 12.4142 4.41421 12.75 4 12.75H2C1.58579 12.75 1.25 12.4142 1.25 12ZM19.25 12C19.25 11.5858 19.5858 11.25 20 11.25H22C22.4142 11.25 22.75 11.5858 22.75 12C22.75 12.4142 22.4142 12.75 22 12.75H20C19.5858 12.75 19.25 12.4142 19.25 12ZM12 19.25C12.4142 19.25 12.75 19.5858 12.75 20V22C12.75 22.4142 12.4142 22.75 12 22.75C11.5858 22.75 11.25 22.4142 11.25 22V20C11.25 19.5858 11.5858 19.25 12 19.25Z" clip-rule="evenodd"/><g opacity=".5"><path d="M3.66919 3.7156C3.94869 3.4099 4.42309 3.38867 4.72879 3.66817L6.95081 5.69975C7.25651 5.97925 7.27774 6.45365 6.99824 6.75935C6.71874 7.06505 6.24434 7.08629 5.93865 6.80679L3.71663 4.7752C3.41093 4.4957 3.38969 4.0213 3.66919 3.7156Z"/><path d="M20.3319 3.7156C20.6114 4.0213 20.5902 4.4957 20.2845 4.7752L18.0624 6.80679C17.7567 7.08629 17.2823 7.06505 17.0028 6.75935C16.7233 6.45365 16.7446 5.97925 17.0503 5.69975L19.2723 3.66817C19.578 3.38867 20.0524 3.4099 20.3319 3.7156Z"/><path d="M17.0261 17.0247C17.319 16.7318 17.7938 16.7319 18.0867 17.0248L20.3087 19.2471C20.6016 19.54 20.6016 20.0148 20.3087 20.3077C20.0158 20.6006 19.5409 20.6006 19.248 20.3076L17.026 18.0854C16.7331 17.7924 16.7332 17.3176 17.0261 17.0247Z"/><path d="M6.97521 17.0249C7.2681 17.3177 7.2681 17.7926 6.97521 18.0855L4.75299 20.3077C4.46009 20.6006 3.98522 20.6006 3.69233 20.3077C3.39943 20.0148 3.39943 19.54 3.69233 19.2471L5.91455 17.0248C6.20744 16.732 6.68232 16.732 6.97521 17.0249Z"/></g></g></svg>`,
   moon: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M22 12.0004C22 17.5232 17.5228 22.0004 12 22.0004C10.8358 22.0004 9.71801 21.8014 8.67887 21.4357C8.24138 20.3772 8 19.217 8 18.0004C8 15.7792 8.80467 13.7459 10.1384 12.1762C11.31 13.8818 13.2744 15.0004 15.5 15.0004C17.8615 15.0004 19.9289 13.741 21.0672 11.8572C21.3065 11.4612 22 11.5377 22 12.0004Z" clip-rule="evenodd" opacity=".5"/><path d="M2 12C2 16.3586 4.78852 20.0659 8.67887 21.4353C8.24138 20.3768 8 19.2166 8 18C8 15.7788 8.80467 13.7455 10.1384 12.1758C9.42027 11.1303 9 9.86422 9 8.5C9 6.13845 10.2594 4.07105 12.1432 2.93276C12.5392 2.69347 12.4627 2 12 2C6.47715 2 2 6.47715 2 12Z"/></g></svg>`,
+  sidebar: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M3.17157 4.1716C2 5.34318 2 7.2288 2 11V13C2 16.7713 2 18.6569 3.17157 19.8285C4.34315 21 6.22876 21 10 21H14C14.0843 21 14.9176 21.0001 15 21.0001L15 3.00006C14.9176 3.00005 14.0843 3.00003 14 3.00003H10C6.22876 3.00003 4.34315 3.00003 3.17157 4.1716Z" clip-rule="evenodd" opacity=".5"/><path d="M22 13V11C22 7.22876 22 5.34315 20.8284 4.17157C19.8541 3.19724 17.6359 3.03321 15 3.00559V20.9944C17.6359 20.9668 19.8541 20.8028 20.8284 19.8284C22 18.6569 22 16.7712 22 13Z"/></g></svg>`,
+  logout: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M15.9998 2L14.9998 2C12.1714 2 10.7576 2.00023 9.87891 2.87891C9.00023 3.75759 9.00023 5.1718 9.00023 8.00023L9.00023 16.0002C9.00023 18.8287 9.00023 20.2429 9.87891 21.1215C10.7574 22 12.1706 22 14.9976 22L14.9998 22L15.9998 22C18.8282 22 20.2424 22 21.1211 21.1213C21.9998 20.2426 21.9998 18.8284 21.9998 16L21.9998 8L21.9998 7.99998C21.9998 5.17157 21.9998 3.75736 21.1211 2.87868C20.2424 2 18.8282 2 15.9998 2Z" opacity=".5"/><path fill-rule="evenodd" d="M15.75 12C15.75 11.5858 15.4142 11.25 15 11.25L4.02744 11.25L5.98809 9.56943C6.30259 9.29986 6.33901 8.82639 6.06944 8.51189C5.79988 8.1974 5.3264 8.16098 5.01191 8.43054L1.51191 11.4305C1.34567 11.573 1.25 11.781 1.25 12C1.25 12.2189 1.34567 12.4269 1.51191 12.5694L5.01191 15.5694C5.3264 15.839 5.79988 15.8026 6.06944 15.4881C6.33901 15.1736 6.30259 14.7001 5.98809 14.4305L4.02744 12.75L15 12.75C15.4142 12.75 15.75 12.4142 15.75 12Z" clip-rule="evenodd"/></g></svg>`,
+  unfold: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M20 10.875C20.3013 10.875 20.5733 10.6948 20.6907 10.4173C20.8081 10.1399 20.7482 9.81916 20.5384 9.60289L16.5384 5.47789C16.3972 5.33222 16.2029 5.25 16 5.25C15.7971 5.25 15.6029 5.33222 15.4616 5.47789L11.4616 9.60289C11.2519 9.81916 11.1919 10.1399 11.3093 10.4173C11.4268 10.6948 11.6988 10.875 12 10.875H15.25V18C15.25 18.4142 15.5858 18.75 16 18.75C16.4142 18.75 16.75 18.4142 16.75 18L16.75 10.875H20Z"/><path d="M12 13.125C12.3013 13.125 12.5733 13.3052 12.6907 13.5827C12.8081 13.8601 12.7482 14.1808 12.5384 14.3971L8.53844 18.5221C8.39719 18.6678 8.20293 18.75 8.00002 18.75C7.79711 18.75 7.60285 18.6678 7.46159 18.5221L3.46159 14.3971C3.25188 14.1808 3.19192 13.8601 3.30934 13.5827C3.42676 13.3052 3.69877 13.125 4.00002 13.125H7.25002L7.25002 6C7.25002 5.58579 7.5858 5.25 8.00002 5.25C8.41423 5.25 8.75002 5.58579 8.75002 6L8.75002 13.125L12 13.125Z" opacity=".5"/></g></svg>`,
 };
 
 function icon(name: string): string {
@@ -328,8 +331,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 </html>`;
 }
 
-const SIDEBAR_LINK = 'nav-item flex items-center gap-2 px-3 py-1.5 text-sm text-sidebar-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
-const SIDEBAR_SUBLINK = 'nav-item flex items-center gap-2 pl-2 pr-3 py-1.5 text-sm text-muted-foreground no-underline hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
+const SIDEBAR_LINK = 'nav-item flex items-center gap-2.5 px-3 py-1.5 text-sm text-sidebar-foreground no-underline transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-sidebar-accent-foreground aria-[current=page]:font-medium';
 
 function sidebar({ user, projects, project }: {
   user: { email: string }; projects: { slug: string; name: string; icon?: string }[]; project: { slug: string; name: string; icon?: string } | null;
@@ -345,18 +347,19 @@ function sidebar({ user, projects, project }: {
   const switcherMark = project
     ? projectAvatar(project, 'size-5 text-[11px]')
     : `<span class="size-5 flex items-center justify-center text-muted-foreground">${icon('folder')}</span>`;
-  // A self-contained dark control: bg-transparent from SELECT_CLASS would win
-  // over any bg here, and color-scheme:light would render the native option
-  // list light (unreadable light-on-white). So spell the switcher out with a
-  // solid dark fill and color-scheme:dark, so the popup matches the black nav.
+  // A quiet ghost control that fills on hover, not a heavy always-on block.
+  // color-scheme:dark keeps the native option list dark (light would render it
+  // as unreadable light-grey on white); the select owns its own background so
+  // no SELECT_CLASS bg leaks in.
   const switcherClass =
-    'flex h-9 w-full items-center border border-sidebar-border bg-sidebar-accent ' +
+    'flex h-10 w-full items-center border border-transparent bg-transparent ' +
     'text-sidebar-foreground [color-scheme:dark] appearance-none pl-9 pr-8 py-1 text-sm ' +
-    'font-medium shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer';
-  const switcher = `<div class="nav-switch relative mb-1">
-    <span class="nav-switch-av pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-10">${switcherMark}</span>
+    'font-medium transition-colors hover:border-sidebar-border hover:bg-sidebar-accent ' +
+    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer';
+  const switcher = `<div class="nav-switch relative mb-2">
+    <span class="nav-switch-av pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 z-10">${switcherMark}</span>
     <select id="project-switcher" class="${switcherClass}" title="Switch project">${options}</select>
-    <span class="nav-switch-chev pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sidebar-foreground/60">${icon('chevron')}</span>
+    <span class="nav-switch-chev pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sidebar-foreground/50">${icon('unfold')}</span>
   </div>`;
 
   const groupLabel = (text: string) =>
@@ -367,18 +370,16 @@ function sidebar({ user, projects, project }: {
         <span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">Project</span>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}<span class="nav-label">Content</span></a>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}<span class="nav-label">Media</span></a>
-        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}<span class="nav-label">Settings &amp; secrets</span></a>
-        <div class="nav-sublinks ml-[1.375rem] pl-3 border-l border-sidebar-border flex flex-col gap-0.5">
-          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}<span class="nav-label">API keys</span></a>
-          <a data-nav class="${SIDEBAR_SUBLINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}<span class="nav-label">Import / export schema</span></a>
-        </div>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}<span class="nav-label">Settings</span></a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/api-keys">${icon('key')}<span class="nav-label">API keys</span></a>
+        <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/transfer">${icon('transfer')}<span class="nav-label">Import / export</span></a>
       </div>`
     : '';
 
   return `<aside class="admin-sidebar shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3">
     <div class="nav-brand flex items-center gap-2 px-3 py-2">
       <a class="nav-brand-text font-bold font-mono tracking-tight text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
-      <button type="button" data-nav-toggle aria-label="Toggle navigation" class="nav-toggle-btn ml-auto inline-flex size-7 shrink-0 items-center justify-center border-0 bg-transparent text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">${icon('menu')}</button>
+      <button type="button" data-nav-toggle aria-label="Toggle navigation" title="Toggle navigation" class="nav-toggle-btn ml-auto inline-flex size-7 shrink-0 items-center justify-center border-0 bg-transparent text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">${icon('sidebar')}</button>
     </div>
     ${switcher}
     ${projectNav}
@@ -393,7 +394,7 @@ function sidebar({ user, projects, project }: {
           <span class="contents dark:hidden">${icon('moon')}<span class="nav-label">Dark mode</span></span>
           <span class="hidden dark:contents">${icon('sun')}<span class="nav-label">Light mode</span></span>
         </button>
-        <form method="post" action="/logout" class="nav-logout px-3 pt-2">${button({ label: 'Log out', variant: 'outline', small: true })}</form>
+        <form method="post" action="/logout"><button type="submit" title="Log out" class="nav-item flex items-center gap-2.5 w-full px-3 py-1.5 text-sm no-underline transition-colors bg-transparent border-0 cursor-pointer text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground">${icon('logout')}<span class="nav-label">Log out</span></button></form>
         <span class="nav-version px-3 pt-1 text-xs text-muted-foreground">${APP_NAME} v${APP_VERSION}</span>
       </div>
     </div>

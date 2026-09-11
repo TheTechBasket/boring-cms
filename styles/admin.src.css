@@ -226,9 +226,7 @@ details[data-popover][open] > .popover-panel {
 .nav-collapsed .nav-grouplabel,
 .nav-collapsed .nav-version,
 .nav-collapsed .nav-brand-text,
-.nav-collapsed .nav-switch-chev,
-.nav-collapsed .nav-sublinks,
-.nav-collapsed .nav-logout {
+.nav-collapsed .nav-switch-chev {
 	display: none;
 }
 .nav-collapsed .nav-item,
@@ -239,6 +237,21 @@ details[data-popover][open] > .popover-panel {
 }
 .nav-collapsed .nav-toggle-btn {
 	margin-left: 0;
+}
+
+/* The toggle icon points at the panel; flip it on the rail so it reads as
+   "expand". Transition the glyph, not the sidebar width alone. */
+.nav-toggle-btn svg {
+	transition: transform 0.2s ease;
+}
+.nav-collapsed .nav-toggle-btn svg {
+	transform: scaleX(-1);
+}
+
+/* Active row: tint just the icon with the utility blue so the current page
+   reads at a glance without a heavy fill fighting the black nav. */
+.nav-item[aria-current="page"] [aria-hidden="true"] {
+	color: var(--primary);
 }
 .nav-collapsed .nav-switch-av {
 	left: 50%;
