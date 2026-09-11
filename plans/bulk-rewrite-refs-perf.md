@@ -1,6 +1,8 @@
 # bulk_rewrite_refs performance fix
 
-**Status:** fix implemented and bench-verified locally; not pushed. Open decision below needs prod numbers.
+**Status:** shipped in v0.17.1 (commit 653b419). Decision resolved: KEEP IN-REQUEST, no background job. Live prod run done (Amit greenlit, ttb ran it): 1.9s, entries_touched 1223, one content_version bump, 3254 substitutions; immediate re-dry touches 0 (all png/jpg now webp, idempotent). Only remaining item is the thetechbasket critical-CSS build + rebuild/deploy so the webp URLs render live (ttb handling, downstream site task).
+
+**Prod verification (v0.17.1, full-map dry_run, run by peer ttb):** 1.3s wall (1803ms then 1276ms), status 200, entries_touched 1223, content_version_bumped false, 3254 total substitutions (2215/2216 pairs matched >=1 entry, 1 matched 0). From ~34h to ~1.3s: 60x+ under the 100s Cloudflare cap. In-request is fine with huge margin; a background job is YAGNI.
 
 ## Problem
 
@@ -45,7 +47,11 @@ After fix:
 
 O(entries x pairs) is gone: 2216 pairs now costs ~1.8x of 1 pair (one scan, bigger regex), not 2216x. Old code at scale 20 would be ~2216 x 69.6ms = ~154s for the dry count alone.
 
-## Open decision: in-request vs background job
+## Decision (RESOLVED): in-request vs background job
+
+Resolved to in-request by the prod dry_run above (1.3s, 60x+ under the cap). A background job is not built (YAGNI). Original reasoning kept below for the record.
+
+
 
 The remaining cost is O(entries): one unavoidable pass to read and rewrite every entry. On prod that single pass was ~55s for the old 1-pair `instr()` scan. The single-pass regex over the full map should run in roughly one-scan time (the ~1.8x regex overhead seen locally), so prod full-map is plausibly in the ~60-110s range: near or over the 100s Cloudflare cap.
 

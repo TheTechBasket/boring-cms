@@ -2,7 +2,7 @@
 
 ## Active
 
-- [bulk-rewrite-refs-perf](bulk-rewrite-refs-perf.md): single-pass fix for `bulk_rewrite_refs` (was O(entries x pairs), 504 on prod). Fix implemented and bench-verified locally, not pushed. Open: in-request vs background job, pending a prod full-map `dry_run` number on the fixed code.
+- [bulk-rewrite-refs-perf](bulk-rewrite-refs-perf.md): single-pass fix for `bulk_rewrite_refs` (was O(entries x pairs), 504 on prod). Shipped v0.17.1 (653b419). Prod dry_run 1.3s / 1223 entries: decision resolved to in-request, no background job. Remaining: live prod run awaiting Amit's go, then thetechbasket rebuild.
 
 ## Backlog
 
