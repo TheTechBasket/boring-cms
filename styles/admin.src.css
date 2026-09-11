@@ -189,6 +189,12 @@ details[data-popover][open] > .popover-panel {
 	button:active {
 		transform: none;
 	}
+	.admin-sidebar {
+		transition: none;
+	}
+	.nav-toggle-btn svg {
+		transition: none;
+	}
 }
 
 /* Touch input: enlarge tap targets to the 44px guideline on coarse pointers
@@ -214,6 +220,9 @@ details[data-popover][open] > .popover-panel {
 	width: 15rem;
 	overflow-x: hidden;
 	overflow-y: auto;
+	/* ponytail: width animates layout, but it is one element on an explicit
+	   user toggle (not a loop or scroll), so the reflow cost is bounded and
+	   acceptable. Disabled under prefers-reduced-motion below. */
 	transition: width 0.2s ease;
 }
 .nav-scrim {

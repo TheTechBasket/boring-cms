@@ -4,6 +4,11 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.16.2 (2026-09-11)
+
+- Readable sidebar labels, version, and Log out. The group labels ("PROJECT", "INSTANCE"), the version line, and the "Log out" control were drawn in the global muted grey, which is a dark grey meant for the light content area; on the always-black sidebar that grey fell to roughly 2.5:1 contrast (below the WCAG AA 4.5:1 minimum), so in light mode the "Log out" control in particular was hard to read. They now use the sidebar's own foreground at reduced opacity, which stays light-on-dark (about 8:1) while still reading as de-emphasized. No behavior change.
+- Sidebar animations respect reduced motion. The collapse width transition and the toggle-icon flip are now disabled under `prefers-reduced-motion: reduce`, alongside the existing popover and button-press motion. No new migration.
+
 ## 0.16.1 (2026-09-11)
 
 - Sidebar refinements. The project switcher is now a quiet ghost control that fills only on hover (with an up/down affordance), instead of a heavy always-on dark block. The project sub-items (API keys, Import / export) are flat single-line rows instead of a cramped indented group with a left rule, so "Import / export" no longer wraps to two lines. The "Log out" control is a muted icon row at the foot of the nav rather than an outlined button competing for attention. The collapse control uses a sidebar glyph (not a hamburger) and flips to point the other way when the nav is on the rail. Small delight: the current page's icon is tinted in the utility blue, nav rows transition color on hover, and the collapse glyph animates. Behavior and links are unchanged. No new migration.

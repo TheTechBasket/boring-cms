@@ -346,7 +346,7 @@ function sidebar({ user, projects, project }: {
 
   const switcherMark = project
     ? projectAvatar(project, 'size-5 text-[11px]')
-    : `<span class="size-5 flex items-center justify-center text-muted-foreground">${icon('folder')}</span>`;
+    : `<span class="size-5 flex items-center justify-center text-sidebar-foreground/60">${icon('folder')}</span>`;
   // A quiet ghost control that fills on hover, not a heavy always-on block.
   // color-scheme:dark keeps the native option list dark (light would render it
   // as unreadable light-grey on white); the select owns its own background so
@@ -363,11 +363,11 @@ function sidebar({ user, projects, project }: {
   </div>`;
 
   const groupLabel = (text: string) =>
-    `<span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">${text}</span>`;
+    `<span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/60">${text}</span>`;
 
   const projectNav = project
     ? `<div class="flex flex-col gap-0.5 mt-4">
-        <span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">Project</span>
+        <span class="nav-grouplabel px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/60 flex items-center gap-1.5">Project</span>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/collections">${icon('document')}<span class="nav-label">Content</span></a>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}/media">${icon('gallery')}<span class="nav-label">Media</span></a>
         <a data-nav class="${SIDEBAR_LINK}" href="/admin/projects/${project.slug}">${icon('settings')}<span class="nav-label">Settings</span></a>
@@ -394,8 +394,8 @@ function sidebar({ user, projects, project }: {
           <span class="contents dark:hidden">${icon('moon')}<span class="nav-label">Dark mode</span></span>
           <span class="hidden dark:contents">${icon('sun')}<span class="nav-label">Light mode</span></span>
         </button>
-        <form method="post" action="/logout"><button type="submit" title="Log out" class="nav-item flex items-center gap-2.5 w-full px-3 py-1.5 text-sm no-underline transition-colors bg-transparent border-0 cursor-pointer text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground">${icon('logout')}<span class="nav-label">Log out</span></button></form>
-        <span class="nav-version px-3 pt-1 text-xs text-muted-foreground">${APP_NAME} v${APP_VERSION}</span>
+        <form method="post" action="/logout"><button type="submit" title="Log out" class="nav-item flex items-center gap-2.5 w-full px-3 py-1.5 text-sm no-underline transition-colors bg-transparent border-0 cursor-pointer text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground">${icon('logout')}<span class="nav-label">Log out</span></button></form>
+        <span class="nav-version px-3 pt-1 text-xs text-sidebar-foreground/60">${APP_NAME} v${APP_VERSION}</span>
       </div>
     </div>
   </aside>`;
