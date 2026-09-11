@@ -23,6 +23,11 @@ const base = arg('base');
 const outPath = arg('out');
 const label = arg('label', 'unlabeled');
 const scale = Number(arg('scale', '1')); // multiply op counts, 1 = default
+// Size of the bulk cosmetic ref-rewrite pair map. Each pair is a full-table
+// instr() scan on the current code, so this is the dimension that blows up in
+// prod (2216 pairs -> 2216 scans -> gateway timeout). Kept small by default so
+// the bench finishes; crank it (and --scale) to approach prod pain locally.
+const rewritePairs = Number(arg('rewrite-pairs', '200'));
 if (!base || !outPath) {
   console.error('usage: node bench/bench.mjs --base URL --out FILE [--label L] [--scale N]');
   process.exit(2);
@@ -146,6 +151,18 @@ function expectStatus(res, ...codes) {
 const LOREM = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ';
 const longBody = ('## Section\n\n' + LOREM.repeat(8) + '\n\n').repeat(6); // ~5.5 KB markdown
 
+// Full https asset URLs that the rewrite phase swaps (.png -> .webp), the real
+// R2 migration shape. Spread across long-article bodies so each pool URL lands
+// in >=1 entry (when the pool fits); any surplus pairs are decoys that match
+// nothing but still cost a full scan, exactly like the prod 2216-pair map.
+const ASSETS_PER_BODY = 6;
+const assetPng = (k) => `https://assets.bench.test/media/asset-${k}.png`;
+const assetWebp = (k) => `https://assets.bench.test/media/asset-${k}.webp`;
+const bodyAssets = (i) =>
+  Array.from({ length: ASSETS_PER_BODY }, (_, j) =>
+    `![img](${assetPng((i * ASSETS_PER_BODY + j) % rewritePairs)})`,
+  ).join('\n');
+
 const shortData = (i) => ({ title: `Short post ${i}`, body: `Body of short post ${i}. ${LOREM}` });
 const longData = (i) => ({
   title: `Long article ${i}`,
@@ -156,7 +173,7 @@ const longData = (i) => ({
   seo_title: `Long article ${i} - Boring CMS bench`,
   seo_description: LOREM.slice(0, 155),
   hero: `/media/${project}/bench-hero.png`,
-  body: longBody,
+  body: `${longBody}\n\n${bodyAssets(i)}`,
   summary: LOREM.repeat(2),
   views: i * 7,
   rating: (i % 5) + 1,
@@ -286,6 +303,28 @@ async function main() {
     await mcp('update_entry', { collection: 'short-posts', slug, data: { title: marker }, publish: true });
     const got = await (await api(`/api/v1/${project}/short-posts/${slug}`)).json();
     if (got.title !== marker) throw new Error('read-after-update returned stale data');
+  });
+
+  // Bulk cosmetic ref rewrite (.png -> .webp across every entry). The prod
+  // pain point: bulkRewriteRefs scans the whole entries table once per pair via
+  // instr() (no index possible on a substring), so dry-run time grows linearly
+  // with pair count. One pair is the baseline scan cost; the full map exposes
+  // the O(entries x pairs) blowup that 504s behind Cloudflare's ~100s cap.
+  // After the single-pass fix, the full-map time should collapse toward the
+  // 1-pair time instead of being rewritePairs x larger.
+  const rewriteMap = Array.from({ length: rewritePairs }, (_, k) => ({ old: assetPng(k), new: assetWebp(k) }));
+  await phase('rewrite_dry_1pair', 1, async () => {
+    const r = await mcp('bulk_rewrite_refs', { pairs: [rewriteMap[0]], dry_run: true });
+    if (r.content_version_bumped) throw new Error('dry run must not bump content_version');
+  });
+  await phase(`rewrite_dry_${rewritePairs}pairs`, 1, async () => {
+    await mcp('bulk_rewrite_refs', { pairs: rewriteMap, dry_run: true });
+  });
+  // One live run: the write path (2 UPDATEs/pair today) plus a single version
+  // bump. Last, so the .webp rewrite does not disturb earlier read assertions.
+  await phase(`rewrite_live_${rewritePairs}pairs`, 1, async () => {
+    const r = await mcp('bulk_rewrite_refs', { pairs: rewriteMap, dry_run: false });
+    if (!r.content_version_bumped) throw new Error('live run should bump content_version once');
   });
 
   // Media on the local disk backend (S3 out of scope, costs money).

@@ -2,7 +2,7 @@
 
 ## Active
 
-(none)
+- [bulk-rewrite-refs-perf](bulk-rewrite-refs-perf.md): single-pass fix for `bulk_rewrite_refs` (was O(entries x pairs), 504 on prod). Fix implemented and bench-verified locally, not pushed. Open: in-request vs background job, pending a prod full-map `dry_run` number on the fixed code.
 
 ## Backlog
 

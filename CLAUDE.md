@@ -6,3 +6,4 @@
 - Views are server-rendered template strings in `lib/views.ts`; interactivity is vanilla JS in `public/admin.js`.
 - After editing styles or views, run `pnpm css` and commit the built `public/admin.css`.
 - Full checks before commit: `pnpm css`, `npx tsc --noEmit`, `pnpm smoke`.
+- New functionality (endpoint, MCP tool, data operation, anything with a runtime cost): add a matching phase to `bench/bench.mjs` covering it, then run the benchmark before push. Catch perf regressions and bugs early, not from a prod 504.

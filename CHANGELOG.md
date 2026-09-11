@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.17.1 (2026-09-11)
+
+- Performance: `bulk_rewrite_refs` now rewrites in a single pass over the entries, independent of how many URL pairs are in the map. v0.17.0 ran one full-table scan per pair (a substring match cannot use an index), so a large map meant hundreds or thousands of whole-table scans and a Cloudflare 504 on real data (2216 pairs timed out; a single pair already took ~55s on prod). The pass now scans each entry once with a combined literal matcher and writes changed rows by primary key. Behavior is unchanged: same exact-URL swap, same no-op on `updated_at`/`published_at`, same single `content_version` bump, same `dry_run` match counts, same `ref_rewrites` audit. No new migration.
+
 ## 0.17.0 (2026-09-11)
 
 - Bulk cosmetic ref rewrite, over the API and MCP. A new `bulk_rewrite_refs` MCP tool and `POST /api/v1/<project>/rewrite-refs` endpoint (both write-scope) swap exact full URLs across every entry in one pass, for cosmetic asset migrations like replacing `.png`/`.jpg` links with the `.webp` of the same image. Each pair replaces the URL in both the published snapshot and the draft, deliberately WITHOUT touching `updated_at` or `published_at`, so sitemap `lastmod` stays frozen; a single `content_version` bump forces exactly one rebuild to pick up the change. `old` and `new` must be full `https://` URLs (a bare extension like `.png` is rejected) and must differ. Pass `dry_run: true` to get per-pair match counts and the total entries touched without changing anything. Matching is literal (safe for URLs containing `%` or `_`), drafts are handled safely, and because this bypasses the normal edit trail every live run is recorded in a new per-project `ref_rewrites` audit table (timestamp, pair count, entries touched, the pairs). New migration: `005_ref_rewrites.sql` (adds the `ref_rewrites` table), applied automatically on the next open of each project database.

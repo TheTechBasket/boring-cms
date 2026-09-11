@@ -96,15 +96,21 @@ export function bumpContentVersion(db) {
 }
 
 // ---- Bulk cosmetic ref rewrite -------------------------------------------
+
+// Escape a literal string for safe use inside a RegExp alternation.
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 // Swaps exact URL strings across every entry (published_data and the draft
 // data), in one transaction. Deliberately does NOT write updated_at or
 // published_at: this is a cosmetic swap of the same asset (e.g. .png ->
 // .webp), so it must not move sitemap lastmod. Relies on there being no
 // UPDATE trigger on entries (there is none) so updated_at stays put; a single
 // content_version bump forces exactly one API refetch on the next build.
-// instr()/replace() are literal (non-wildcard, non-regex), so URLs with % or
-// _ match correctly, unlike LIKE. Draft data (published_data NULL) is rewritten
-// too so a later publish carries the new URL; the WHERE guards skip NULL rows.
+// Matching is exact literal: every old URL is escapeRegExp'd before going into
+// the alternation, so a % or _ or . in a URL matches itself, never a wildcard.
+// Draft data (published_data NULL) is rewritten too so a later publish carries
+// the new URL; the NULL checks skip rows that have no published/draft blob.
 export function bulkRewriteRefs(db, pairs, { dryRun = false } = {}) {
   if (!Array.isArray(pairs) || pairs.length === 0) {
     throw new Error('pairs must be a non-empty array of {old, new}.');
@@ -121,33 +127,42 @@ export function bulkRewriteRefs(db, pairs, { dryRun = false } = {}) {
     if (oldUrl === newUrl) throw new Error(`Pair is a no-op: old === new (${oldUrl}).`);
   }
 
-  // Counts computed before any write, so later pairs see original content.
-  // Distinct entry ids give an accurate touched total when pairs overlap.
-  const idStmt = db.prepare(
-    "SELECT id FROM entries WHERE instr(coalesce(published_data,''), ?) > 0 OR instr(coalesce(data,''), ?) > 0",
-  );
-  const touched = new Set();
-  const per = pairs.map((p) => {
-    const ids = idStmt.all(p.old, p.old);
-    for (const r of ids) touched.add(r.id);
-    return { old: p.old, new: p.new, matched: ids.length };
-  });
-  const entriesTouched = touched.size;
+  // Single pass over entries, independent of pair count. The old code ran one
+  // full-table instr() scan PER pair (no index can serve a substring match),
+  // so a 2216-pair map meant 2216 scans and a gateway timeout. Here every
+  // entry's text is scanned once by a combined literal matcher (alternation of
+  // all old URLs), and live writes go by primary key, not another full scan.
+  // Replacement is non-cascading by design: each matched URL is swapped exactly
+  // once, so a pair whose new value equals another pair's old value does not
+  // chain. That matches "swap exact full URLs" and is the original intent.
+  const map = new Map(pairs.map((p) => [p.old, p.new]));
+  // Longest-first so a URL that is a prefix of another can't shadow the longer.
+  const olds = [...map.keys()].sort((a, b) => b.length - a.length);
+  const rx = new RegExp(olds.map(escapeRegExp).join('|'), 'g');
+  const matched = new Map(olds.map((o) => [o, 0])); // distinct entries per old URL
+
+  let entriesTouched = 0;
+  const changes = []; // {id, published_data, data} for the live write, changed rows only
+  // ponytail: .iterate() streams so we never hold all entries in memory (the
+  // prod box runs tight); only changed rows are buffered for the write.
+  for (const row of db.prepare('SELECT id, published_data, data FROM entries').iterate()) {
+    const seen = new Set();
+    const swap = (m) => { seen.add(m); return map.get(m); };
+    const pub = row.published_data == null ? row.published_data : row.published_data.replace(rx, swap);
+    const data = row.data == null ? row.data : row.data.replace(rx, swap);
+    if (seen.size === 0) continue; // no match in either blob
+    for (const m of seen) matched.set(m, matched.get(m) + 1);
+    entriesTouched++;
+    if (!dryRun) changes.push({ id: row.id, published_data: pub, data });
+  }
+  const per = pairs.map((p) => ({ old: p.old, new: p.new, matched: matched.get(p.old) }));
 
   if (dryRun) return { dry_run: true, entries_touched: entriesTouched, content_version_bumped: false, pairs: per };
 
-  const pubStmt = db.prepare(
-    "UPDATE entries SET published_data = replace(published_data, ?, ?) WHERE instr(coalesce(published_data,''), ?) > 0",
-  );
-  const dataStmt = db.prepare(
-    "UPDATE entries SET data = replace(data, ?, ?) WHERE instr(coalesce(data,''), ?) > 0",
-  );
+  const upd = db.prepare('UPDATE entries SET published_data = ?, data = ? WHERE id = ?');
   db.exec('BEGIN');
   try {
-    for (const p of pairs) {
-      pubStmt.run(p.old, p.new, p.old);
-      dataStmt.run(p.old, p.new, p.old);
-    }
+    for (const c of changes) upd.run(c.published_data, c.data, c.id);
     if (entriesTouched > 0) bumpContentVersion(db);
     db.prepare('INSERT INTO ref_rewrites (pair_count, entries_touched, pairs) VALUES (?, ?, ?)')
       .run(pairs.length, entriesTouched, JSON.stringify(pairs));
