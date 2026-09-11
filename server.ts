@@ -41,7 +41,7 @@ import { localBackend, s3Backend } from './lib/storage.ts';
 import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, registerMedia, syncMedia, mediaUsage, mediaKeyFor, mediaPrefixFrom, adoptableKey, guessMime, hasSharp } from './lib/media.ts';
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
-import { handleMcp, rateLimitOk, retryAfterSeconds, rateLimitHeaders, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
+import { handleMcp, callTool, UnknownToolError, ToolScopeError, rateLimitOk, retryAfterSeconds, rateLimitHeaders, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
 import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
@@ -1798,6 +1798,46 @@ export function createApp(configOverrides = {}) {
       json(req, res, 200, bulkRewriteRefs(ctx.db, body?.pairs, { dryRun: !!body?.dry_run }));
     } catch (err: any) {
       json(req, res, 400, { error: 'bad_request', message: err.message });
+    }
+  });
+
+  // Generic tool endpoint: every MCP tool, callable over plain REST with a
+  // Bearer key (no JSON-RPC framing, no separate MCP-access grant needed). It
+  // dispatches through the SAME TOOLS registry the /mcp endpoint serves, so a
+  // tool added there is reachable here automatically and the two transports
+  // cannot drift apart. Body is the tool's arguments object. Write tools need a
+  // write-scope key (enforced inside callTool). Registered before the generic
+  // :collection routes so the literal "call" segment is unambiguous.
+  router.post('/api/v1/:project/call/:tool', async (req, res, params) => {
+    const ctx = apiProject(req, res, params);
+    if (!ctx) return;
+    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
+    let args;
+    try {
+      args = JSON.parse(await readBody(req, { limit: MCP_BODY_LIMIT }));
+    } catch (err: any) {
+      if (err?.code === 'body_too_large') {
+        return json(req, res, 413, { error: 'body_too_large', limit_bytes: MCP_BODY_LIMIT }, { Connection: 'close' });
+      }
+      return json(req, res, 400, { error: 'bad_request', message: 'Body must be a JSON object of tool arguments.' });
+    }
+    if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+      return json(req, res, 400, { error: 'bad_request', message: 'Body must be a JSON object of tool arguments.' });
+    }
+    try {
+      const result = await callTool(ctx.db, params.tool, args, ctx.apiKey.scope, {
+        uploadMedia: (a) => apiUploadMedia(ctx.project, ctx.db, a),
+        onWebhook: (event: WebhookEvent, collectionSlug: string, entrySlug: string) => {
+          triggerWebhook(ctx.project, collectionSlug, entrySlug, event);
+        },
+      });
+      json(req, res, 200, result);
+    } catch (err: any) {
+      if (err instanceof UnknownToolError) return json(req, res, 404, { error: 'unknown_tool', message: err.message });
+      if (err instanceof ToolScopeError) return json(req, res, 403, { error: 'forbidden', message: err.message });
+      if (err instanceof ToolError) return json(req, res, 422, { error: 'tool_error', message: err.message });
+      throw err;
     }
   });
 

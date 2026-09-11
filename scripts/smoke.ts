@@ -14,6 +14,7 @@ import { createApp } from '../server.ts';
 import { openCoreDb } from '../lib/db.ts';
 import { getProjectBySlug, getSettingValue } from '../lib/store.ts';
 import { getCollection, getEntry, listRevisions } from '../lib/content.ts';
+import { toolCatalog } from '../lib/mcp.ts';
 
 let webhookServer: any = null;
 
@@ -547,6 +548,45 @@ async function main() {
     const after: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
     assert.ok(after.items[0].body.includes(newUrl) && !after.items[0].body.includes(oldUrl), 'live run should swap the URL in the served content');
     assert.equal(after.items[0].updated_at, updatedAtBefore, 'rewrite must NOT change updated_at (sitemap lastmod stays frozen)');
+  }
+
+  // 10c. REST /call parity: every MCP tool is reachable over plain REST with a
+  // Bearer key, so a headless client never needs the JSON-RPC framing or a
+  // separate MCP-access grant. This is the structural guard against the MCP and
+  // REST surfaces drifting apart.
+  {
+    const callUrl = (tool: string) => `${base}/api/v1/${slug}/call/${tool}`;
+    const callHeaders = (key: string) => ({ Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' });
+    const call = (key: string, tool: string, args: any) =>
+      fetch(callUrl(tool), { method: 'POST', headers: callHeaders(key), body: JSON.stringify(args) });
+
+    // Parity invariant: NO tool in the registry may be missing from REST. A
+    // 404 (unknown_tool) here means a tool exists on MCP but not REST. Probed
+    // with the READ key so write tools refuse at the scope gate (403) before
+    // their handler runs: this asserts wiring without mutating any state.
+    for (const t of toolCatalog) {
+      const r = await call(apiKey, t.name, {});
+      assert.notEqual(r.status, 404, `tool ${t.name} must be reachable over REST /call (drift: MCP-only tool)`);
+    }
+
+    // Auth: unknown tool 404, missing key 401, read key refused on a write tool.
+    assert.equal((await call(upWriteKey, 'no_such_tool', {})).status, 404, 'unknown tool over REST /call is 404');
+    assert.equal((await fetch(callUrl('create_entry'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401, 'REST /call needs a key');
+    assert.equal((await call(apiKey, 'create_entry', { collection: 'blog-posts', data: { body: 'x' } })).status, 403, 'write tool with a read key is 403 over REST /call');
+
+    // Functional: create, update, publish an entry entirely over REST /call,
+    // then confirm the public REST read serves it (full write lifecycle, no MCP).
+    const createRes = await call(upWriteKey, 'create_entry', { collection: 'blog-posts', slug: 'rest-call-demo', data: { body: 'via rest call' }, publish: true });
+    assert.equal(createRes.status, 200, 'create_entry over REST /call should succeed');
+    const createBody: any = await createRes.json();
+    assert.equal(createBody.status, 'published', 'create_entry with publish over REST /call should publish');
+    const served: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts/rest-call-demo`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.equal(served.body, 'via rest call', 'entry created over REST /call should be served by the public read API');
+    await call(upWriteKey, 'update_entry', { collection: 'blog-posts', slug: 'rest-call-demo', data: { body: 'edited via rest call' }, publish: true });
+    const reServed: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts/rest-call-demo`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.equal(reServed.body, 'edited via rest call', 'update_entry over REST /call should persist and republish');
+    await call(upWriteKey, 'delete_entry', { collection: 'blog-posts', slug: 'rest-call-demo' });
+    assert.equal((await fetch(`${base}/api/v1/${slug}/blog-posts/rest-call-demo`, { headers: { Authorization: `Bearer ${apiKey}` } })).status, 404, 'delete_entry over REST /call should remove the entry');
   }
 
   // 11. Media: upload to the local backend, serve it back, delete it

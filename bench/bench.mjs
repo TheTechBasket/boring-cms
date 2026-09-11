@@ -77,6 +77,18 @@ async function mcp(tool, args, { key = null } = {}) {
   return JSON.parse(json.result.content[0].text);
 }
 
+// Generic REST tool endpoint (same TOOLS registry as /mcp, plain Bearer key,
+// no JSON-RPC framing). Mirrors mcp() so a phase can compare transport cost.
+async function restCall(tool, args, { key = null } = {}) {
+  const res = await fetch(`${base}/api/v1/${project}/call/${tool}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key || writeKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) throw new Error(`REST /call ${tool} failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 // ---------- measurement ----------
 
 const phases = [];
@@ -268,6 +280,14 @@ async function main() {
   await phase('create_long', N(150), async (i) => {
     const r = await mcp('create_entry', { collection: 'long-articles', slug: `long-${i}`, data: longData(i), publish: true });
     longSlugs.push(r.slug || `long-${i}`);
+  });
+
+  // Same create_entry write, but over the generic REST /call endpoint instead
+  // of MCP JSON-RPC. Confirms the REST transport carries no extra per-write
+  // cost over the MCP path (both dispatch through the same callTool + handler).
+  await phase('create_short_restcall', N(300), async (i) => {
+    const r = await restCall('create_entry', { collection: 'short-posts', slug: `restcall-${i}`, data: shortData(i), publish: true });
+    shortSlugs.push(r.slug || `restcall-${i}`);
   });
 
   // Batch import path (one transaction per call, 200 per batch).

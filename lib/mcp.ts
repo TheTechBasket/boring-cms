@@ -539,6 +539,39 @@ const TOOLS = [
 ];
 
 export class ToolError extends Error {}
+// Unknown tool name and wrong-scope refusals: each transport maps these to its
+// own error shape (JSON-RPC error vs HTTP status), distinct from ToolError,
+// which is a normal tool-level failure the caller should read and react to.
+export class UnknownToolError extends Error {}
+export class ToolScopeError extends Error {}
+
+// The ONE place a tool name is resolved and run. Both transports, the MCP
+// JSON-RPC endpoint (handleMcp) and the REST POST /api/v1/<project>/call/<tool>
+// route, go through this over the same TOOLS registry, so every tool is
+// reachable on both and their feature sets cannot drift apart. Throws
+// UnknownToolError / ToolScopeError / ToolError; callers map those to their
+// transport's error shape.
+export async function callTool(db, name: string, args: any, scope: string, ctx: any = {}) {
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) throw new UnknownToolError(`Unknown tool: ${name}`);
+  if (tool.scope === 'write' && scope !== 'write') {
+    throw new ToolScopeError('This API key is read-only; a write-scope key is required.');
+  }
+  let collection = null;
+  if (tool.inputSchema.properties.collection) {
+    const slug = args?.collection;
+    // Guard the lookup: a missing or non-string slug must be a clean tool
+    // failure, not a SQLite bind crash (a client can omit the argument).
+    collection = typeof slug === 'string' && slug ? getCollection(db, slug) : null;
+    if (!collection) throw new ToolError(`Collection not found: ${slug ?? '(missing)'}`);
+  }
+  return tool.handler(db, args ?? {}, collection, ctx);
+}
+
+// Tool registry catalog (no handlers) for transports that enumerate tools:
+// REST discovery and the parity smoke test that proves no tool is REST-only or
+// MCP-only.
+export const toolCatalog = TOOLS.map(({ name, scope, description, inputSchema }) => ({ name, scope, description, inputSchema }));
 
 function rpcError(id, code, message) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
@@ -571,21 +604,14 @@ export async function handleMcp(db, projectName: string, message: any, scope: st
         tools: TOOLS.filter((t) => t.scope === 'read' || scope === 'write').map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
       });
     case 'tools/call': {
-      const tool = TOOLS.find((t) => t.name === params.name);
-      if (!tool) return rpcError(id, -32602, `Unknown tool: ${params.name}`);
-      if (tool.scope === 'write' && scope !== 'write') {
-        return rpcError(id, -32602, 'This API key is read-only; a write-scope key is required.');
-      }
-      const args = params.arguments ?? {};
-      let collection = null;
-      if (tool.inputSchema.properties.collection) {
-        collection = getCollection(db, args.collection);
-        if (!collection) return toolFailure(id, `Collection not found: ${args.collection}`);
-      }
       try {
-        const result = await tool.handler(db, args, collection, ctx);
+        const result = await callTool(db, params.name, params.arguments ?? {}, scope, ctx);
         return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] });
       } catch (err) {
+        // Unknown tool and scope refusal are protocol errors; a tool-level
+        // failure (bad args, missing collection) is isError content the agent
+        // can read and react to.
+        if (err instanceof UnknownToolError || err instanceof ToolScopeError) return rpcError(id, -32602, err.message);
         if (err instanceof ToolError) return toolFailure(id, err.message);
         throw err;
       }
