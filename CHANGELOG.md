@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.17.0 (2026-09-11)
+
+- Bulk cosmetic ref rewrite, over the API and MCP. A new `bulk_rewrite_refs` MCP tool and `POST /api/v1/<project>/rewrite-refs` endpoint (both write-scope) swap exact full URLs across every entry in one pass, for cosmetic asset migrations like replacing `.png`/`.jpg` links with the `.webp` of the same image. Each pair replaces the URL in both the published snapshot and the draft, deliberately WITHOUT touching `updated_at` or `published_at`, so sitemap `lastmod` stays frozen; a single `content_version` bump forces exactly one rebuild to pick up the change. `old` and `new` must be full `https://` URLs (a bare extension like `.png` is rejected) and must differ. Pass `dry_run: true` to get per-pair match counts and the total entries touched without changing anything. Matching is literal (safe for URLs containing `%` or `_`), drafts are handled safely, and because this bypasses the normal edit trail every live run is recorded in a new per-project `ref_rewrites` audit table (timestamp, pair count, entries touched, the pairs). New migration: `005_ref_rewrites.sql` (adds the `ref_rewrites` table), applied automatically on the next open of each project database.
+
 ## 0.16.2 (2026-09-11)
 
 - Readable sidebar labels, version, and Log out. The group labels ("PROJECT", "INSTANCE"), the version line, and the "Log out" control were drawn in the global muted grey, which is a dark grey meant for the light content area; on the always-black sidebar that grey fell to roughly 2.5:1 contrast (below the WCAG AA 4.5:1 minimum), so in light mode the "Log out" control in particular was hard to read. They now use the sidebar's own foreground at reduced opacity, which stays light-on-dark (about 8:1) while still reading as de-emphasized. No behavior change.

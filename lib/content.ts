@@ -95,6 +95,70 @@ export function bumpContentVersion(db) {
   db.prepare("UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'content_version'").run();
 }
 
+// ---- Bulk cosmetic ref rewrite -------------------------------------------
+// Swaps exact URL strings across every entry (published_data and the draft
+// data), in one transaction. Deliberately does NOT write updated_at or
+// published_at: this is a cosmetic swap of the same asset (e.g. .png ->
+// .webp), so it must not move sitemap lastmod. Relies on there being no
+// UPDATE trigger on entries (there is none) so updated_at stays put; a single
+// content_version bump forces exactly one API refetch on the next build.
+// instr()/replace() are literal (non-wildcard, non-regex), so URLs with % or
+// _ match correctly, unlike LIKE. Draft data (published_data NULL) is rewritten
+// too so a later publish carries the new URL; the WHERE guards skip NULL rows.
+export function bulkRewriteRefs(db, pairs, { dryRun = false } = {}) {
+  if (!Array.isArray(pairs) || pairs.length === 0) {
+    throw new Error('pairs must be a non-empty array of {old, new}.');
+  }
+  for (const p of pairs) {
+    const oldUrl = p?.old;
+    const newUrl = p?.new;
+    if (typeof oldUrl !== 'string' || typeof newUrl !== 'string' || !oldUrl || !newUrl) {
+      throw new Error('Each pair needs non-empty string old and new.');
+    }
+    if (!oldUrl.startsWith('https://') || !newUrl.startsWith('https://')) {
+      throw new Error('Both old and new must be full https:// URLs (never a bare extension like ".png").');
+    }
+    if (oldUrl === newUrl) throw new Error(`Pair is a no-op: old === new (${oldUrl}).`);
+  }
+
+  // Counts computed before any write, so later pairs see original content.
+  // Distinct entry ids give an accurate touched total when pairs overlap.
+  const idStmt = db.prepare(
+    "SELECT id FROM entries WHERE instr(coalesce(published_data,''), ?) > 0 OR instr(coalesce(data,''), ?) > 0",
+  );
+  const touched = new Set();
+  const per = pairs.map((p) => {
+    const ids = idStmt.all(p.old, p.old);
+    for (const r of ids) touched.add(r.id);
+    return { old: p.old, new: p.new, matched: ids.length };
+  });
+  const entriesTouched = touched.size;
+
+  if (dryRun) return { dry_run: true, entries_touched: entriesTouched, content_version_bumped: false, pairs: per };
+
+  const pubStmt = db.prepare(
+    "UPDATE entries SET published_data = replace(published_data, ?, ?) WHERE instr(coalesce(published_data,''), ?) > 0",
+  );
+  const dataStmt = db.prepare(
+    "UPDATE entries SET data = replace(data, ?, ?) WHERE instr(coalesce(data,''), ?) > 0",
+  );
+  db.exec('BEGIN');
+  try {
+    for (const p of pairs) {
+      pubStmt.run(p.old, p.new, p.old);
+      dataStmt.run(p.old, p.new, p.old);
+    }
+    if (entriesTouched > 0) bumpContentVersion(db);
+    db.prepare('INSERT INTO ref_rewrites (pair_count, entries_touched, pairs) VALUES (?, ?, ?)')
+      .run(pairs.length, entriesTouched, JSON.stringify(pairs));
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return { dry_run: false, entries_touched: entriesTouched, content_version_bumped: entriesTouched > 0, pairs: per };
+}
+
 // ---- Project meta (plain key/value, no encryption) ------------------------
 
 export function getMeta(db, key, fallback = null) {

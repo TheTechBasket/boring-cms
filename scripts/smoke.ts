@@ -516,6 +516,39 @@ async function main() {
   entry = getEntry(projectDb, collection.id, entrySlug);
   assert.equal(entry.data.body, '# First draft', 'revert should restore the previous field value');
 
+  // 10b. Bulk cosmetic ref rewrite: swap a URL without moving updated_at.
+  {
+    const oldUrl = 'https://cdn.example.com/a.png';
+    const newUrl = 'https://cdn.example.com/a.webp';
+    const seed = await fetch(`${base}/mcp/${slug}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${upWriteKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'update_entry', arguments: { collection: 'blog-posts', slug: entrySlug, data: { body: `see ${oldUrl}` }, publish: true } } }),
+    });
+    assert.equal(seed.status, 200, 'seeding a URL into the entry should succeed');
+    const before: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    const updatedAtBefore = before.items[0].updated_at;
+
+    const rewriteUrl = `${base}/api/v1/${slug}/rewrite-refs`;
+    const rrHeaders = (key: string) => ({ Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' });
+    assert.equal((await fetch(rewriteUrl, { method: 'POST', headers: rrHeaders(apiKey), body: JSON.stringify({ pairs: [{ old: oldUrl, new: newUrl }] }) })).status, 403, 'rewrite-refs needs a write key');
+    assert.equal((await fetch(rewriteUrl, { method: 'POST', headers: rrHeaders(upWriteKey), body: JSON.stringify({ pairs: [{ old: '.png', new: '.webp' }] }) })).status, 400, 'bare extension should be rejected');
+    assert.equal((await fetch(rewriteUrl, { method: 'POST', headers: rrHeaders(upWriteKey), body: JSON.stringify({ pairs: [{ old: oldUrl, new: oldUrl }] }) })).status, 400, 'no-op pair should be rejected');
+
+    const dry: any = await (await fetch(rewriteUrl, { method: 'POST', headers: rrHeaders(upWriteKey), body: JSON.stringify({ pairs: [{ old: oldUrl, new: newUrl }], dry_run: true }) })).json();
+    assert.equal(dry.entries_touched, 1, 'dry run should match the seeded entry');
+    assert.equal(dry.content_version_bumped, false, 'dry run must not bump content_version');
+    const stillOld: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts/${entrySlug}`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.ok(stillOld.body.includes(oldUrl), 'dry run must not change stored content');
+
+    const live: any = await (await fetch(rewriteUrl, { method: 'POST', headers: rrHeaders(upWriteKey), body: JSON.stringify({ pairs: [{ old: oldUrl, new: newUrl }] }) })).json();
+    assert.equal(live.entries_touched, 1, 'live run should touch the seeded entry');
+    assert.equal(live.content_version_bumped, true, 'live run should bump content_version once');
+    const after: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.ok(after.items[0].body.includes(newUrl) && !after.items[0].body.includes(oldUrl), 'live run should swap the URL in the served content');
+    assert.equal(after.items[0].updated_at, updatedAtBefore, 'rewrite must NOT change updated_at (sitemap lastmod stays frozen)');
+  }
+
   // 11. Media: upload to the local backend, serve it back, delete it
   const fileData = 'hello media';
   const boundary = 'smokeboundary';

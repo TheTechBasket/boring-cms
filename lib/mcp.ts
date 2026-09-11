@@ -23,6 +23,7 @@ import {
   removeCollectionField,
   describeFieldTypes,
   validOptionsFor,
+  bulkRewriteRefs,
   FIELD_TYPES,
   FIELD_OPTIONS,
 } from './content.ts';
@@ -502,6 +503,34 @@ const TOOLS = [
     handler: (db, args) => {
       try {
         return applySchema(db, args.schema, { deleteMissing: !!args.delete_missing });
+      } catch (err) {
+        throw new ToolError(err instanceof Error ? err.message : String(err));
+      }
+    },
+  },
+  {
+    name: 'bulk_rewrite_refs',
+    description: 'Cosmetically swap exact full URLs across all entries (e.g. .png -> .webp of the same asset). Each pair replaces old with new in both the published content and the draft, WITHOUT touching updated_at or published_at, so sitemap lastmod stays frozen; one content_version bump forces a single rebuild. old and new must be full https:// URLs (never a bare extension) and differ. Set dry_run: true to get match counts and change nothing. Live runs are logged for audit. Intended for cosmetic ref migrations, not content edits.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pairs: {
+          type: 'array',
+          description: 'URL swaps, each {old, new} as full https:// URLs',
+          items: {
+            type: 'object',
+            properties: { old: str('Exact full URL to find'), new: str('Full URL to replace it with') },
+            required: ['old', 'new'],
+          },
+        },
+        dry_run: { type: 'boolean', description: 'Report match counts without changing anything (default false)' },
+      },
+      required: ['pairs'],
+    },
+    handler: (db, args) => {
+      try {
+        return bulkRewriteRefs(db, args.pairs, { dryRun: !!args.dry_run });
       } catch (err) {
         throw new ToolError(err instanceof Error ? err.message : String(err));
       }

@@ -48,6 +48,7 @@ import {
   describeFieldTypes,
   contentVersion,
   bumpContentVersion,
+  bulkRewriteRefs,
   listCollections,
   getCollection,
   createCollection,
@@ -1774,6 +1775,27 @@ export function createApp(configOverrides = {}) {
     try {
       const report = restoreProject(ctx.db, body, { deleteMissing: url.searchParams.get('delete_missing') === '1' });
       json(req, res, 200, report);
+    } catch (err: any) {
+      json(req, res, 400, { error: 'bad_request', message: err.message });
+    }
+  });
+
+  // Bulk cosmetic ref swap: replace exact URLs across every entry without
+  // moving updated_at (so sitemap lastmod stays frozen). Write-scope key.
+  // Body: {pairs: [{old, new}], dry_run?}. Same semantics as the MCP tool.
+  router.post('/api/v1/:project/rewrite-refs', async (req, res, params) => {
+    const ctx = apiProject(req, res, params, { write: true });
+    if (!ctx) return;
+    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
+    let body;
+    try {
+      body = JSON.parse(await readBody(req, { limit: MCP_BODY_LIMIT }));
+    } catch {
+      return json(req, res, 400, { error: 'bad_request', message: 'Body must be JSON: {pairs: [{old, new}], dry_run?}' });
+    }
+    try {
+      json(req, res, 200, bulkRewriteRefs(ctx.db, body?.pairs, { dryRun: !!body?.dry_run }));
     } catch (err: any) {
       json(req, res, 400, { error: 'bad_request', message: err.message });
     }
