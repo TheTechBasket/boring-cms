@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.15.2 (2026-09-11)
+
+- Project switcher dropdown is readable. On the black sidebar the switcher was rendered with a light color scheme, so the native option list came up as light-grey text on white (nearly invisible) and the closed control had no solid fill. It is now a solid dark control with `color-scheme: dark`, so both the selected project and the open list of projects read as light text on dark, matching the nav. No new migration.
+
 ## 0.15.1 (2026-09-11)
 
 - Bigger tap targets on touch devices. On a phone or tablet (any coarse pointer) the admin's buttons, selects, text inputs, sidebar nav links and the "Menu" toggle are now at least 44px tall, so they clear the standard touch-target size instead of the dense 28 to 36px sizing meant for a mouse. The desktop/mouse layout is unchanged: the rule keys off `pointer: coarse`, so nothing shifts on a pointer device. No new migration.

@@ -347,10 +347,18 @@ function sidebar({ user, projects, project }: {
   const switcherMark = project
     ? projectAvatar(project, 'size-5 text-[11px]')
     : `<span class="size-5 flex items-center justify-center text-muted-foreground">${icon('folder')}</span>`;
+  // A self-contained dark control: bg-transparent from SELECT_CLASS would win
+  // over any bg here, and color-scheme:light would render the native option
+  // list light (unreadable light-on-white). So spell the switcher out with a
+  // solid dark fill and color-scheme:dark, so the popup matches the black nav.
+  const switcherClass =
+    'flex h-9 w-full items-center border border-sidebar-border bg-sidebar-accent ' +
+    'text-sidebar-foreground [color-scheme:dark] appearance-none pl-9 pr-8 py-1 text-sm ' +
+    'font-medium shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer';
   const switcher = `<div class="relative mb-1">
-    <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2">${switcherMark}</span>
-    <select id="project-switcher" class="${SELECT_CLASS} bg-sidebar appearance-none pl-9 pr-8 font-medium" title="Switch project">${options}</select>
-    <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">${icon('chevron')}</span>
+    <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 z-10">${switcherMark}</span>
+    <select id="project-switcher" class="${switcherClass}" title="Switch project">${options}</select>
+    <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sidebar-foreground/60">${icon('chevron')}</span>
   </div>`;
 
   const groupLabel = (text: string) =>
