@@ -17,6 +17,7 @@
 - Stage 3 leftovers (manual verify only, code shipped): real image upload with sharp installed; S3 backend against live R2 credentials.
 - Schema mutation over MCP (add_field/remove_field): deferred, schema read already exists via list_collections; revisit if migrations keep needing the dashboard. (Rest of the 2026-09-08 MCP v2 feedback shipped, see history.)
 - Media grouping v2, filebird-lite style: virtual folders stored only in the CMS (no key rewrites, no storage changes), replacing the removed free-text groups. Amit will spec this one.
+- Upload-time WebP conversion (suggestion, 2026-09-11): per-project toggle "Convert image uploads to WebP" (off by default); when on, transcode png/jpg/jpeg uploads to .webp via the existing sharp dep (lossy q80 from jpeg, near-lossless from png-with-alpha), skip already-webp/svg/animated-gif, return the .webp URL. ~30 lines in media.ts on the existing upload path; CPU on upload only, so it fits perf-first. Recommended without a size/resolution threshold (converting small rasters is still smaller and harmless; add a threshold only if tiny assets measurably get worse). Pairs with bulk_rewrite_refs (v0.17.0): the tool clears the historical backlog, upload conversion stops new backlog forming.
 
 ## Rejected findings
 
