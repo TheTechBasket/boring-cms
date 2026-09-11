@@ -1731,6 +1731,11 @@ details[data-popover][open] > .popover-panel {
     transform: none;
   }
 }
+@media (pointer: coarse) {
+  button,	select,	input:not([type="checkbox"]):not([type="radio"]),	a[data-nav],	label[for="nav-toggle"] {
+    min-height: 2.75rem;
+  }
+}
 @property --tw-translate-x {
   syntax: "*";
   inherits: false;

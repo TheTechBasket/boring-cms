@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.15.1 (2026-09-11)
+
+- Bigger tap targets on touch devices. On a phone or tablet (any coarse pointer) the admin's buttons, selects, text inputs, sidebar nav links and the "Menu" toggle are now at least 44px tall, so they clear the standard touch-target size instead of the dense 28 to 36px sizing meant for a mouse. The desktop/mouse layout is unchanged: the rule keys off `pointer: coarse`, so nothing shifts on a pointer device. No new migration.
+
 ## 0.15.0 (2026-09-11)
 
 - Faster admin loads. The markdown renderer (44 KB) is no longer shipped on every page; it now loads on demand the first time you open a markdown preview in the entry editor, so every other page skips the download entirely. Text responses (HTML, JSON, JS) and the CSS/JS assets are now gzip-compressed on the wire (roughly 60 to 85 percent smaller), on top of the existing immutable caching. Server startup is unchanged. No new migration.

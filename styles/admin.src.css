@@ -190,3 +190,15 @@ details[data-popover][open] > .popover-panel {
 		transform: none;
 	}
 }
+
+/* Touch input: enlarge tap targets to the 44px guideline on coarse pointers
+   only. The dense mouse/desktop layout is left exactly as it is. */
+@media (pointer: coarse) {
+	button,
+	select,
+	input:not([type="checkbox"]):not([type="radio"]),
+	a[data-nav],
+	label[for="nav-toggle"] {
+		min-height: 2.75rem;
+	}
+}
