@@ -4,7 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
-## 0.14.1 (2026-09-11)
+## 0.15.0 (2026-09-11)
+
+- Faster admin loads. The markdown renderer (44 KB) is no longer shipped on every page; it now loads on demand the first time you open a markdown preview in the entry editor, so every other page skips the download entirely. Text responses (HTML, JSON, JS) and the CSS/JS assets are now gzip-compressed on the wire (roughly 60 to 85 percent smaller), on top of the existing immutable caching. Server startup is unchanged. No new migration.
+- New look: "Proudly Boring". The admin now has a deliberate identity built for a performance-first tool. Metadata (slugs, keys, counts, timestamps) is set in monospace so it reads like precise tooling; the accent is a solid utility blue on buttons and the primary stat card; the sidebar is black; corners stay sharp. The three-tone stat cards (blue, black, plain) are unchanged in behavior, only recolored. Uses the system monospace font, so it adds no web-font download. No new migration.
 
 - Sidebar sub-item is legible when it is the current page. The active nested link (for example "Import / export schema" on the Transfer page) was drawing dark text on the dark active background, so the label and icon vanished into a solid block. It now uses the same inverted foreground as every other active row.
 

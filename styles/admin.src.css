@@ -47,13 +47,17 @@
 	--color-sidebar-ring: var(--sidebar-ring);
 
 	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	/* Boring identity: metadata (slugs, keys, counts, timestamps) is monospace.
+	   System mono first so it costs zero network; JetBrains Mono used if present. */
+	--font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
 	--radius-2xl: calc(var(--radius) * 1.8);
 	--radius-3xl: calc(var(--radius) * 2.2);
 	--radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Palette lifted from the dribbble reference: off-white app ground, white
-   surfaces, lavender primary, black nav. Sharp corners throughout. */
+/* Proudly Boring identity: off-white app ground, white surfaces, a solid
+   utility-blue accent that fills buttons and the primary stat card, a black
+   nav, and monospace metadata. Sharp corners throughout. */
 :root {
 	--radius: 0rem;
 	--background: oklch(0.972 0.001 286);
@@ -62,34 +66,36 @@
 	--card-foreground: oklch(0.185 0.005 285);
 	--popover: oklch(1 0 0);
 	--popover-foreground: oklch(0.185 0.005 285);
-	--primary: oklch(0.855 0.065 285);
-	--primary-foreground: oklch(0.205 0.006 285);
-	/* Lavender primary is a background color; links need a readable ink
-	   from the same hue family (7:1 on white). */
-	--link: oklch(0.46 0.13 285);
+	/* Solid utility blue (#2f66f0-ish). It is a fill color, so text on it is white. */
+	--primary: oklch(0.575 0.205 262);
+	--primary-foreground: oklch(0.985 0 0);
+	/* Readable blue ink for links on white (>=7:1). */
+	--link: oklch(0.48 0.17 262);
 	--secondary: oklch(0.936 0.003 286);
 	--secondary-foreground: oklch(0.205 0.006 285);
 	--muted: oklch(0.936 0.003 286);
 	--muted-foreground: oklch(0.46 0.01 285);
-	--accent: oklch(0.855 0.065 285);
-	--accent-foreground: oklch(0.205 0.006 285);
+	/* Accent is the subtle hover tint, kept light so ghost/outline hovers stay quiet. */
+	--accent: oklch(0.945 0.028 262);
+	--accent-foreground: oklch(0.30 0.09 262);
 	--destructive: oklch(0.55 0.22 27);
 	--border: oklch(0.91 0.003 286);
 	--input: oklch(0.87 0.004 286);
-	--ring: oklch(0.205 0.006 285);
-	--chart-1: oklch(0.855 0.065 285);
-	--chart-2: oklch(0.75 0.1 285);
-	--chart-3: oklch(0.62 0.13 285);
-	--chart-4: oklch(0.5 0.13 285);
-	--chart-5: oklch(0.4 0.11 285);
-	--sidebar: oklch(1 0 0);
-	--sidebar-foreground: oklch(0.185 0.005 285);
-	--sidebar-primary: oklch(0.205 0.006 285);
-	--sidebar-primary-foreground: oklch(0.985 0 0);
-	--sidebar-accent: oklch(0.205 0.006 285);
+	--ring: oklch(0.575 0.205 262);
+	--chart-1: oklch(0.575 0.205 262);
+	--chart-2: oklch(0.67 0.16 262);
+	--chart-3: oklch(0.5 0.18 262);
+	--chart-4: oklch(0.42 0.15 262);
+	--chart-5: oklch(0.34 0.12 262);
+	/* Black nav. */
+	--sidebar: oklch(0.205 0 0);
+	--sidebar-foreground: oklch(0.9 0.002 286);
+	--sidebar-primary: oklch(0.985 0 0);
+	--sidebar-primary-foreground: oklch(0.205 0 0);
+	--sidebar-accent: oklch(0.30 0.004 286);
 	--sidebar-accent-foreground: oklch(0.985 0 0);
-	--sidebar-border: oklch(0.936 0.003 286);
-	--sidebar-ring: oklch(0.205 0.006 285);
+	--sidebar-border: oklch(1 0 0 / 12%);
+	--sidebar-ring: oklch(0.575 0.205 262);
 }
 
 /* Theme is an explicit choice, not the OS setting: the sidebar toggle sets
@@ -101,32 +107,32 @@
 	--card-foreground: oklch(0.965 0.002 286);
 	--popover: oklch(0.23 0.006 285);
 	--popover-foreground: oklch(0.965 0.002 286);
-	--primary: oklch(0.855 0.065 285);
-	--primary-foreground: oklch(0.205 0.006 285);
-	--link: oklch(0.8 0.09 285);
+	--primary: oklch(0.62 0.19 262);
+	--primary-foreground: oklch(0.985 0 0);
+	--link: oklch(0.78 0.12 262);
 	--secondary: oklch(0.29 0.007 285);
 	--secondary-foreground: oklch(0.965 0.002 286);
 	--muted: oklch(0.29 0.007 285);
 	--muted-foreground: oklch(0.76 0.01 285);
-	--accent: oklch(0.855 0.065 285);
-	--accent-foreground: oklch(0.205 0.006 285);
+	--accent: oklch(0.33 0.05 262);
+	--accent-foreground: oklch(0.92 0.04 262);
 	--destructive: oklch(0.7 0.19 22);
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.855 0.065 285);
-	--chart-1: oklch(0.855 0.065 285);
-	--chart-2: oklch(0.75 0.1 285);
-	--chart-3: oklch(0.62 0.13 285);
-	--chart-4: oklch(0.5 0.13 285);
-	--chart-5: oklch(0.4 0.11 285);
-	--sidebar: oklch(0.23 0.006 285);
-	--sidebar-foreground: oklch(0.965 0.002 286);
-	--sidebar-primary: oklch(0.965 0.002 286);
+	--ring: oklch(0.62 0.19 262);
+	--chart-1: oklch(0.62 0.19 262);
+	--chart-2: oklch(0.7 0.15 262);
+	--chart-3: oklch(0.55 0.18 262);
+	--chart-4: oklch(0.46 0.15 262);
+	--chart-5: oklch(0.38 0.12 262);
+	--sidebar: oklch(0.19 0.004 285);
+	--sidebar-foreground: oklch(0.9 0.002 286);
+	--sidebar-primary: oklch(0.985 0.002 286);
 	--sidebar-primary-foreground: oklch(0.205 0.006 285);
-	--sidebar-accent: oklch(0.965 0.002 286);
-	--sidebar-accent-foreground: oklch(0.205 0.006 285);
+	--sidebar-accent: oklch(0.30 0.006 285);
+	--sidebar-accent-foreground: oklch(0.985 0.002 286);
 	--sidebar-border: oklch(1 0 0 / 10%);
-	--sidebar-ring: oklch(0.855 0.065 285);
+	--sidebar-ring: oklch(0.62 0.19 262);
 }
 
 @layer base {

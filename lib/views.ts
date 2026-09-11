@@ -19,6 +19,7 @@ function assetVersion(rel: string): string {
 const ADMIN_CSS_V = assetVersion('admin.css');
 const ADMIN_JS_V = assetVersion('admin.js');
 const MARKED_V = assetVersion('vendor/marked.esm.js');
+const MARKED_SRC = `/public/vendor/marked.esm.js?v=${MARKED_V}`;
 
 // Inline Solar duotone icons (allsvgicons MCP, solar:*-bold-duotone).
 const ICONS: Record<string, string> = {
@@ -53,7 +54,7 @@ export function timeAgo(ts: string | null | undefined): string {
   else if (secs < 86400) rel = `${Math.floor(secs / 3600)}h ago`;
   else if (secs < 30 * 86400) rel = `${Math.floor(secs / 86400)}d ago`;
   else rel = date.toISOString().slice(0, 10);
-  return `<span title="${escapeHtml(ts)} UTC">${rel}</span>`;
+  return `<span class="font-mono tabular-nums" title="${escapeHtml(ts)} UTC">${rel}</span>`;
 }
 
 function escapeHtml(str: unknown): string {
@@ -267,7 +268,7 @@ const STAT_TONES: Record<string, string> = {
 function statCard({ label, value, tone = 'white' }: { label: string; value: number | string; tone?: string }): string {
   return `<div class="${STAT_TONES[tone]} p-5 flex flex-col gap-5 shadow-xs">
     <span class="text-xs font-medium uppercase tracking-wide opacity-70">${escapeHtml(label)}</span>
-    <span class="text-3xl font-semibold tracking-tight">${escapeHtml(value)}</span>
+    <span class="text-3xl font-semibold tracking-tight font-mono tabular-nums">${escapeHtml(value)}</span>
   </div>`;
 }
 
@@ -324,7 +325,6 @@ function layout({ title, body, user = null, projects = [], project = null, notic
 </head>
 <body class="min-h-screen bg-background text-foreground">
   ${shell}
-  <script type="module">import { marked } from '/public/vendor/marked.esm.js?v=${MARKED_V}'; window.marked = marked;</script>
   <script src="/public/admin.js?v=${ADMIN_JS_V}"></script>
 </body>
 </html>`;
@@ -371,7 +371,7 @@ function sidebar({ user, projects, project }: {
 
   return `<aside class="w-60 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3 h-screen fixed inset-y-0 left-0 z-40 -translate-x-full transition-transform peer-checked:translate-x-0 md:sticky md:top-0 md:translate-x-0 md:transition-none">
     <label for="nav-toggle" aria-label="Close menu" class="md:hidden absolute right-2 top-2 p-1 cursor-pointer text-muted-foreground">${icon('x')}</label>
-    <a class="px-3 py-2 font-bold text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
+    <a class="px-3 py-2 font-bold font-mono tracking-tight text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
     ${switcher}
     ${projectNav}
     <div class="mt-auto flex flex-col gap-0.5">
@@ -1099,7 +1099,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
 
   switch (f.type) {
     case 'markdown':
-      return `<div class="flex flex-col gap-1.5 text-sm" data-markdown-field>
+      return `<div class="flex flex-col gap-1.5 text-sm" data-markdown-field data-marked-src="${MARKED_SRC}">
         <div class="flex items-center justify-between">
           <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
           <button type="button" data-preview-toggle class="text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Preview</button>

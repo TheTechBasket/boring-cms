@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { gzipSync, createGzip } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -138,6 +139,23 @@ export function createApp(configOverrides = {}) {
     const ms = performance.now() - req._start;
     res.setHeader('Server-Timing', `total;dur=${ms.toFixed(2)}`);
     for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+    // gzip text responses when the client accepts it. zlib is stdlib, so this
+    // keeps the zero-dependency rule. Only text/json/js, only above ~1KB, and
+    // never double-encode something already compressed (e.g. media buffers).
+    const type = String(res.getHeader('Content-Type') || '');
+    if (
+      body &&
+      !res.getHeader('Content-Encoding') &&
+      /text\/|application\/(json|javascript)|\+json/.test(type) &&
+      /\bgzip\b/.test(String(req.headers['accept-encoding'] || '')) &&
+      Buffer.byteLength(body) >= 1024
+    ) {
+      const gz = gzipSync(body);
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Vary', 'Accept-Encoding');
+      res.writeHead(status);
+      return res.end(gz);
+    }
     res.writeHead(status);
     res.end(body);
   }
@@ -1873,6 +1891,14 @@ export function createApp(configOverrides = {}) {
     const ms = performance.now() - req._start;
     res.setHeader('Server-Timing', `total;dur=${ms.toFixed(2)}`);
     res.setHeader('Content-Type', type);
+    // gzip css/js on the fly (stdlib zlib). Cheap: cached immutably, so a client
+    // pays it once. Other types (fonts, wasm) stream as-is.
+    if ((ext === '.css' || ext === '.js') && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Vary', 'Accept-Encoding');
+      res.writeHead(200);
+      return createReadStream(filePath).pipe(createGzip()).pipe(res);
+    }
     res.writeHead(200);
     createReadStream(filePath).pipe(res);
   }

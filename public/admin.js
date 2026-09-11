@@ -324,23 +324,36 @@ if (passkeyLoginBtn) {
 }
 
 // Markdown preview: client-side only, rendered with the vendored marked.js
-// into a typeset container. The server never converts markdown.
+// into a typeset container. The server never converts markdown. marked (44KB)
+// is loaded lazily on first preview so pages without a markdown field never
+// fetch it. The import promise is cached so repeat toggles reuse one load.
+let markedPromise;
+function loadMarked(src) {
+  if (!markedPromise) markedPromise = import(src).then((m) => m.marked);
+  return markedPromise;
+}
 document.querySelectorAll('[data-markdown-field]').forEach((wrap) => {
   const toggle = wrap.querySelector('[data-preview-toggle]');
   const textarea = wrap.querySelector('textarea');
   const preview = wrap.querySelector('[data-preview]');
+  const src = wrap.getAttribute('data-marked-src');
   if (!toggle || !textarea || !preview) return;
-  toggle.addEventListener('click', () => {
+  toggle.addEventListener('click', async () => {
     const showing = !preview.classList.contains('hidden');
     if (showing) {
       preview.classList.add('hidden');
       textarea.classList.remove('hidden');
       toggle.textContent = 'Preview';
     } else {
-      preview.innerHTML = window.marked ? window.marked.parse(textarea.value) : '<p>Preview unavailable.</p>';
       preview.classList.remove('hidden');
       textarea.classList.add('hidden');
       toggle.textContent = 'Edit';
+      try {
+        const marked = await loadMarked(src);
+        preview.innerHTML = marked.parse(textarea.value);
+      } catch {
+        preview.innerHTML = '<p>Preview unavailable.</p>';
+      }
     }
   });
 });
