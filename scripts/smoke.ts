@@ -983,6 +983,39 @@ async function main() {
   ).json();
   assert.notEqual(JSON.parse(shadowed.result.content[0].text).updated_at, '2020-01-01 00:00:00', 'row updated_at should win over a same-named data field');
 
+  // preserve_timestamps: update+publish without bumping dates
+  const ptEntry: any = JSON.parse(
+    ((await (await rpc(writeKey, 'tools/call', { name: 'create_entry', arguments: { collection: 'blog-posts', data: { body: 'pt-test' }, publish: true } })).json()) as any).result.content[0].text,
+  );
+  const ptRow = projectDb.prepare('SELECT updated_at, published_at FROM entries WHERE slug = ?').get(ptEntry.slug);
+  const ptUpdate: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'update_entry', arguments: { collection: 'blog-posts', slug: ptEntry.slug, data: { body: 'pt-edited' }, publish: true, preserve_timestamps: true } })
+  ).json();
+  assert.ok(!ptUpdate.result.isError, 'preserve_timestamps update should succeed');
+  const ptRowAfter = projectDb.prepare('SELECT updated_at, published_at FROM entries WHERE slug = ?').get(ptEntry.slug);
+  assert.equal(ptRowAfter.updated_at, ptRow.updated_at, 'preserve_timestamps should freeze updated_at');
+  assert.equal(ptRowAfter.published_at, ptRow.published_at, 'preserve_timestamps should freeze published_at on republish');
+  // normal update (no flag) should still bump
+  projectDb.prepare("UPDATE entries SET updated_at = '2020-01-01 00:00:00' WHERE slug = ?").run(ptEntry.slug);
+  await rpc(writeKey, 'tools/call', { name: 'update_entry', arguments: { collection: 'blog-posts', slug: ptEntry.slug, data: { body: 'pt-bumped' } } });
+  const ptRowBumped = projectDb.prepare('SELECT updated_at FROM entries WHERE slug = ?').get(ptEntry.slug);
+  assert.notEqual(ptRowBumped.updated_at, '2020-01-01 00:00:00', 'normal update should bump updated_at');
+  await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: ptEntry.slug } });
+
+  // preserve_timestamps via batch_create_entries upsert
+  const ptBatchEntry: any = JSON.parse(
+    ((await (await rpc(writeKey, 'tools/call', { name: 'create_entry', arguments: { collection: 'blog-posts', data: { body: 'ptb-test' }, publish: true } })).json()) as any).result.content[0].text,
+  );
+  const ptbRow = projectDb.prepare('SELECT updated_at, published_at FROM entries WHERE slug = ?').get(ptBatchEntry.slug);
+  const ptBatch: any = await (
+    await rpc(writeKey, 'tools/call', { name: 'batch_create_entries', arguments: { collection: 'blog-posts', entries: [{ slug: ptBatchEntry.slug, data: { body: 'ptb-edited' } }], publish: true, preserve_timestamps: true } })
+  ).json();
+  assert.ok(!ptBatch.result.isError, 'batch preserve_timestamps should succeed');
+  const ptbRowAfter = projectDb.prepare('SELECT updated_at, published_at FROM entries WHERE slug = ?').get(ptBatchEntry.slug);
+  assert.equal(ptbRowAfter.updated_at, ptbRow.updated_at, 'batch preserve_timestamps should freeze updated_at');
+  assert.equal(ptbRowAfter.published_at, ptbRow.published_at, 'batch preserve_timestamps should freeze published_at on republish');
+  await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: ptBatchEntry.slug } });
+
   const del: any = await (
     await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: 'batch-two' } })
   ).json();

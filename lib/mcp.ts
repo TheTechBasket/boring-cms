@@ -210,12 +210,14 @@ const TOOLS = [
           },
         },
         publish: { type: 'boolean', description: 'Publish every entry immediately (default false)' },
+        preserve_timestamps: { type: 'boolean', description: 'Keep existing updated_at (and published_at on republish) instead of bumping them. Useful for cosmetic bulk edits that should not move sitemap lastmod. First-time publish still stamps published_at normally. Default false.' },
       },
       required: ['collection', 'entries'],
     },
     handler: (db, args, collection, ctx) => {
       if (!Array.isArray(args.entries) || args.entries.length === 0) throw new ToolError('entries must be a non-empty array.');
       if (args.entries.length > 200) throw new ToolError('Max 200 entries per call; split into batches.');
+      const pt = !!args.preserve_timestamps;
       const results: any[] = [];
       db.exec('BEGIN');
       try {
@@ -228,9 +230,9 @@ const TOOLS = [
               results.push({ slug: item?.slug ?? null, ok: false, error: errors.join(' ') });
               continue;
             }
-            let entry = existing ? updateEntry(db, existing, { data }) : createEntry(db, collection, { data, slug: item.slug });
+            let entry = existing ? updateEntry(db, existing, { data, preserveTimestamps: pt }) : createEntry(db, collection, { data, slug: item.slug });
             if (item.publish ?? args.publish) {
-              entry = publishEntry(db, entry.id);
+              entry = publishEntry(db, entry.id, { preserveTimestamps: pt });
               ctx?.onWebhook?.('entry.publish', collection.slug, entry.slug);
             }
             results.push({ slug: entry.slug, ok: true, status: entry.status, upserted: !!existing });
@@ -263,6 +265,7 @@ const TOOLS = [
         slug: str('Entry slug'),
         data: { type: 'object', description: 'Field values to set, merged into existing data' },
         publish: { type: 'boolean', description: 'Publish immediately after the update (default false)' },
+        preserve_timestamps: { type: 'boolean', description: 'Keep existing updated_at (and published_at on republish) instead of bumping them. Useful for cosmetic edits that should not move sitemap lastmod. First-time publish still stamps published_at normally. Default false.' },
       },
       required: ['collection', 'slug', 'data'],
     },
@@ -272,9 +275,10 @@ const TOOLS = [
       const merged = { ...entry.data, ...normalizeJsonFields(collection, args.data) };
       const errors = validateEntryData(collection, merged, { db, excludeEntryId: entry.id });
       if (errors.length) throw new ToolError(errors.join(' '));
-      let updated = updateEntry(db, entry, { data: merged });
+      const pt = !!args.preserve_timestamps;
+      let updated = updateEntry(db, entry, { data: merged, preserveTimestamps: pt });
       if (args.publish) {
-        updated = publishEntry(db, updated.id);
+        updated = publishEntry(db, updated.id, { preserveTimestamps: pt });
         ctx?.onWebhook?.('entry.publish', collection.slug, updated.slug);
       }
       const out: Record<string, any> = { slug: updated.slug, status: updated.status, data: updated.data };

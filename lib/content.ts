@@ -422,7 +422,7 @@ export function createEntry(db, collection, { data, slug: requestedSlug = undefi
 
 // Updates an entry, recording a backward field-level delta as a revision:
 // only fields whose value changed are stored, holding the PREVIOUS value.
-export function updateEntry(db, entry, { data }) {
+export function updateEntry(db, entry, { data, preserveTimestamps = false }: { data: any; preserveTimestamps?: boolean }) {
   const delta: Record<string, any> = {};
   const fieldNames = new Set([...Object.keys(entry.data), ...Object.keys(data)]);
   for (const name of fieldNames) {
@@ -438,7 +438,7 @@ export function updateEntry(db, entry, { data }) {
   db.exec('SAVEPOINT update_entry');
   try {
     if (keep > 0) db.prepare('INSERT INTO revisions (entry_id, changed) VALUES (?, ?)').run(entry.id, JSON.stringify(delta));
-    db.prepare("UPDATE entries SET data = ?, updated_at = datetime('now') WHERE id = ?").run(
+    db.prepare(preserveTimestamps ? 'UPDATE entries SET data = ? WHERE id = ?' : "UPDATE entries SET data = ?, updated_at = datetime('now') WHERE id = ?").run(
       JSON.stringify(data),
       entry.id,
     );
@@ -467,15 +467,19 @@ export function renameEntry(db, entry, requestedSlug) {
   return slug;
 }
 
-export function publishEntry(db, entryId) {
+export function publishEntry(db, entryId, { preserveTimestamps = false }: { preserveTimestamps?: boolean } = {}) {
   const entry = getEntryById(db, entryId);
   if (!entry) return null;
   const snapshot = { slug: entry.slug, ...entry.data };
   // A user schema field named "slug" left empty must not wipe the native
   // slug out of the API snapshot; a filled one wins on purpose.
   if (snapshot.slug === '' || snapshot.slug === null || snapshot.slug === undefined) snapshot.slug = entry.slug;
+  // ponytail: first-time publish always stamps; preserve only re-publishes
+  const keepTimestamp = preserveTimestamps && entry.published_at;
   db.prepare(
-    "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
+    keepTimestamp
+      ? "UPDATE entries SET status = 'published', published_data = ? WHERE id = ?"
+      : "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
   ).run(JSON.stringify(snapshot), entryId);
   bumpContentVersion(db);
   return getEntryById(db, entryId);

@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.18.1 (2026-09-14)
+
+- `update_entry` and `batch_create_entries` accept `preserve_timestamps: true` to skip the `updated_at` bump on update and keep the existing `published_at` on republish. First-time publish still stamps `published_at` normally. Useful for cosmetic bulk edits (e.g. em-dash cleanup) that should not move sitemap lastmod or trigger incremental-pull re-fetches.
+
 ## 0.18.0 (2026-09-12)
 
 - Every MCP tool is now callable over plain REST, so the two write surfaces can no longer drift apart. A new generic endpoint `POST /api/v1/<project>/call/<tool>` dispatches to the exact same tool registry the `/mcp` endpoint serves, with the tool's arguments as a JSON body and a Bearer key for auth (write tools need a write-scope key). This closes a real parity gap: entry-body writes (`create_entry`, `batch_create_entries`, `update_entry`, `publish_entry`, `unpublish_entry`, `delete_entry`) and the schema-editing tools previously existed only on MCP, so a headless client (a CI publisher, a script) that could not speak JSON-RPC, or whose key had API access but not the separate MCP-access grant, had no way to create or update article bodies at all. It can now run the full write lifecycle over REST with an ordinary API key. Because both transports resolve tool names through one shared `callTool` over one `TOOLS` registry, a tool added in the future is reachable on both automatically; a smoke test asserts every registered tool is reachable over REST (a 404 there is a drift regression). The MCP endpoint behaves exactly as before. Error shape on the REST route: unknown tool 404, wrong scope 403, tool-level failure (bad arguments, missing collection) 422. No new migration.
