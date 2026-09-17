@@ -43,8 +43,7 @@ export function loadConfig(cwd = process.cwd()) {
       );
     } catch {}
     writeFileSync(envPath, template, { mode: 0o600 });
-    console.log(`Boring CMS: no .env found, created one with a generated SECRET_KEY at ${envPath}`);
-    console.log('Boring CMS: back it up. Losing SECRET_KEY makes encrypted settings unreadable.');
+    console.log(`First run: generated ${envPath} with a new SECRET_KEY. Back this file up; losing the key makes encrypted settings unreadable.`);
   }
 
   const fileVars = existsSync(envPath) ? parseEnvFile(readFileSync(envPath, 'utf8')) : {};

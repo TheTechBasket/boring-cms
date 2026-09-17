@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.18.3 (2026-09-17)
+
+- Clean startup output. The launcher prints a compact banner (version, startup time, admin URL, data directory) and suppresses the node:sqlite ExperimentalWarning, which was pure noise on every start. The first-boot .env message is one line instead of two. No behavior change.
+
 ## 0.18.2 (2026-09-17)
 
 - First npm release: `npx boring-cms` (or `pnpm dlx` / `bunx`) downloads the package and starts the server, no clone or install step. The tarball ships type-stripped `.js` built at publish time via a `prepack` tsc pass, because Node refuses native type stripping for files under `node_modules`; the repo itself still runs raw `.ts` with no build step. The launcher keeps `.env` and `data/` in one stable per-machine home, `~/.boring-cms` (override with `BORING_CMS_HOME`), instead of the package directory (which for npx is an ephemeral cache that would silently eat the generated SECRET_KEY), so repeated npx runs from any directory find the same instance. `createApp` accepts a `baseDir` override for this; running `node server.ts` from a checkout behaves exactly as before. A generated first-boot `.env` is now the full commented `.env.example` template with SECRET_KEY filled in, so every knob (PORT, FORCE_PASSWORD_RESET, TRUST_PROXY) is visible without hunting for docs. npm metadata (repository, keywords) added. `PUBLISHING.md` documents the release flow (repo only: the tarball ships runtime files, nothing else) and `pnpm verify:pack` gates every publish: it builds the real tarball, installs and boots it in a temp directory, then runs the smoke suite and the full benchmark against the packaged server. Note: 0.18.1 on npm was unusable via npx (the type-stripping restriction above) and is unpublished.
