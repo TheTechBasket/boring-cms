@@ -10,9 +10,16 @@ if (major < 24) {
   process.exit(1);
 }
 const { createApp } = await import('../server.js').catch(() => import('../server.ts'));
-// .env and ./data belong to the directory the user runs from, not the
-// ephemeral npx cache the package lands in.
-const app = createApp({ baseDir: process.cwd() });
+// One stable home per machine: ~/.boring-cms holds .env and data/, so
+// `npx boring-cms` from any directory always finds the same instance
+// (never the ephemeral npx cache the package lands in).
+const { mkdirSync } = await import('node:fs');
+const { homedir } = await import('node:os');
+const path = (await import('node:path')).default;
+const baseDir = process.env.BORING_CMS_HOME || path.join(homedir(), '.boring-cms');
+mkdirSync(baseDir, { recursive: true });
+const app = createApp({ baseDir });
 app.listen(app.appConfig.port, () => {
+  console.log(`Boring CMS home: ${baseDir}`);
   console.log(`Boring CMS listening on http://localhost:${app.appConfig.port}`);
 });

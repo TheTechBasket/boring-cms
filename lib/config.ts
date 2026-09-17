@@ -33,7 +33,16 @@ export function loadConfig(cwd = process.cwd()) {
   // Generate one so `pnpm i && node server.js` just works.
   if (!existsSync(envPath) && !process.env.SECRET_KEY && !process.env.MASTER_KEY) {
     const generated = randomBytes(32).toString('base64url');
-    writeFileSync(envPath, `SECRET_KEY=${generated}\nPORT=3000\n`, { mode: 0o600 });
+    // Write the full commented .env.example as the starting .env so every
+    // knob is visible without hunting for docs; fall back to the minimum.
+    let template = `SECRET_KEY=${generated}\nPORT=3000\n`;
+    try {
+      template = readFileSync(new URL('../.env.example', import.meta.url), 'utf8').replace(
+        /^SECRET_KEY=.*$/m,
+        `SECRET_KEY=${generated}`,
+      );
+    } catch {}
+    writeFileSync(envPath, template, { mode: 0o600 });
     console.log(`Boring CMS: no .env found, created one with a generated SECRET_KEY at ${envPath}`);
     console.log('Boring CMS: back it up. Losing SECRET_KEY makes encrypted settings unreadable.');
   }
