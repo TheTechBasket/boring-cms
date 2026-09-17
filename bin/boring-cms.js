@@ -38,10 +38,23 @@ const dim = (s) => c('2', s);
 // OSC 8 terminal hyperlink: clickable in modern terminals, plain text elsewhere.
 const link = (text, url) => (useColor ? `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\` : text);
 
-app.listen(app.appConfig.port, () => {
+const port = app.appConfig.port;
+
+// Port taken? Say so and exit. Never silently pick another: a production
+// proxy points at a fixed port, so a surprise port is a silent outage.
+app.on('error', (err) => {
+  if (err.code !== 'EADDRINUSE') throw err;
+  console.error(`${bold(`Port ${port} is already in use.`)}`);
+  console.error(`  Pick a free port: ${cyan('PORT=3423 npx boring-cms')}`);
+  const envPath = path.join(baseDir, '.env').replace(homedir(), '~');
+  console.error(`  ${dim(`or set PORT in ${envPath}`)}`);
+  process.exit(1);
+});
+
+app.listen(port, () => {
   const ms = Math.round(process.uptime() * 1000);
   const took = ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
-  const adminUrl = `http://localhost:${app.appConfig.port}`;
+  const adminUrl = `http://localhost:${port}`;
   console.log(`${bold(`Boring CMS v${version}`)} ${dim('ready in')} ${green(took)}`);
   console.log(`  ${dim('Admin:')} ${cyan(link(adminUrl, adminUrl))}`);
   console.log(`  ${dim('Data:')}  ${link(baseDir, `file://${baseDir}`)}`);

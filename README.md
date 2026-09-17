@@ -25,6 +25,53 @@ node server.ts
 Keep `SECRET_KEY` stable: changing it invalidates sessions and makes
 encrypted settings unreadable.
 
+## Production
+
+One Node process plus a SQLite file, so it runs on any small always-on
+box (a VPS). Node 24+ is the only requirement.
+
+1. Install a pinned version: `npm i -g boring-cms`.
+
+2. Set a persistent home (not the throwaway `npx` cache). It holds
+   `.env`, the databases, and local media, so back it up.
+
+   ```bash
+   export BORING_CMS_HOME=/home/boring/.boring-cms
+   ```
+
+3. Write its `.env`:
+
+   ```ini
+   SECRET_KEY=<node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))">
+   PORT=3000
+   TRUST_PROXY=1
+   ```
+
+   Generate `SECRET_KEY` once and keep it: rotating it logs everyone out
+   and makes encrypted settings unreadable. Set `TRUST_PROXY=1` only when
+   a reverse proxy terminates TLS in front of the app (the normal public
+   setup): it trusts `X-Forwarded-*`, marks cookies `Secure`, and is
+   required for passkeys. Leave it `0` if the app faces clients directly.
+
+4. Keep it running with pm2:
+
+   ```bash
+   pm2 start "$(which boring-cms)" --name cms
+   pm2 save && pm2 startup   # restart on reboot
+   ```
+
+5. Put a TLS reverse proxy (nginx, Caddy) in front, routing
+   `cms.example.com` to `127.0.0.1:3000` and forwarding `X-Forwarded-*`.
+
+6. Open `https://cms.example.com/setup`, create the admin, add per-project
+   API keys.
+
+**Media**: local disk works but pins data to one box. For public sites,
+add S3-compatible storage (Cloudflare R2, MinIO, S3) under Global settings.
+
+**Backup**: snapshot `$BORING_CMS_HOME`, or cron each project's
+`GET /api/v1/<project>/export` (restore via `/import`).
+
 ## Content model
 
 Each project is its own SQLite file. Collections have custom fields

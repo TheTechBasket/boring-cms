@@ -2012,7 +2012,14 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const app = createApp();
-  app.listen(app.appConfig.port, () => {
-    console.log(`Boring CMS listening on http://localhost:${app.appConfig.port}`);
+  const port = app.appConfig.port;
+  // Port taken? Say so and exit. Never silently pick another port.
+  app.on('error', (err: any) => {
+    if (err.code !== 'EADDRINUSE') throw err;
+    console.error(`Port ${port} is already in use. Set a free PORT (e.g. PORT=3423) in .env or the environment.`);
+    process.exit(1);
+  });
+  app.listen(port, () => {
+    console.log(`Boring CMS listening on http://localhost:${port}`);
   });
 }

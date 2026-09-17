@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.18.4 (2026-09-17)
+
+- The launcher now exits with a clear message when the configured PORT is already in use, instead of crashing with a raw EADDRINUSE stack trace. It names the busy port and shows how to pick another (`PORT=3423 npx boring-cms`, or set PORT in the home `.env`). It never silently binds a different port: behind a reverse proxy pointed at a fixed port, a surprise port would be a silent outage. Same handling in the `node server.ts` checkout path. No perf impact (startup path only, verified against the v0.18.3 benchmark). README gains a Production section (VPS deploy, pm2, when to set TRUST_PROXY, media storage, backup).
+
 ## 0.18.3 (2026-09-17)
 
 - Clean startup output. The launcher prints a compact banner (version, startup time, admin URL, data directory) and suppresses the node:sqlite ExperimentalWarning, which was pure noise on every start. The first-boot .env message is one line instead of two. No behavior change.
