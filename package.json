@@ -28,7 +28,8 @@
     "migrations/",
     "public/",
     ".env.example",
-    "ARCHITECTURE.md"
+    "ARCHITECTURE.md",
+    "PUBLISHING.md"
   ],
   "engines": {
     "node": ">=24"
@@ -38,6 +39,7 @@
     "postpack": "rm -f server.js lib/*.js",
     "start": "node server.ts",
     "smoke": "node scripts/smoke.ts",
+    "verify:pack": "node scripts/verify-pack.ts",
     "css": "tailwindcss -i styles/admin.src.css -o public/admin.css --minify",
     "css:watch": "tailwindcss -i styles/admin.src.css -o public/admin.css --watch"
   },
