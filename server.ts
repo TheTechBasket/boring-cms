@@ -106,8 +106,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_COOKIE = 'yn_session';
 
-export function createApp(configOverrides = {}) {
-  const config = { ...loadConfig(__dirname), ...configOverrides };
+export function createApp(configOverrides: { baseDir?: string; [key: string]: any } = {}) {
+  const config = { ...loadConfig(configOverrides.baseDir ?? __dirname), ...configOverrides };
   if (!config.masterKey || config.masterKey.length < 32) {
     const suggested = randomBytes(32).toString('base64url');
     throw new Error(

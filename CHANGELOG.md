@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.18.2 (2026-09-17)
+
+- First npm release: `npx boring-cms` (or `pnpm dlx` / `bunx`) downloads the package and starts the server, no clone or install step. The tarball ships type-stripped `.js` built at publish time via a `prepack` tsc pass, because Node refuses native type stripping for files under `node_modules`; the repo itself still runs raw `.ts` with no build step. The launcher now resolves `.env` and `./data` against the directory you run from instead of the package directory (which for npx is an ephemeral cache that would silently eat the generated SECRET_KEY). `createApp` accepts a `baseDir` override for this; running `node server.ts` from a checkout behaves exactly as before. npm metadata (repository, keywords) added. Note: 0.18.1 on npm was unusable via npx (the type-stripping restriction above) and is unpublished.
+
 ## 0.18.1 (2026-09-14)
 
 - `update_entry` and `batch_create_entries` accept `preserve_timestamps: true` to skip the `updated_at` bump on update and keep the existing `published_at` on republish. First-time publish still stamps `published_at` normally. Useful for cosmetic bulk edits (e.g. em-dash cleanup) that should not move sitemap lastmod or trigger incremental-pull re-fetches.

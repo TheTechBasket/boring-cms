@@ -1,16 +1,30 @@
 {
   "name": "boring-cms",
-  "version": "0.18.1",
+  "version": "0.18.2",
   "description": "Open-source headless CMS. One deploy, many projects.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheTechBasket/boring-cms.git"
+  },
+  "homepage": "https://github.com/TheTechBasket/boring-cms#readme",
+  "bugs": "https://github.com/TheTechBasket/boring-cms/issues",
+  "keywords": [
+    "cms",
+    "headless-cms",
+    "sqlite",
+    "zero-dependencies",
+    "mcp",
+    "self-hosted"
+  ],
   "type": "module",
   "bin": {
     "boring-cms": "bin/boring-cms.js"
   },
   "files": [
     "bin/",
-    "server.ts",
-    "lib/",
+    "server.js",
+    "lib/*.js",
     "migrations/",
     "public/",
     ".env.example",
@@ -20,6 +34,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "prepack": "tsc -p tsconfig.build.json",
+    "postpack": "rm -f server.js lib/*.js",
     "start": "node server.ts",
     "smoke": "node scripts/smoke.ts",
     "css": "tailwindcss -i styles/admin.src.css -o public/admin.css --minify",

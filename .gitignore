@@ -1,5 +1,8 @@
 node_modules/
 data/
+# prepack emit (type-stripped for npm tarball), cleaned by postpack
+/server.js
+/lib/*.js
 .env
 .playwright-mcp/
 
