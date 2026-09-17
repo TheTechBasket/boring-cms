@@ -27,9 +27,7 @@
     "lib/*.js",
     "migrations/",
     "public/",
-    ".env.example",
-    "ARCHITECTURE.md",
-    "PUBLISHING.md"
+    ".env.example"
   ],
   "engines": {
     "node": ">=24"

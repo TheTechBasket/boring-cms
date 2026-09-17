@@ -13,9 +13,12 @@ The `files` field in `package.json` is the canonical list. Currently:
   under `node_modules`)
 - `migrations/` (core and per-project SQL)
 - `public/` (built admin CSS/JS, committed to the repo, no pack-time build)
-- `.env.example` (template for the generated first-boot `.env`)
-- `ARCHITECTURE.md`, `PUBLISHING.md`, `README.md`, `LICENSE`,
-  `package.json` (README and LICENSE are always included by npm)
+- `.env.example` (read at runtime: it is the template for the generated
+  first-boot `.env`)
+- `README.md`, `LICENSE`, `package.json` (always included by npm itself)
+
+Nothing else. The rule: only files the server needs at runtime go in the
+tarball. Docs like `ARCHITECTURE.md` and this file live in the repo.
 
 Sanity check the exact list any time with `npm pack --dry-run`.
 
