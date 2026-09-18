@@ -4,6 +4,10 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## Unreleased
 
+## 0.18.5 (2026-09-19)
+
+- README rewritten for npm consumers: features overview up top, all env vars in one table, admin UI section, clearer auth docs (OAuth and passkeys never create new users), removed dead links to private repo. Homepage now points to npm page.
+
 ## 0.18.4 (2026-09-17)
 
 - The launcher now exits with a clear message when the configured PORT is already in use, instead of crashing with a raw EADDRINUSE stack trace. It names the busy port and shows how to pick another (`PORT=3423 npx boring-cms`, or set PORT in the home `.env`). It never silently binds a different port: behind a reverse proxy pointed at a fixed port, a surprise port would be a silent outage. Same handling in the `node server.ts` checkout path. No perf impact (startup path only, verified against the v0.18.3 benchmark). README gains a Production section (VPS deploy, pm2, when to set TRUST_PROXY, media storage, backup).

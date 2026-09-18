@@ -1,14 +1,13 @@
 {
   "name": "boring-cms",
-  "version": "0.18.4",
+  "version": "0.18.5",
   "description": "Open-source headless CMS. One deploy, many projects.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/TheTechBasket/boring-cms.git"
   },
-  "homepage": "https://github.com/TheTechBasket/boring-cms#readme",
-  "bugs": "https://github.com/TheTechBasket/boring-cms/issues",
+  "homepage": "https://www.npmjs.com/package/boring-cms",
   "keywords": [
     "cms",
     "headless-cms",
