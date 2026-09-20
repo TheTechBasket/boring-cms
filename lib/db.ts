@@ -115,8 +115,11 @@ export class ProjectDbManager {
   onSlowQuery: any;
   migrationsDir: string | undefined;
   timer: any;
+  // Runs before a handle closes (idle, delete, shutdown) so write-behind state can flush.
+  beforeClose: ((slug: string) => void) | undefined;
 
-  constructor(dataDir, { onSlowQuery, migrationsDir }: { onSlowQuery?: any; migrationsDir?: string } = {}) {
+  constructor(dataDir, { onSlowQuery, migrationsDir, beforeClose }: { onSlowQuery?: any; migrationsDir?: string; beforeClose?: (slug: string) => void } = {}) {
+    this.beforeClose = beforeClose;
     this.projectsDir = path.join(dataDir, 'projects');
     mkdirSync(this.projectsDir, { recursive: true });
     this.handles = new Map(); // slug -> { db, lastUsed }
@@ -149,6 +152,7 @@ export class ProjectDbManager {
     const now = Date.now();
     for (const [slug, entry] of this.handles) {
       if (now - entry.lastUsed > IDLE_MS) {
+        this.beforeClose?.(slug);
         entry.db.close();
         this.handles.delete(slug);
       }
@@ -172,7 +176,10 @@ export class ProjectDbManager {
 
   closeAll() {
     clearInterval(this.timer);
-    for (const [, entry] of this.handles) entry.db.close();
+    for (const [slug, entry] of this.handles) {
+      this.beforeClose?.(slug);
+      entry.db.close();
+    }
     this.handles.clear();
   }
 

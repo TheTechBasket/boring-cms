@@ -878,6 +878,13 @@ export function collectionPage({ user, projects, project, collection, entries, p
         <label class="flex items-center gap-2 text-xs font-medium text-muted-foreground self-end">
           <input type="checkbox" name="multiple" value="1"${f.multiple ? ' checked' : ''} class="size-3.5 accent-primary"> Allow multiple (relation)
         </label>`;
+    const counterOpts = `<label class="flex flex-col gap-1 text-xs">
+          <span class="font-medium text-muted-foreground">Vote access${f.type === 'counter' ? '' : ' (counter type only)'}</span>
+          <select name="access" class="${SELECT_CLASS} h-8">
+            <option value="public"${f.access === 'key' ? '' : ' selected'}>Public (anyone, one vote per visitor)</option>
+            <option value="key"${f.access === 'key' ? ' selected' : ''}>Private (write API key required)</option>
+          </select>
+        </label>`;
     return `<form method="post" action="${base}/fields/update" class="grid grid-cols-2 gap-3 border-b border-border bg-muted/50 px-4 py-4">
       <input type="hidden" name="field" value="${escapeHtml(f.name)}">
       ${opt(f, 'label', 'Label')}
@@ -890,6 +897,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
       ${f.type === 'boolean' || f.type === 'relation' ? '' : opt(f, 'default', 'Default value')}
       ${constraints}
       ${relationOpts}
+      ${counterOpts}
       <label class="col-span-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <input type="checkbox" name="required" value="1"${f.required ? ' checked' : ''} class="size-3.5 accent-primary"> Required
       </label>
@@ -1016,6 +1024,13 @@ export function collectionPage({ user, projects, project, collection, entries, p
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="font-medium text-foreground">Type</span>
               <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="font-medium text-foreground">Vote access <span class="font-normal text-muted-foreground">(counter type only)</span></span>
+              <select name="access" class="${SELECT_CLASS}">
+                <option value="public">Public (anyone, one vote per visitor)</option>
+                <option value="key">Private (write API key required)</option>
+              </select>
             </label>
             <label class="flex items-center gap-2 text-sm font-medium text-foreground">
               <input type="checkbox" name="required" value="1" class="size-3.5 accent-primary"> Required
@@ -1166,6 +1181,12 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         ${help}
       </div>`;
     }
+    case 'counter':
+      return `<div class="flex flex-col gap-1.5 text-sm">
+        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        <p class="m-0 text-muted-foreground">Up/down counter, managed by the server (${f.access === 'key' ? 'private, write key' : 'public'}). Totals are read from the API counters endpoint, not edited here.</p>
+        ${help}
+      </div>`;
     case 'relation': {
       const opts = relationOptions[f.name] || [];
       const selected = new Set(Array.isArray(v) ? v : v ? [v] : []);

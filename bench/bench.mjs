@@ -511,6 +511,101 @@ async function main() {
   });
   void gateEtag;
 
+  // ---- Production-like "misc" collection: every field type incl. a counter ----
+  // Traffic shapes: read-only, read+write mix, write-only (votes, entry edits),
+  // and a hot entry taking concentrated votes. Votes come from a large pool of
+  // distinct visitors (IP via X-Forwarded-For, needs TRUST_PROXY=1, plus a UA)
+  // with some repeats, like real traffic.
+  const MISC_SCHEMA = {
+    slug: 'misc',
+    name: 'Misc',
+    fields: [
+      { name: 'title', label: 'Title', type: 'text', required: true },
+      { name: 'body', label: 'Body', type: 'markdown' },
+      { name: 'views', label: 'Views', type: 'number' },
+      { name: 'featured', label: 'Featured', type: 'boolean' },
+      { name: 'day', label: 'Day', type: 'date' },
+      { name: 'at', label: 'At', type: 'datetime' },
+      { name: 'meta', label: 'Meta', type: 'json' },
+      { name: 'cover', label: 'Cover', type: 'image' },
+      { name: 'related', label: 'Related', type: 'relation', collection: 'short-posts' },
+      { name: 'likes', label: 'Likes', type: 'counter' },
+      { name: 'stars', label: 'Stars', type: 'counter', access: 'key' },
+    ],
+  };
+  expectStatus(await api(`/api/v1/${project}/schema`, { method: 'POST', write: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ collections: [MISC_SCHEMA] }) }), 200);
+  const miscData = (i) => ({
+    title: `Misc ${i}`,
+    body: `# Heading ${i}\n\n${'Lorem ipsum dolor sit amet. '.repeat(40)}`,
+    views: i,
+    featured: i % 3 === 0,
+    day: '2026-09-20',
+    at: '2026-09-20T10:00:00Z',
+    meta: { tags: ['a', 'b', `t${i}`], nested: { n: i } },
+    cover: `https://cdn.example.com/misc/${i}.webp`,
+    related: shortSlugs[i % shortSlugs.length] ?? '',
+  });
+  const miscSlugs = [];
+  await phase('misc_seed', N(200), async (i) => {
+    const r = await mcp('create_entry', { collection: 'misc', slug: `misc-${i}`, data: miscData(i), publish: true });
+    miscSlugs.push(r.slug || `misc-${i}`);
+  });
+  const VOTERS = 50000;
+  const rnd = (n) => Math.floor(Math.random() * n);
+  const vote = async (slug, voter, dir = 'up', field = 'likes') => {
+    const res = await fetch(`${base}/api/v1/${project}/misc/${slug}/counters/${field}?dir=${dir}`, {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': `10.${(voter >> 16) & 255}.${(voter >> 8) & 255}.${voter & 255}`, 'User-Agent': `bench-ua-${voter % 97}` },
+    });
+    expectStatus(res, 200);
+  };
+  const miscSingle = async (i) => expectStatus(await api(`/api/v1/${project}/misc/${miscSlugs[rnd(miscSlugs.length)]}`), 200);
+  const miscList = async () => expectStatus(await api(`/api/v1/${project}/misc?limit=20&offset=${rnd(10) * 20}`), 200);
+  const miscCounts = async () => {
+    const some = Array.from({ length: 20 }, () => miscSlugs[rnd(miscSlugs.length)]).join(',');
+    expectStatus(await fetch(`${base}/api/v1/${project}/misc/counters?slugs=${some}`), 200);
+  };
+  const miscEdit = async (i) => {
+    await mcp('update_entry', { collection: 'misc', slug: miscSlugs[rnd(miscSlugs.length)], data: { views: i }, publish: true });
+  };
+  const miscVote = async () => vote(miscSlugs[rnd(miscSlugs.length)], rnd(VOTERS), Math.random() < 0.85 ? 'up' : 'down');
+
+  // Read only: 60% single, 15% list, 20% counter batch, 5% list revalidation.
+  const miscEtag = (await api(`/api/v1/${project}/misc?limit=20&offset=0`)).headers.get('etag');
+  await phase('misc_read_only', N(1500), async (i) => {
+    const m = i % 20;
+    if (m < 12) return miscSingle(i);
+    if (m < 15) return miscList();
+    if (m < 19) return miscCounts();
+    expectStatus(await api(`/api/v1/${project}/misc?limit=20&offset=0`, { headers: { 'If-None-Match': miscEtag } }), 304, 200);
+  }, { concurrency: 16 });
+  // Read + write: 50% single, 10% list, 10% counter batch, 25% votes, 5% entry edits.
+  await phase('misc_read_write', N(1500), async (i) => {
+    const m = i % 20;
+    if (m < 10) return miscSingle(i);
+    if (m < 12) return miscList();
+    if (m < 14) return miscCounts();
+    if (m < 19) return miscVote();
+    return miscEdit(i);
+  }, { concurrency: 16 });
+  // Write only, votes: distinct visitors across all entries.
+  await phase('misc_write_votes', N(3000), () => miscVote(), { concurrency: 32 });
+  // Write only, entry edits (MCP update + publish, the CMS write path).
+  await phase('misc_write_edits', N(200), (i) => miscEdit(i), { concurrency: 4 });
+  // Concentrated: one hot entry. Pure votes, then votes with 30% reads of it.
+  const hot = miscSlugs[0];
+  await phase('misc_hot_votes', N(5000), () => vote(hot, rnd(VOTERS), Math.random() < 0.8 ? 'up' : 'down'), { concurrency: 64 });
+  await phase('misc_hot_mixed', N(3000), async (i) => {
+    if (i % 10 < 3) expectStatus(await fetch(`${base}/api/v1/${project}/misc/${hot}/counters`), 200);
+    else await vote(hot, rnd(VOTERS));
+  }, { concurrency: 64 });
+  // Repeat voters: 200 visitors hammering the same entry (dedupe path, mostly no-ops).
+  await phase('misc_hot_repeat_voters', N(3000), () => vote(hot, rnd(200), 'up'), { concurrency: 64 });
+  // Private counter with a write key (no dedupe, arbitrary step).
+  await phase('misc_private_bump', N(1000), async () => {
+    expectStatus(await fetch(`${base}/api/v1/${project}/misc/${hot}/counters/stars?by=2`, { method: 'POST', headers: { Authorization: `Bearer ${writeKey}` } }), 200);
+  }, { concurrency: 16 });
+
   // Deletes.
   await phase('delete_entries', N(200), async (i) => {
     await mcp('delete_entry', { collection: 'short-posts', slug: shortSlugs[i] });

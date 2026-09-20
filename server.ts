@@ -42,6 +42,7 @@ import { listMedia, getMedia, createMedia, deleteMedia, findServableMedia, regis
 import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import { handleMcp, callTool, UnknownToolError, ToolScopeError, rateLimitOk, retryAfterSeconds, rateLimitHeaders, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
+import { createCounters } from './lib/counters.ts';
 import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
@@ -120,7 +121,9 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   }
   const migrationsDir = path.join(__dirname, 'migrations');
   const coreDb = openCoreDb(config.dataDir, migrationsDir);
+  const counters = createCounters();
   const projectDbs = new ProjectDbManager(config.dataDir, {
+    beforeClose: (slug) => counters.flush(slug),
     migrationsDir: path.join(migrationsDir, 'project'),
     onSlowQuery: (dbName, sql, ms) => {
       try {
@@ -729,6 +732,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
           400,
         );
       }
+      counters.forget(project.slug);
       projectDbs.destroy(project.slug);
       deleteProjectRow(coreDb, project.slug);
       redirect(req, res, '/admin/projects');
@@ -850,7 +854,8 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const data = {};
     for (const f of collection.fields) {
       const raw = form[`field_${f.name}`];
-      if (f.type === 'boolean') data[f.name] = raw === '1';
+      if (f.type === 'counter') continue; // server-managed, not entry data
+      else if (f.type === 'boolean') data[f.name] = raw === '1';
       else if (f.type === 'number') data[f.name] = raw === '' || raw === undefined ? null : Number(raw);
       else if (f.type === 'json') {
         // Store parsed JSON when valid so the API serves real structures;
@@ -1417,7 +1422,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const form = await readFormBody(req);
     const label = (form.label || '').trim();
     const type = FIELD_TYPES.includes(form.type) ? form.type : 'text';
-    if (label) addCollectionField(db, ctx.collection.slug, { label, type, name: form.name || '', required: form.required === '1', unique: form.unique === '1' });
+    if (label) addCollectionField(db, ctx.collection.slug, { label, type, name: form.name || '', required: form.required === '1', unique: form.unique === '1', access: form.access || '' });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
 
@@ -1872,6 +1877,106 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     send(req, res, 200, hit.body, { 'Content-Type': 'application/json; charset=utf-8', ETag: etag }, hit);
   }
 
+  // ---- Counter fields ------------------------------------------------------
+  // Public fields (default) take votes without a key: one +1/-1 per visitor,
+  // per-IP rate limited, CORS open. Private ("key") fields need a write key
+  // and take a step of `by` (default 1). Counts are never part of the entry
+  // payload, so voting does not touch ETags, revisions or webhooks.
+
+  const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Max-Age': '86400' };
+  const COUNTER_IP_LIMIT = 120;
+  const collFieldCache = new WeakMap<object, { gen: number; map: Map<string, any> }>();
+
+  function counterCollection(db, slug) {
+    let e = collFieldCache.get(db);
+    if (!e || e.gen !== (db.gen ?? 0)) collFieldCache.set(db, (e = { gen: db.gen ?? 0, map: new Map() }));
+    let c = e.map.get(slug);
+    if (c === undefined) {
+      c = getCollection(db, slug) ?? null;
+      e.map.set(slug, c);
+    }
+    return c;
+  }
+
+  function counterCtx(req, res, params) {
+    const project = getProjectBySlug(coreDb, params.project);
+    if (!project) { json(req, res, 404, { error: 'not_found' }, CORS); return null; }
+    const db = projectDbs.get(project.slug);
+    const collection = counterCollection(db, params.collection);
+    if (!collection) { json(req, res, 404, { error: 'not_found' }, CORS); return null; }
+    const auth = req.headers.authorization || '';
+    const apiKey = auth.startsWith('Bearer ') ? verifyApiKey(db, auth.slice(7)) : null;
+    return { project, db, collection, apiKey };
+  }
+
+  function clientIp(req) {
+    const fwd = config.trustProxy ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+    return fwd || req.socket.remoteAddress || '';
+  }
+
+  for (const path of ['/api/v1/:project/:collection/:entry/counters/:field', '/api/v1/:project/:collection/:entry/counters', '/api/v1/:project/:collection/counters']) {
+    router.add('OPTIONS', path, (req, res) => send(req, res, 204, '', CORS));
+  }
+
+  router.post('/api/v1/:project/:collection/:entry/counters/:field', (req, res, params) => {
+    const ctx = counterCtx(req, res, params);
+    if (!ctx) return;
+    const field = ctx.collection.fields.find((f) => f.name === params.field && f.type === 'counter');
+    if (!field) return json(req, res, 404, { error: 'not_found' }, CORS);
+    const isKey = field.access === 'key';
+    if (isKey) {
+      if (!ctx.apiKey) return json(req, res, 401, { error: 'unauthorized' }, CORS);
+      if (ctx.apiKey.scope !== 'write') return json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' }, CORS);
+    }
+    const ip = clientIp(req);
+    if (!isKey && !rateLimitOk(`ctr:${ip}`, COUNTER_IP_LIMIT)) {
+      const retryAfter = retryAfterSeconds(`ctr:${ip}`, COUNTER_IP_LIMIT);
+      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { ...CORS, 'Retry-After': String(retryAfter) });
+    }
+    const url = new URL(req.url, 'http://localhost');
+    const dir = url.searchParams.get('dir') ?? 'up';
+    if (dir !== 'up' && dir !== 'down') return json(req, res, 400, { error: 'bad_request', message: 'dir must be "up" or "down".' }, CORS);
+    const entry = ctx.db.prepare("SELECT id FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'").get(ctx.collection.id, params.entry);
+    if (!entry) return json(req, res, 404, { error: 'not_found' }, CORS);
+    if (isKey) {
+      const by = Math.min(1000, Math.max(1, Number.parseInt(url.searchParams.get('by') ?? '1', 10) || 1));
+      return json(req, res, 200, counters.add(ctx.project.slug, ctx.db, entry.id, field.name, dir === 'up' ? by : 0, dir === 'down' ? by : 0), CORS);
+    }
+    json(req, res, 200, counters.vote(ctx.project.slug, ctx.db, entry.id, field.name, ip, String(req.headers['user-agent'] ?? ''), dir === 'down'), CORS);
+  });
+
+  // Counter totals for a set of published entries. Private fields are only
+  // included for callers with a valid key.
+  function readCounters(ctx, rows) {
+    const fields = ctx.collection.fields.filter((f) => f.type === 'counter' && (f.access !== 'key' || ctx.apiKey));
+    const out = {};
+    for (const r of rows) {
+      const o = {};
+      for (const f of fields) o[f.name] = counters.read(ctx.project.slug, ctx.db, r.id, f.name);
+      out[r.slug] = o;
+    }
+    return out;
+  }
+
+  // Registered before /:collection/:entry so "counters" is not read as an entry slug.
+  router.get('/api/v1/:project/:collection/counters', (req, res, params) => {
+    const ctx = counterCtx(req, res, params);
+    if (!ctx) return;
+    const slugs = (new URL(req.url, 'http://localhost').searchParams.get('slugs') ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 100);
+    if (!slugs.length) return json(req, res, 400, { error: 'bad_request', message: 'slugs is required (comma-separated, max 100).' }, CORS);
+    const rows = ctx.db.prepare(`SELECT id, slug FROM entries WHERE collection_id = ? AND status = 'published' AND slug IN (${slugs.map(() => '?').join(',')})`).all(ctx.collection.id, ...slugs);
+    json(req, res, 200, { items: readCounters(ctx, rows) }, { ...CORS, 'Cache-Control': 'no-cache' });
+  });
+
+  router.get('/api/v1/:project/:collection/:entry/counters', (req, res, params) => {
+    const ctx = counterCtx(req, res, params);
+    if (!ctx) return;
+    const row = ctx.db.prepare("SELECT id, slug FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'").get(ctx.collection.id, params.entry);
+    if (!row) return json(req, res, 404, { error: 'not_found' }, CORS);
+    json(req, res, 200, readCounters(ctx, [row])[row.slug], { ...CORS, 'Cache-Control': 'no-cache' });
+  });
+
+
   router.get('/api/v1/:project/:collection', apiHandler((req, res, params, { db, collection, etag }) => {
     const url = new URL(req.url, 'http://localhost');
     const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50;
@@ -2034,6 +2139,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   server.appConfig = config;
 
   server.closeAll = () => {
+    counters.stop();
     projectDbs.closeAll();
     coreDb.close();
   };

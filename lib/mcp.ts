@@ -42,11 +42,15 @@ export const DEFAULT_RATE_LIMIT = 60; // requests per minute per key, project ca
 export const MCP_BODY_LIMIT = 8 * 1024 * 1024; // bytes; 200 typical CMS entries easily pass 1MB
 const buckets = new Map<string, { tokens: number; ts: number }>();
 
+let lastSweep = 0;
 export function rateLimitOk(bucketKey: string, limit = DEFAULT_RATE_LIMIT): boolean {
   const now = Date.now();
   // Drop buckets idle for a minute (they are full again anyway) so the map
   // cannot grow with every distinct caller.
-  if (buckets.size > 10_000) for (const [k, v] of buckets) if (now - v.ts > 60000) buckets.delete(k);
+  if (buckets.size > 10_000 && now - lastSweep > 30_000) {
+    lastSweep = now;
+    for (const [k, v] of buckets) if (now - v.ts > 60000) buckets.delete(k);
+  }
   const b = buckets.get(bucketKey) ?? { tokens: limit, ts: now };
   b.tokens = Math.min(limit, b.tokens + ((now - b.ts) / 60000) * limit);
   b.ts = now;

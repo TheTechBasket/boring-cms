@@ -2,6 +2,13 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.20.0 (2026-09-20)
+
+- New `counter` field type: up/down votes per entry, for likes, ratings and polls. Choose access when adding the field: public (default, no API key, one vote per visitor, per-IP rate limit, CORS open) or private (write-scope key, optional `by` step up to 1000). Vote with `POST /api/v1/<project>/<collection>/<entry>/counters/<field>?dir=up|down`. Read with `GET .../<entry>/counters` or `GET .../<collection>/counters?slugs=a,b` (max 100); private counters are only returned to callers with a key. Counts never appear in the entry payload, so voting does not change ETags, revisions, `updated_at` or webhooks. New migration `006_counters.sql` (per-project, applies on next open).
+- Totals live in memory and are flushed to the `counters` table every 5 seconds in one transaction, and on idle close and clean shutdown. A hard crash loses at most 5 seconds of votes. Voter dedupe is a compact in-memory map (salted hash of project, IP, user agent, entry and field; 24 hour TTL, 200k cap, about 18 MB full). Nothing identifying is stored and a restart forgets voters. Behind a proxy set `TRUST_PROXY=1` so the visitor IP is read from `X-Forwarded-For`.
+- Fix: the rate limiter sweep of idle buckets ran on every call once the map passed 10,000 callers, which slowed traffic from many distinct IPs about 3x. It now runs at most every 30 seconds.
+- New bench phases on a production-like "misc" collection (every field type plus counters): read only, read and write mix, write only (votes, edits), hot single entry, repeat voters, private bumps. `bench/run.sh` sets `TRUST_PROXY=1`.
+
 ## 0.19.1 (2026-09-20)
 
 - List reads are much faster. The serialized JSON body of `GET /api/v1/<project>/<collection>` and its gzip are kept in memory and reused until any write can change the output (a publish, a scheduled go-live, or any edit to entries, collections or project meta drops the cache, so it never serves stale data). Node, 1 CPU, scale 5: short list 2.1k to 4.4k req/s, long list 430 to 3.4k req/s. Single-entry and 304 reads are unchanged.

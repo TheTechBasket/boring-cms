@@ -32,6 +32,7 @@ export const FIELD_TYPE_DEFS = {
   datetime: { value: 'string ISO 8601 UTC "YYYY-MM-DDTHH:MM:SSZ"', options: { min: 'Earliest datetime (same format).', max: 'Latest datetime (same format).' } },
   json: { value: 'any JSON value', options: {} },
   image: { value: 'string (media path or URL)', options: { ...LENGTH_OPTIONS, accept: 'Accept list for the editor file picker, e.g. "image/*".' } },
+  counter: { value: 'object {up, down} (server-managed, never stored in entry data; bump via the counter endpoint)', options: { access: '"public" (default, anyone may vote, one vote per visitor) or "key" (a write API key is required to bump).' } },
   relation: { value: 'string entry slug, or array of slugs when multiple', options: { collection: 'Target collection slug (required for relations).', multiple: 'Allow multiple related entries (value becomes an array).' } },
 };
 
@@ -212,7 +213,7 @@ export function createCollection(db, name) {
 // the read path defends per name.
 export const RESERVED_FIELD_NAMES = new Set(['slug', 'updated_at', 'published_at']);
 
-export function addCollectionField(db, collectionSlug, { label, type, name: requestedName = '', required = false, unique = false }) {
+export function addCollectionField(db, collectionSlug, { label, type, name: requestedName = '', required = false, unique = false, access = '' }: any) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
   if (!FIELD_TYPES.includes(type)) throw new Error(`Unknown field type: ${type}`);
@@ -222,6 +223,7 @@ export function addCollectionField(db, collectionSlug, { label, type, name: requ
   const field: Record<string, any> = { name, label, type };
   if (required) field.required = true;
   if (unique) field.unique = true;
+  if (type === 'counter' && access === 'key') field.access = 'key';
   const fields = [...collection.fields, field];
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
   return getCollection(db, collectionSlug);
@@ -260,6 +262,7 @@ export function updateCollectionField(db, collectionSlug, fieldName, props) {
     for (const k of FIELD_OPTIONS) {
       const v = props[k];
       if (v === undefined || v === null || v === '' || v === false) continue;
+      if (k === 'access' && (v === 'public' || next.type !== 'counter')) continue;
       next[k] = v;
     }
     return next;
@@ -275,6 +278,7 @@ export function updateCollectionField(db, collectionSlug, fieldName, props) {
 export function validateEntryData(collection, data, { db = null, excludeEntryId = 0 }: any = {}) {
   const errors: string[] = [];
   for (const f of collection.fields) {
+    if (f.type === 'counter') continue;
     const v = data[f.name];
     const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
     if (f.required && (empty || v === false)) {

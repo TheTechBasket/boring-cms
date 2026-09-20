@@ -2,7 +2,7 @@
 
 ## Active
 
-- [counter-field](counter-field.md): counter field for polls, views, up/down votes via a POST-only bump endpoint. Five designs benchmarked (bench/counter-lab.mjs), waiting on Amit to pick one before any build.
+- None.
 
 ## Backlog
 
@@ -27,6 +27,7 @@
 
 ## Shipped history
 
+- 2026-09-20 counter field (v0.20.0): design v7 (in-memory totals flushed every 5s, compact salted-hash voter map, public default or private key access chosen at field creation, up/down +-1). Bench 'misc' collection, node 1 CPU scale 5: reads 2.7k ops/s, read+write mix 3.2k, votes 9.9k, hot entry votes 10.3k, private bumps 9.0k, no errors, peak RSS 256 MB. Found and fixed a rate-limiter sweep that ran per call with many distinct IPs (hot votes 3.1k to 10.3k). Lab and rejected variants: bench/counter-lab.mjs.
 - 2026-09-17 bulk_rewrite_refs single-pass fix (v0.17.1, 653b419): was O(entries x pairs), 504 on prod. Now one regex pass, in-request (no background job). Prod live run 1.9s, 1223 entries, 3254 substitutions, idempotent re-dry touches 0. Downstream thetechbasket rebuild is that site's task.
 - 2026-09-17 npm distribution (v0.18.2/v0.18.3, first npm release): `npx boring-cms` works end to end; prepack tsc type-strip (Node refuses stripping under node_modules, so tarball ships .js only, repo stays raw TS), `~/.boring-cms` home with full first-boot .env template, clean colored banner (startup time, clickable OSC 8 links), sqlite ExperimentalWarning silenced in the launcher; PUBLISHING.md release flow + `pnpm verify:pack` gate (real tarball install/boot + smoke + full bench); README halved and npx-first; broken 0.18.1 unpublished from npm.
 - 2026-09-09 Consumer sync pair (requested by thetechbasket session): REST list endpoint gains updated_since (parity with MCP list_entries, 400 on invalid timestamp), so incremental sync is one request; publish webhooks per project (webhook URL + optional HMAC secret in project settings, POSTs entry.publish / entry.unpublish / entry.delete of published entries from admin and MCP paths, X-Boring-Signature sha256 header, 10s timeout, 2 in-process retries, fire-and-forget). Smoke covers both, README documents both.

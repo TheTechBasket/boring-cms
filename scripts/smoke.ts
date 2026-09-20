@@ -1279,6 +1279,47 @@ async function main() {
   assert.equal(app.coreDb.prepare('SELECT COUNT(*) AS n FROM credentials').get().n, 0, 'passkey removal should delete the row');
 
   // 15. Delete the project (requires exact slug confirmation)
+  // Counter fields: public votes need no key, one vote per visitor, switch nets 2,
+  // private fields need a write key, counts stay out of the entry payload.
+  {
+    const tool = async (key: string, name: string, args: any) => {
+      const j: any = await (await rpc(key, 'tools/call', { name, arguments: args })).json();
+      return { err: !!j.error || !!j.result?.isError, out: j.result?.content?.[0]?.text };
+    };
+    await tool(writeKey, 'add_field', { collection: 'blog-posts', label: 'Likes', type: 'counter', name: 'likes' });
+    await tool(writeKey, 'add_field', { collection: 'blog-posts', label: 'Stars', type: 'counter', name: 'stars', options: { access: 'key' } });
+    await tool(writeKey, 'create_entry', { collection: 'blog-posts', slug: 'ctr-demo', data: { body: 'x' } });
+    await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'ctr-demo' });
+    const ep = `${base}/api/v1/${slug}/blog-posts/ctr-demo`;
+    const bump = (field: string, q: string, ua: string, headers: any = {}) =>
+      fetch(`${ep}/counters/${field}${q}`, { method: 'POST', headers: { 'User-Agent': ua, ...headers } });
+    let r: any = await (await bump('likes', '?dir=up', 'ua-a')).json();
+    assert.deepEqual([r.up, r.down, r.changed], [1, 0, true], 'public vote needs no key');
+    r = await (await bump('likes', '?dir=up', 'ua-a')).json();
+    assert.deepEqual([r.up, r.down, r.changed], [1, 0, false], 'same visitor same vote is a no-op');
+    r = await (await bump('likes', '?dir=down', 'ua-a')).json();
+    assert.deepEqual([r.up, r.down], [0, 1], 'switching a vote moves it');
+    r = await (await bump('likes', '?dir=up', 'ua-b')).json();
+    assert.deepEqual([r.up, r.down], [1, 1], 'a different visitor counts separately');
+    assert.equal((await bump('likes', '?dir=sideways', 'ua-a')).status, 400, 'bad dir is 400');
+    assert.equal((await bump('nope', '', 'ua-a')).status, 404, 'unknown field is 404');
+    assert.equal((await bump('stars', '', 'ua-a')).status, 401, 'private field rejects a keyless vote');
+    assert.equal((await bump('stars', '', 'ua-a', { Authorization: `Bearer ${apiKey}` })).status, 403, 'private field rejects a read key');
+    r = await (await bump('stars', '?by=5', 'ua-a', { Authorization: `Bearer ${writeKey}` })).json();
+    assert.equal(r.up, 5, 'private field takes a step from a write key');
+    const pub: any = await (await fetch(`${ep}/counters`)).json();
+    assert.deepEqual(pub, { likes: { up: 1, down: 1 } }, 'keyless read hides private counters');
+    const priv: any = await (await fetch(`${ep}/counters`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.equal(priv.stars.up, 5, 'keyed read includes private counters');
+    const batch: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts/counters?slugs=ctr-demo,missing`)).json();
+    assert.deepEqual(Object.keys(batch.items), ['ctr-demo'], 'batch read returns published slugs only');
+    const opt = await fetch(`${ep}/counters/likes`, { method: 'OPTIONS' });
+    assert.equal(opt.status, 204, 'CORS preflight answers');
+    const payload = JSON.stringify(await (await fetch(ep, { headers: { Authorization: `Bearer ${apiKey}` } })).json());
+    assert.ok(!payload.includes('likes'), 'counts are not in the entry payload');
+    await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'ctr-demo' });
+  }
+
   const badDelete = await req('POST', `/admin/projects/${slug}/delete`, {
     form: { confirm: 'not-the-slug' },
   });

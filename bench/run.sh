@@ -102,7 +102,7 @@ for rt in "${RT[@]}"; do
     MASTER_KEY=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')
     echo "=== $LABEL (port $PORT, data $DATA_DIR, $RTV) ==="
 
-    YNCMS_DATA_DIR="$DATA_DIR" MASTER_KEY="$MASTER_KEY" SECRET_KEY="$MASTER_KEY" PORT="$PORT" \
+    YNCMS_DATA_DIR="$DATA_DIR" MASTER_KEY="$MASTER_KEY" SECRET_KEY="$MASTER_KEY" PORT="$PORT" TRUST_PROXY=1 \
       taskset -c "$(cpu_mask "$ncpu")" $CMD >"$OUTDIR/$LABEL.server.log" 2>&1 &
     SERVER_PID=$!
 
