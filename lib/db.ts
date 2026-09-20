@@ -35,11 +35,15 @@ function instrument(db, dbName, onSlowQuery) {
     if (hit) return hit;
     const stmt = rawPrepare(sql);
     if (cache.size < 256) cache.set(sql, stmt);
+    // Content generation: bumps on any write that can change API output, so the
+    // response cache in server.ts drops itself. Decided once per statement.
+    const touchesContent = /\b(entries|collections|meta)\b/i.test(sql);
     for (const method of ['run', 'get', 'all']) {
       const raw = stmt[method].bind(stmt);
       stmt[method] = (...args) => {
         const start = performance.now();
         const result = raw(...args);
+        if (touchesContent && method === 'run') db.gen = (db.gen ?? 0) + 1;
         const ms = performance.now() - start;
         if (ms > SLOW_QUERY_MS && onSlowQuery) {
           onSlowQuery(dbName, sql, ms);

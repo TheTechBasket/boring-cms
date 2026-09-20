@@ -138,7 +138,8 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   const router = new Router();
   const publicDir = path.join(__dirname, 'public');
 
-  function send(req, res, status, body, headers = {}) {
+  // `memo` lets a caller keep the gzipped body next to a cached response.
+  function send(req, res, status, body, headers = {}, memo?: { gz?: Buffer }) {
     const ms = performance.now() - req._start;
     res.setHeader('Server-Timing', `total;dur=${ms.toFixed(2)}`);
     for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
@@ -153,7 +154,8 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       /\bgzip\b/.test(String(req.headers['accept-encoding'] || '')) &&
       Buffer.byteLength(body) >= 1024
     ) {
-      const gz = gzipSync(body);
+      const gz = memo?.gz ?? gzipSync(body);
+      if (memo) memo.gz = gz;
       res.setHeader('Content-Encoding', 'gzip');
       res.setHeader('Vary', 'Accept-Encoding');
       res.writeHead(status);
@@ -1852,6 +1854,24 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     }
   });
 
+  // Serialized list bodies (and their gzip). Single-entry reads stay uncached: one indexed lookup, and measured slower with a cache. Valid for
+  // one (etag, db.gen) pair: etag covers publish and scheduled go-live, gen
+  // covers every other write that can change output (draft edits move
+  // updated_at). Any write drops the lot, so it can never serve stale data.
+  const respCache = new WeakMap<object, { etag: string; gen: number; map: Map<string, { body: string; gz?: Buffer }> }>();
+  function cachedJson(req, res, db, etag, make: () => any) {
+    let c = respCache.get(db);
+    if (!c || c.etag !== etag || c.gen !== (db.gen ?? 0) || c.map.size > 500) respCache.set(db, (c = { etag, gen: db.gen ?? 0, map: new Map() }));
+    let hit = c.map.get(req.url);
+    if (!hit) {
+      const payload = make();
+      if (!payload) return;
+      hit = { body: JSON.stringify(payload) };
+      if (hit.body.length < 1_000_000) c.map.set(req.url, hit);
+    }
+    send(req, res, 200, hit.body, { 'Content-Type': 'application/json; charset=utf-8', ETag: etag }, hit);
+  }
+
   router.get('/api/v1/:project/:collection', apiHandler((req, res, params, { db, collection, etag }) => {
     const url = new URL(req.url, 'http://localhost');
     const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50;
@@ -1860,7 +1880,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (updatedSince && Number.isNaN(new Date(updatedSince).getTime())) {
       return json(req, res, 400, { error: 'invalid_updated_since', hint: 'ISO 8601 or "YYYY-MM-DD HH:MM:SS" (UTC)' });
     }
-    json(req, res, 200, { items: listPublished(db, collection.id, { limit, offset, updatedSince }) }, { ETag: etag });
+    cachedJson(req, res, db, etag, () => ({ items: listPublished(db, collection.id, { limit, offset, updatedSince }) }));
   }));
 
   router.get('/api/v1/:project/:collection/:entry', apiHandler((req, res, params, { db, collection, etag }) => {

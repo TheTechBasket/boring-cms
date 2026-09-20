@@ -44,6 +44,9 @@ const buckets = new Map<string, { tokens: number; ts: number }>();
 
 export function rateLimitOk(bucketKey: string, limit = DEFAULT_RATE_LIMIT): boolean {
   const now = Date.now();
+  // Drop buckets idle for a minute (they are full again anyway) so the map
+  // cannot grow with every distinct caller.
+  if (buckets.size > 10_000) for (const [k, v] of buckets) if (now - v.ts > 60000) buckets.delete(k);
   const b = buckets.get(bucketKey) ?? { tokens: limit, ts: now };
   b.tokens = Math.min(limit, b.tokens + ((now - b.ts) / 60000) * limit);
   b.ts = now;

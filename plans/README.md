@@ -2,7 +2,7 @@
 
 ## Active
 
-- [counter-field](counter-field.md): counter field for polls, views, up/down votes via a POST-only bump endpoint. Idea only, open questions for Amit before any build.
+- [counter-field](counter-field.md): counter field for polls, views, up/down votes via a POST-only bump endpoint. Five designs benchmarked (bench/counter-lab.mjs), waiting on Amit to pick one before any build.
 
 ## Backlog
 

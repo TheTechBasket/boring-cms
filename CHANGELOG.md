@@ -2,6 +2,12 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.19.1 (2026-09-20)
+
+- List reads are much faster. The serialized JSON body of `GET /api/v1/<project>/<collection>` and its gzip are kept in memory and reused until any write can change the output (a publish, a scheduled go-live, or any edit to entries, collections or project meta drops the cache, so it never serves stale data). Node, 1 CPU, scale 5: short list 2.1k to 4.4k req/s, long list 430 to 3.4k req/s. Single-entry and 304 reads are unchanged.
+- The per-key rate limiter map drops buckets idle for a minute once it passes 10,000, so it no longer grows with every distinct caller.
+- `bench/run.sh` no longer aborts on an unset `BENCH_ARGS`. New `bench/counter-lab.mjs` compares counter-field designs (not shipped in the package).
+
 ## 0.19.0 (2026-09-20)
 
 - Scheduled publishing. Publish an entry with a future date (admin "Publish at" field, UTC, or `publish_entry` with `at`) and it stays hidden from `/api/v1` and the MCP read tools until that time. No timer, no new status, no migration: the read path gates on `published_at <= now`, and the API ETag folds in the count of still-scheduled entries so a cached list refreshes the moment one goes live. `updated_since` also matches entries whose go-live date passed the cursor. Republishing a scheduled entry keeps its date. Admin shows a "scheduled" badge and a "Goes live" line, times display in the viewer's timezone, and the Publish at field takes local time (converted to UTC on submit). New `list_scheduled` MCP tool (write scope, also reachable at `/call/list_scheduled`) lists pending go-lives; `get_entry` with `draft: true` reports `status: "scheduled"`. Note: the `entry.publish` webhook fires when you schedule, not at go-live. The API ETag is now an opaque HMAC, not `v<n>`: clients that echo it are unaffected. Project exports carry `published_at` so restore and import keep a future go-live hidden. An invalid `publish_at` in the admin form returns a 400 page.

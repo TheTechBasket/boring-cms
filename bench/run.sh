@@ -29,6 +29,7 @@ PORT=4710
 SERVER_PID=""
 DATA_DIR=""
 FAILED=0
+BENCH_ARGS="${BENCH_ARGS:-}"
 
 # Toolchain + constraints record: makes each dataset self-describing so runs
 # taken on different days stay comparable. Lists every runtime (node, bun,

@@ -1,0 +1,15 @@
+{
+  "date": "2026-09-20T05:41:45.951Z",
+  "cms_version": "0.19.1",
+  "host": "Linux 7.1.10-200.fc44.x86_64 x86_64",
+  "node": "v24.13.1",
+  "bun": "1.4.2",
+  "deno": "2.9.6",
+  "pnpm": "11.25.0",
+  "constraints": {
+    "heap_mb": 768,
+    "rate_limit_per_min": 100000000,
+    "cpu_pinning": "taskset",
+    "client_runtime": "node v24.13.1"
+  }
+}
