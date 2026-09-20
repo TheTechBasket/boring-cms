@@ -47,10 +47,12 @@ Global Settings (not env vars).
 Each project is its own SQLite database. You define collections with
 custom fields:
 
-- **Field types:** text, markdown, number, boolean, date, json, image, relation
+- **Field types:** text, markdown, number, boolean, date, datetime, json, image, relation, counter
 - **Options per field:** required, unique, localized, hidden, read-only
 - **Revisions:** field-level diffs with configurable retention, atomic revert to any prior version
 - **Draft/publish:** edits stay in draft until you publish; the API serves the published snapshot
+
+See [GUIDE.md](GUIDE.md) for every field type, the counter field with drop-in scripts for likes, views, polls and quizzes, and API usage.
 
 ## Admin UI
 
