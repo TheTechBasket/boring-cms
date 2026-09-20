@@ -2,6 +2,13 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.21.0 (2026-09-21)
+
+- Fix: counter votes and counter reads no longer see scheduled (future-dated) entries. Before, a keyless caller could vote on one or tell it existed from a 200 versus 404; now it is a 404 until go-live, like the content API.
+- API keys page: the static endpoint table is replaced by an explorer generated from the project's OpenAPI spec (methods, params, headers, scope, rate limits) with a built-in request runner. Paste a key, fill the fields, send real requests and see status, headers and body. The Needs column shows the key scope each endpoint requires (Public, Read or Write). Page reordered: keys, connection strip with rate limit, endpoints and runner, then the REST and MCP reference collapsed. MCP access is now an on/off switch per key, the spec link reads "Export API spec" with an icon, and a Rate limits card lists what each limit covers (per-key writes, tool calls and MCP; per-IP votes; unlimited reads). Both limits are editable, and new projects start with both off (0 = off). Existing projects keep their current limits (60/min per key, 120/min per IP for votes unless changed).
+- OpenAPI 3.1 spec per project, generated on first request (nothing at startup) and cached: `GET /api/v1/<project>/openapi.json` with any key, or a download link on the API keys page. Covers content, counters, schema, export/import, media, `/mcp`, and one `/call/<tool>` path per MCP tool built from the same registry, so it cannot drift. Lists request and response headers and where each rate limit applies (per-key limit on writes, tool calls and MCP; per-IP limit on public votes; reads are not limited). Import into Postman, Insomnia, Hoppscotch or Swagger UI as a playground.
+- Counter field forms now explain how counters behave (not in the entry payload, votes never touch caches, one vote per visitor per 24h, totals settle in about 5 seconds).
+
 ## 0.20.0 (2026-09-20)
 
 - New `counter` field type: up/down votes per entry, for likes, ratings and polls. Choose access when adding the field: public (default, no API key, one vote per visitor, per-IP rate limit, CORS open) or private (write-scope key, optional `by` step up to 1000). Vote with `POST /api/v1/<project>/<collection>/<entry>/counters/<field>?dir=up|down`. Read with `GET .../<entry>/counters` or `GET .../<collection>/counters?slugs=a,b` (max 100); private counters are only returned to callers with a key. Counts never appear in the entry payload, so voting does not change ETags, revisions, `updated_at` or webhooks. New migration `006_counters.sql` (per-project, applies on next open).

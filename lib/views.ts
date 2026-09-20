@@ -37,6 +37,7 @@ const ICONS: Record<string, string> = {
   moon: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M22 12.0004C22 17.5232 17.5228 22.0004 12 22.0004C10.8358 22.0004 9.71801 21.8014 8.67887 21.4357C8.24138 20.3772 8 19.217 8 18.0004C8 15.7792 8.80467 13.7459 10.1384 12.1762C11.31 13.8818 13.2744 15.0004 15.5 15.0004C17.8615 15.0004 19.9289 13.741 21.0672 11.8572C21.3065 11.4612 22 11.5377 22 12.0004Z" clip-rule="evenodd" opacity=".5"/><path d="M2 12C2 16.3586 4.78852 20.0659 8.67887 21.4353C8.24138 20.3768 8 19.2166 8 18C8 15.7788 8.80467 13.7455 10.1384 12.1758C9.42027 11.1303 9 9.86422 9 8.5C9 6.13845 10.2594 4.07105 12.1432 2.93276C12.5392 2.69347 12.4627 2 12 2C6.47715 2 2 6.47715 2 12Z"/></g></svg>`,
   sidebar: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path fill-rule="evenodd" d="M3.17157 4.1716C2 5.34318 2 7.2288 2 11V13C2 16.7713 2 18.6569 3.17157 19.8285C4.34315 21 6.22876 21 10 21H14C14.0843 21 14.9176 21.0001 15 21.0001L15 3.00006C14.9176 3.00005 14.0843 3.00003 14 3.00003H10C6.22876 3.00003 4.34315 3.00003 3.17157 4.1716Z" clip-rule="evenodd" opacity=".5"/><path d="M22 13V11C22 7.22876 22 5.34315 20.8284 4.17157C19.8541 3.19724 17.6359 3.03321 15 3.00559V20.9944C17.6359 20.9668 19.8541 20.8028 20.8284 19.8284C22 18.6569 22 16.7712 22 13Z"/></g></svg>`,
   logout: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M15.9998 2L14.9998 2C12.1714 2 10.7576 2.00023 9.87891 2.87891C9.00023 3.75759 9.00023 5.1718 9.00023 8.00023L9.00023 16.0002C9.00023 18.8287 9.00023 20.2429 9.87891 21.1215C10.7574 22 12.1706 22 14.9976 22L14.9998 22L15.9998 22C18.8282 22 20.2424 22 21.1211 21.1213C21.9998 20.2426 21.9998 18.8284 21.9998 16L21.9998 8L21.9998 7.99998C21.9998 5.17157 21.9998 3.75736 21.1211 2.87868C20.2424 2 18.8282 2 15.9998 2Z" opacity=".5"/><path fill-rule="evenodd" d="M15.75 12C15.75 11.5858 15.4142 11.25 15 11.25L4.02744 11.25L5.98809 9.56943C6.30259 9.29986 6.33901 8.82639 6.06944 8.51189C5.79988 8.1974 5.3264 8.16098 5.01191 8.43054L1.51191 11.4305C1.34567 11.573 1.25 11.781 1.25 12C1.25 12.2189 1.34567 12.4269 1.51191 12.5694L5.01191 15.5694C5.3264 15.839 5.79988 15.8026 6.06944 15.4881C6.33901 15.1736 6.30259 14.7001 5.98809 14.4305L4.02744 12.75L15 12.75C15.4142 12.75 15.75 12.4142 15.75 12Z" clip-rule="evenodd"/></g></svg>`,
+  download: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor" fill-rule="evenodd" clip-rule="evenodd"><path d="M3 14.25C3.41421 14.25 3.75 14.5858 3.75 15C3.75 16.4354 3.75159 17.4365 3.85315 18.1919C3.9518 18.9257 4.13225 19.3142 4.40901 19.591C4.68577 19.8678 5.07435 20.0482 5.80812 20.1469C6.56347 20.2484 7.56459 20.25 9 20.25H15C16.4354 20.25 17.4365 20.2484 18.1919 20.1469C18.9257 20.0482 19.3142 19.8678 19.591 19.591C19.8678 19.3142 20.0482 18.9257 20.1469 18.1919C20.2484 17.4365 20.25 16.4354 20.25 15C20.25 14.5858 20.5858 14.25 21 14.25C21.4142 14.25 21.75 14.5858 21.75 15V15.0549C21.75 16.4225 21.75 17.5248 21.6335 18.3918C21.5125 19.2919 21.2536 20.0497 20.6517 20.6516C20.0497 21.2536 19.2919 21.5125 18.3918 21.6335C17.5248 21.75 16.4225 21.75 15.0549 21.75H8.94513C7.57754 21.75 6.47522 21.75 5.60825 21.6335C4.70814 21.5125 3.95027 21.2536 3.34835 20.6517C2.74643 20.0497 2.48754 19.2919 2.36652 18.3918C2.24996 17.5248 2.24998 16.4225 2.25 15.0549C2.25 15.0366 2.25 15.0183 2.25 15C2.25 14.5858 2.58579 14.25 3 14.25Z" opacity=".5"/><path d="M12 16.75C12.2106 16.75 12.4114 16.6615 12.5535 16.5061L16.5535 12.1311C16.833 11.8254 16.8118 11.351 16.5061 11.0715C16.2004 10.792 15.726 10.8132 15.4465 11.1189L12.75 14.0682V3C12.75 2.58579 12.4142 2.25 12 2.25C11.5858 2.25 11.25 2.58579 11.25 3V14.0682L8.55353 11.1189C8.27403 10.8132 7.79963 10.792 7.49393 11.0715C7.18823 11.351 7.16698 11.8254 7.44648 12.1311L11.4465 16.5061C11.5886 16.6615 11.7894 16.75 12 16.75Z"/></g></svg>`,
   unfold: `<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="currentColor"><path d="M20 10.875C20.3013 10.875 20.5733 10.6948 20.6907 10.4173C20.8081 10.1399 20.7482 9.81916 20.5384 9.60289L16.5384 5.47789C16.3972 5.33222 16.2029 5.25 16 5.25C15.7971 5.25 15.6029 5.33222 15.4616 5.47789L11.4616 9.60289C11.2519 9.81916 11.1919 10.1399 11.3093 10.4173C11.4268 10.6948 11.6988 10.875 12 10.875H15.25V18C15.25 18.4142 15.5858 18.75 16 18.75C16.4142 18.75 16.75 18.4142 16.75 18L16.75 10.875H20Z"/><path d="M12 13.125C12.3013 13.125 12.5733 13.3052 12.6907 13.5827C12.8081 13.8601 12.7482 14.1808 12.5384 14.3971L8.53844 18.5221C8.39719 18.6678 8.20293 18.75 8.00002 18.75C7.79711 18.75 7.60285 18.6678 7.46159 18.5221L3.46159 14.3971C3.25188 14.1808 3.19192 13.8601 3.30934 13.5827C3.42676 13.3052 3.69877 13.125 4.00002 13.125H7.25002L7.25002 6C7.25002 5.58579 7.5858 5.25 8.00002 5.25C8.41423 5.25 8.75002 5.58579 8.75002 6L8.75002 13.125L12 13.125Z" opacity=".5"/></g></svg>`,
 };
 
@@ -884,6 +885,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
             <option value="public"${f.access === 'key' ? '' : ' selected'}>Public (anyone, one vote per visitor)</option>
             <option value="key"${f.access === 'key' ? ' selected' : ''}>Private (write API key required)</option>
           </select>
+          ${f.type === 'counter' ? '<span class="font-normal text-muted-foreground">Server-managed totals, never part of the entry payload: votes do not touch ETags, caches or webhooks. Read and vote via the counters endpoints. Public: one vote per visitor per 24h, per-IP rate limit; totals settle within ~5s; a restart lets visitors vote again.</span>' : ''}
         </label>`;
     return `<form method="post" action="${base}/fields/update" class="grid grid-cols-2 gap-3 border-b border-border bg-muted/50 px-4 py-4">
       <input type="hidden" name="field" value="${escapeHtml(f.name)}">
@@ -1031,6 +1033,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
                 <option value="public">Public (anyone, one vote per visitor)</option>
                 <option value="key">Private (write API key required)</option>
               </select>
+              <span class="font-normal text-xs text-muted-foreground">A counter is server-managed up/down totals, not entry data: it never appears in the entry API payload, so votes never change ETags, caches or webhooks. Read and vote through the counters endpoints (see API keys page). Public means anyone can vote, one vote per visitor per 24h, rate limited per IP; totals settle within about 5 seconds, and a server restart lets visitors vote again.</span>
             </label>
             <label class="flex items-center gap-2 text-sm font-medium text-foreground">
               <input type="checkbox" name="required" value="1" class="size-3.5 accent-primary"> Required
@@ -1427,20 +1430,6 @@ function mcpConfig(origin: string, slug: string, key: string): string {
 // request needs. Uses the live origin and the project's real collections.
 function apiDocs(origin: string, slug: string, collections: any[]): string {
   const listUrl = (c: string) => `${origin}/api/v1/${slug}/${c}`;
-  const endpointRows = [
-    { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;`, desc: 'List published entries. Query: <code>limit</code> (default 50), <code>offset</code>, <code>updated_since</code> (ISO 8601 UTC, only entries changed after it).' },
-    { method: 'GET', path: `/api/v1/${slug}/&lt;collection&gt;/&lt;entry-id&gt;`, desc: 'One published entry by its id.' },
-    { method: 'GET', path: `/api/v1/${slug}/schema`, desc: 'Full project schema: every collection with its complete field list and options.' },
-    { method: 'GET', path: `/api/v1/${slug}/field-types`, desc: 'Field type introspection: value shapes and the options each type accepts.' },
-    { method: 'POST', path: `/api/v1/${slug}/schema`, desc: 'Apply a schema document (write scope): collections matched by slug, created or updated, field lists replaced. <code>?delete_missing=1</code> also deletes collections absent from it.' },
-    { method: 'POST', path: `/mcp/${slug}`, desc: 'MCP endpoint (JSON-RPC). Read tools with any key; write tools need write scope.' },
-  ]
-    .map((e) => `<tr class="border-b border-border">
-      <td class="p-2 text-xs font-medium">${e.method}</td>
-      <td class="p-2"><code class="text-xs break-all">${e.path}</code></td>
-      <td class="p-2 text-sm text-muted-foreground min-w-40">${e.desc}</td>
-    </tr>`)
-    .join('');
   const collectionLinks = collections.length
     ? `<p class="text-sm text-muted-foreground m-0">This project's collections:</p>
       <ul class="list-none p-0 m-0 flex flex-col gap-1">
@@ -1450,30 +1439,39 @@ function apiDocs(origin: string, slug: string, collections: any[]): string {
   return `<div class="${CARD_CLASS} p-4 flex flex-col gap-3">
     <h2 class="text-sm font-semibold">REST API</h2>
     <p class="text-sm text-muted-foreground m-0">Read-only JSON over HTTPS. It serves <strong>published entries only</strong>: drafts never appear, and publishing materializes a snapshot so reads are cheap. Every request needs a key from this page sent as <code>Authorization: Bearer yn_...</code>. Missing or wrong key: <code>401</code>. Unknown project or collection: <code>404</code>.</p>
-    ${tableCard(`<table class="w-full border-collapse">
-      ${tableHead([{ label: 'Method' }, { label: 'Endpoint' }, { label: 'What it does' }])}
-      <tbody>${endpointRows}</tbody>
-    </table>`)}
     ${collectionLinks}
     <p class="text-sm text-muted-foreground m-0">Responses carry an <code>ETag</code> tied to the project's content version; it changes only when something is published or unpublished. Send it back as <code>If-None-Match</code> to get a free <code>304</code>, so repeated static-site builds cost nothing between publishes.</p>
     ${preBlock(`curl -H "Authorization: Bearer yn_..." \\\n  ${listUrl(collections[0]?.slug || '<collection>')}?limit=10`)}
+    <p class="text-sm text-muted-foreground m-0 pt-1 border-t border-border"><a class="underline underline-offset-2" href="/admin/projects/${escapeHtml(slug)}/openapi.json" download>Export the API spec</a> (OpenAPI 3.1) for this project: every endpoint and MCP tool with argument schemas, headers and rate limits. Import it into Postman, Insomnia, Hoppscotch or Swagger UI to browse and try requests (add a key from this page as the bearer token). The same document is served to API clients at <code>/api/v1/${escapeHtml(slug)}/openapi.json</code>. Writes, tool calls and public votes can be rate limited (see Rate limits below); reads never are.</p>
   </div>`;
 }
 
-export function apiKeysPage({ user, projects, project, keys, createdKey, createdKeyMcp = false, origin = '', collections = [], rateLimit = 60, notice: pageNotice }: any): string {
-  const mcpBadge = `<span class="inline-flex items-center bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground ml-1.5">MCP</span>`;
+// Endpoint list + request runner, filled in by admin.js from the project's
+// OpenAPI document (single source of truth, so this never drifts from the API).
+function apiExplorer(slug: string, collections: any[]): string {
+  return `<div class="flex flex-col gap-3">
+    <div class="flex flex-col gap-1">
+      <h2 class="text-sm font-semibold">Endpoints</h2>
+      <p class="text-sm text-muted-foreground m-0">Generated from this project's OpenAPI spec. <strong>Needs</strong> is the key scope an endpoint requires: <strong>Public</strong> takes no key, <strong>Read</strong> takes any key, <strong>Write</strong> takes a read + write key. Pick a row to fill the runner.</p>
+    </div>
+    <div data-api-explorer data-spec="/admin/projects/${escapeHtml(slug)}/openapi.json" data-collection="${escapeHtml(collections[0]?.slug || '')}" class="flex flex-col gap-5 text-sm text-muted-foreground">Loading spec...</div>
+  </div>`;
+}
+
+export function apiKeysPage({ user, projects, project, keys, createdKey, createdKeyMcp = false, origin = '', collections = [], rateLimit = 60, counterLimit = 120, notice: pageNotice }: any): string {
   const rows = keys
     .map(
       (k: any) => `<tr class="border-b border-border">
         <td class="p-2 text-sm">${escapeHtml(k.name)}</td>
-        <td class="p-2 text-sm text-muted-foreground">${k.scope === 'write' ? 'read + write' : 'read'}${k.mcp ? mcpBadge : ''}</td>
+        <td class="p-2 text-sm text-muted-foreground">${k.scope === 'write' ? 'read + write' : 'read'}</td>
         <td class="p-2 text-sm text-muted-foreground">${timeAgo(k.created_at)}</td>
         <td class="p-2 text-sm text-muted-foreground">${k.last_used_at ? timeAgo(k.last_used_at) : 'never'}</td>
         <td class="p-2 text-right">
           <div class="inline-flex gap-1 justify-end">
-            <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/mcp">
+            <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/mcp" class="flex items-center gap-2 mr-2">
               <input type="hidden" name="mcp" value="${k.mcp ? '0' : '1'}">
-              ${button({ label: k.mcp ? 'Disable MCP' : 'Enable MCP', variant: 'outline', small: true })}
+              <span class="text-xs text-muted-foreground">MCP</span>
+              <button type="submit" role="switch" aria-checked="${k.mcp ? 'true' : 'false'}" aria-label="MCP access for ${escapeHtml(k.name)}" title="${k.mcp ? 'MCP on. Click to turn off.' : 'MCP off. Click to turn on.'}" class="relative inline-flex h-5 w-9 shrink-0 items-center border border-input bg-muted p-0.5 cursor-pointer transition-colors aria-checked:bg-primary aria-checked:border-primary focus-visible:outline-2 focus-visible:outline-ring"><span class="block size-3.5 bg-background shadow-xs transition-transform ${k.mcp ? 'translate-x-4' : ''}"></span></button>
             </form>
             <form method="post" action="/admin/projects/${project.slug}/api-keys/${k.id}/revoke">
               ${button({ label: 'Revoke', variant: 'ghost-destructive', small: true })}
@@ -1527,21 +1525,50 @@ export function apiKeysPage({ user, projects, project, keys, createdKey, created
         ${tableHead([{ label: 'Name' }, { label: 'Scope' }, { label: 'Created' }, { label: 'Last used' }, { label: '' }])}
         <tbody>${rows || '<tr><td colspan="5" class="p-3 text-muted-foreground italic">No API keys yet.</td></tr>'}</tbody>
       </table>`)}
-      <div class="grid gap-6 @4xl:grid-cols-2 items-start">
-        ${apiDocs(origin, project.slug, collections)}
-        <div class="${CARD_CLASS} p-4 flex flex-col gap-2">
-          <h2 class="text-sm font-semibold">MCP endpoint</h2>
-          <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code>, using a key created with MCP access enabled. Claude Code <code>.mcp.json</code> (create a key above to get one with the key filled in):</p>
-          ${preBlock(mcpConfig(origin, project.slug, 'yn_<key>'))}
-          <form method="post" action="/admin/projects/${project.slug}/rate-limit" class="flex items-end gap-2 pt-1 border-t border-border mt-1">
-            <label class="flex flex-col gap-1 text-xs flex-1">
-              <span class="font-medium text-muted-foreground">Rate limit (requests/min per key)</span>
-              <input type="number" name="rate_limit_per_min" value="${rateLimit}" min="1" class="${INPUT_CLASS} h-8">
-            </label>
-            ${button({ label: 'Save', small: true })}
-          </form>
+      <div class="${CARD_CLASS} p-4 gap-3 @2xl:flex-row @2xl:items-end @2xl:justify-between">
+        <div class="flex gap-6 flex-wrap">
+          <div class="flex flex-col"><span class="text-xs text-muted-foreground">REST base</span><code class="text-sm">${escapeHtml(origin)}/api/v1/${escapeHtml(project.slug)}</code></div>
+          <div class="flex flex-col"><span class="text-xs text-muted-foreground">MCP</span><code class="text-sm">${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code></div>
         </div>
+        <a href="/admin/projects/${escapeHtml(project.slug)}/openapi.json" download title="OpenAPI 3.1 JSON: every endpoint and MCP tool. Import into Postman, Insomnia or Swagger UI." class="${BUTTON_BASE} ${BUTTON_VARIANTS.outline} h-8 px-3 text-xs no-underline gap-1.5">${icon('download')}Export API spec</a>
       </div>
+      <div class="${CARD_CLASS} p-4 gap-4 @2xl:flex-row @2xl:justify-between">
+        <div class="flex flex-col gap-1 min-w-0">
+          <h2 class="text-sm font-semibold">Rate limits</h2>
+          <p class="text-xs text-muted-foreground m-0">New projects start with both off. Set a number of requests per minute to turn one on, 0 to turn it off.</p>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs m-0">
+            <dt class="font-medium">Write limit</dt>
+            <dd class="m-0 text-muted-foreground">Per API key. Counts REST writes (schema, import, rewrite-refs, media), every <code>/call/&lt;tool&gt;</code> call (read or write tool) and every MCP request.</dd>
+            <dt class="font-medium">Vote limit</dt>
+            <dd class="m-0 text-muted-foreground">Per visitor IP. Counts public counter votes only.</dd>
+            <dt class="font-medium">Never limited</dt>
+            <dd class="m-0 text-muted-foreground">Content reads (list, one entry), schema, field-types, export, counter totals, this spec.</dd>
+          </dl>
+        </div>
+        <form method="post" action="/admin/projects/${project.slug}/rate-limit" class="flex items-end gap-2 flex-wrap shrink-0">
+          <label class="flex flex-col gap-1 text-xs">
+            <span class="font-medium text-muted-foreground">Write limit (req/min per key)</span>
+            <input type="number" name="rate_limit_per_min" value="${rateLimit}" min="0" placeholder="0 = off" class="${INPUT_CLASS} h-8 w-32">
+          </label>
+          <label class="flex flex-col gap-1 text-xs">
+            <span class="font-medium text-muted-foreground">Vote limit (req/min per IP)</span>
+            <input type="number" name="counter_ip_limit_per_min" value="${counterLimit}" min="0" placeholder="0 = off" class="${INPUT_CLASS} h-8 w-32">
+          </label>
+          ${button({ label: 'Save', small: true })}
+        </form>
+      </div>
+      ${apiExplorer(project.slug, collections)}
+      <details class="group">
+        <summary class="text-sm font-medium cursor-pointer select-none">REST and MCP reference</summary>
+        <div class="grid gap-6 @4xl:grid-cols-2 items-start mt-3">
+          ${apiDocs(origin, project.slug, collections)}
+          <div class="${CARD_CLASS} p-4 flex flex-col gap-2">
+            <h2 class="text-sm font-semibold">MCP endpoint</h2>
+            <p class="text-sm text-muted-foreground">Agents can read and edit this project over MCP at <code>${escapeHtml(origin)}/mcp/${escapeHtml(project.slug)}</code>, using a key created with MCP access enabled. Claude Code <code>.mcp.json</code> (create a key above to get one with the key filled in):</p>
+            ${preBlock(mcpConfig(origin, project.slug, 'yn_<key>'))}
+          </div>
+        </div>
+      </details>
     `,
   });
 }

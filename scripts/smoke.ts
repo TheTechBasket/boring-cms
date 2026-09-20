@@ -462,6 +462,14 @@ async function main() {
   assert.ok(typesJson.types.relation.options.collection, 'field-types should carry relation-specific options');
   assert.ok(typesJson.reserved_field_names.includes('slug'), 'field-types should list reserved names');
 
+  const specRes = await fetch(`${base}/api/v1/${slug}/openapi.json`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(specRes.status, 200, 'openapi.json should serve with a key');
+  const spec: any = await specRes.json();
+  assert.equal(spec.openapi, '3.1.0');
+  for (const t of toolCatalog) assert.ok(spec.paths[`/api/v1/${slug}/call/${t.name}`]?.post, `spec should cover tool ${t.name}`);
+  for (const p of [`/mcp/${slug}`, `/api/v1/${slug}/{collection}`, `/api/v1/${slug}/{collection}/{entry}/counters/{field}`]) assert.ok(spec.paths[p], `spec should cover ${p}`);
+  assert.equal((await fetch(`${base}/api/v1/${slug}/openapi.json`)).status, 401, 'openapi.json should need a key');
+
   const schemaReadRes = await fetch(`${base}/api/v1/${slug}/schema`, { headers: { Authorization: `Bearer ${apiKey}` } });
   assert.ok(((await schemaReadRes.json()) as any).collections.some((c: any) => c.slug === 'blog-posts'), 'schema read should list blog-posts');
 
@@ -1045,6 +1053,12 @@ async function main() {
     assert.ok(listed.out.some((r: any) => r.slug === 'sched-demo' && r.publish_at === at), 'list_scheduled shows the entry with its time');
     assert.ok((await tool(apiKey, 'list_scheduled', { collection: 'blog-posts' })).err, 'list_scheduled needs a write key');
 
+    // Rate limits: new projects start with both off; a project with no stored value keeps the legacy defaults.
+    const call = () => fetch(`${base}/api/v1/${slug}/call/list_collections`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal((await call()).headers.get('ratelimit-limit'), null, 'new project has no write limit');
+    projectDb.prepare("DELETE FROM meta WHERE key IN ('rate_limit_per_min', 'counter_ip_limit_per_min')").run();
+    assert.equal((await call()).headers.get('ratelimit-limit'), '60', 'project without stored limit keeps the legacy 60/min');
+
     const held = await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'sched-demo' });
     assert.equal(held.out.status, 'scheduled', 'republish without at keeps the scheduled state');
     assert.equal((await rest('/sched-demo')).status, 404, 'republish without at does not leak the entry');
@@ -1317,6 +1331,16 @@ async function main() {
     assert.equal(opt.status, 204, 'CORS preflight answers');
     const payload = JSON.stringify(await (await fetch(ep, { headers: { Authorization: `Bearer ${apiKey}` } })).json());
     assert.ok(!payload.includes('likes'), 'counts are not in the entry payload');
+    // A scheduled (future) entry is hidden: no keyless vote, read or existence probe.
+    const later = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    await tool(writeKey, 'create_entry', { collection: 'blog-posts', slug: 'ctr-later', data: { body: 'x' } });
+    await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'ctr-later', at: later });
+    const lp = `${base}/api/v1/${slug}/blog-posts/ctr-later`;
+    assert.equal((await fetch(`${lp}/counters/likes?dir=up`, { method: 'POST', headers: { 'User-Agent': 'ua-x' } })).status, 404, 'no vote on a scheduled entry');
+    assert.equal((await fetch(`${lp}/counters`)).status, 404, 'counter read hides a scheduled entry');
+    const hidden: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts/counters?slugs=ctr-later`)).json();
+    assert.deepEqual(hidden.items, {}, 'batch counter read hides a scheduled entry');
+    await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'ctr-later' });
     await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'ctr-demo' });
   }
 

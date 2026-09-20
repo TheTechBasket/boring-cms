@@ -396,3 +396,233 @@ document.querySelectorAll('[data-markdown-field]').forEach((wrap) => {
     });
   }
 }
+
+// API explorer (API keys page): renders the project's own OpenAPI document as
+// an endpoint table (with the key scope each one needs) and a request runner
+// below it. The spec is fetched on first paint of that page only, never
+// elsewhere. Requests go same-origin from the browser with the key typed here
+// (kept in sessionStorage for the tab, never sent to the server except as the
+// Authorization header of the request being tested).
+{
+  const root = document.querySelector('[data-api-explorer]');
+  if (root) {
+    const INPUT = 'flex h-8 w-full border border-input bg-transparent px-2 py-1 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+    const BTN = 'inline-flex items-center justify-center h-7 px-2.5 text-xs font-medium border border-input bg-background shadow-xs hover:bg-accent cursor-pointer disabled:opacity-50';
+    const BTN_PRIMARY = 'inline-flex items-center justify-center h-7 px-2.5 text-xs font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 cursor-pointer disabled:opacity-50';
+    const METHOD = { GET: 'text-emerald-700 dark:text-emerald-400', POST: 'text-sky-700 dark:text-sky-400' };
+    const el = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text !== undefined) n.textContent = text;
+      return n;
+    };
+    const sample = (s) => {
+      if (!s) return '';
+      if (s.default !== undefined) return s.default;
+      if (s.enum) return s.enum[0];
+      if (s.type === 'object') {
+        const o = {};
+        for (const k of s.required || []) o[k] = sample(s.properties?.[k]);
+        return o;
+      }
+      if (s.type === 'array') return [];
+      if (s.type === 'integer' || s.type === 'number') return 0;
+      if (s.type === 'boolean') return false;
+      return '';
+    };
+    let keyValue = '';
+    try { keyValue = sessionStorage.apiExplorerKey || ''; } catch (e) {}
+
+    // Key scope an operation needs: what to create on this page to call it.
+    const access = (path, op) => {
+      const tone = {
+        Public: 'bg-emerald-600/15 text-emerald-700 dark:text-emerald-400',
+        Read: 'bg-sky-600/15 text-sky-700 dark:text-sky-400',
+        Write: 'bg-amber-600/15 text-amber-700 dark:text-amber-400',
+      };
+      let label = !op.security ? 'Public' : op['x-scope'] === 'write' ? 'Write' : 'Read';
+      if (path.startsWith('/mcp/')) label = 'Read + MCP';
+      if (label === 'Public' && op['x-auth-note']) label = 'Public*';
+      return { label, tone: tone[label.replace('*', '').split(' ')[0]] };
+    };
+    const badge = (path, op) => {
+      const a = access(path, op);
+      const b = el('span', `px-1.5 py-0.5 text-xs font-medium shrink-0 ${a.tone}`, a.label);
+      if (op['x-auth-note']) b.title = op['x-auth-note'];
+      return b;
+    };
+
+    const keyRow = el('label', 'flex flex-col gap-1');
+    keyRow.append(el('span', 'text-xs font-medium text-muted-foreground', 'API key for requests (a key is shown once when created; paste it here. Not needed for Public endpoints)'));
+    const keyInput = el('input', INPUT);
+    keyInput.type = 'password';
+    keyInput.placeholder = 'yn_...';
+    keyInput.autocomplete = 'off';
+    keyInput.value = keyValue;
+    keyInput.addEventListener('input', () => {
+      keyValue = keyInput.value.trim();
+      try { sessionStorage.apiExplorerKey = keyValue; } catch (e) {}
+    });
+    keyRow.append(keyInput);
+
+    // Fill the runner panel with one operation: description, auth, params,
+    // body and a Send button with its response pane.
+    const runner = (panel, path, method, op, defaultCollection) => {
+      panel.textContent = '';
+      const head = el('div', 'flex items-center gap-2 text-xs flex-wrap');
+      head.append(el('span', `font-semibold w-10 shrink-0 ${METHOD[method] || ''}`, method), el('code', 'break-all', path), badge(path, op));
+      panel.append(head);
+      if (op.summary) panel.append(el('p', 'text-sm font-medium m-0', op.summary));
+      if (op.description) panel.append(el('p', 'text-xs text-muted-foreground m-0', op.description));
+      const rl = op['x-rate-limit'];
+      if (rl) panel.append(el('p', 'text-xs m-0', (typeof rl.limit === 'number' ? `Rate limit: ${rl.limit}/${rl.per} per ${rl.scope}.` : `Rate limit: none set (${rl.scope} limit, off).`) + ` Applies to ${rl.applies_to}.`));
+      panel.append(el('p', 'text-xs m-0', `Access: ${op['x-auth-note'] || (!op.security ? 'public, no key needed.' : op['x-scope'] === 'write' ? 'read + write key (Authorization: Bearer).' : 'any valid key, read or write (Authorization: Bearer).')}`));
+
+      const inputs = [];
+      const params = op.parameters || [];
+      if (params.length) {
+        const grid = el('div', 'grid gap-2 sm:grid-cols-2');
+        for (const p of params) {
+          const wrap = el('label', 'flex flex-col gap-1 text-xs');
+          const label = el('span', 'font-medium text-muted-foreground');
+          label.append(`${p.name} `, el('span', p.required ? 'font-semibold text-foreground' : '', `${p.in}, ${p.required ? 'required' : 'optional'}${p.schema?.type ? `, ${p.schema.type}` : ''}${p.schema?.default !== undefined ? `, default ${p.schema.default}` : ''}`));
+          wrap.append(label);
+          const input = el('input', INPUT);
+          input.placeholder = p.schema?.default !== undefined ? String(p.schema.default) : p.schema?.enum ? p.schema.enum.join(' | ') : '';
+          if (p.name === 'collection') input.value = defaultCollection;
+          if (p.description) input.title = p.description;
+          wrap.append(input);
+          grid.append(wrap);
+          inputs.push({ p, input });
+        }
+        panel.append(grid);
+      }
+
+      const media = op.requestBody?.content;
+      const json = media?.['application/json'];
+      let textarea = null;
+      if (json) {
+        textarea = el('textarea', `${INPUT} h-28 font-mono py-2`);
+        textarea.spellcheck = false;
+        const ex = sample(json.schema);
+        textarea.value = typeof ex === 'object' ? JSON.stringify(ex, null, 2) : '';
+        const props = Object.entries(json.schema?.properties || {});
+        const req = new Set(json.schema?.required || []);
+        panel.append(el('span', 'text-xs font-medium text-muted-foreground', 'JSON body'));
+        if (props.length) panel.append(el('p', 'text-xs m-0', props.map(([k, v]) => `${k} (${req.has(k) ? 'required' : 'optional'}${v.type ? `, ${v.type}` : ''})`).join('; ')));
+        panel.append(textarea);
+      } else if (media) {
+        panel.append(el('p', 'text-xs text-muted-foreground m-0', 'Multipart upload: use the Media page, or curl -F file=@... with the same URL.'));
+      }
+
+      const send = el('button', BTN_PRIMARY, media && !json ? 'Send (no body)' : 'Send request');
+      send.type = 'button';
+      send.style.width = 'fit-content';
+      const out = el('pre', 'text-xs bg-muted p-3 overflow-auto max-h-96 m-0 hidden');
+      panel.append(send, out);
+
+      send.addEventListener('click', async () => {
+        let url = path;
+        const query = new URLSearchParams();
+        const headers = {};
+        for (const { p, input } of inputs) {
+          const v = input.value.trim();
+          if (p.in === 'path') { if (v) url = url.replace(`{${p.name}}`, encodeURIComponent(v)); }
+          else if (v && p.in === 'query') query.set(p.name, v);
+          else if (v && p.in === 'header') headers[p.name] = v;
+        }
+        out.classList.remove('hidden');
+        if (/\{[^}]+\}/.test(url)) {
+          out.textContent = 'Fill every path parameter first.';
+          return;
+        }
+        if (query.size) url += `?${query}`;
+        if (op.security && keyValue) headers.Authorization = `Bearer ${keyValue}`;
+        const init = { method: method.toUpperCase(), headers, cache: 'no-store' };
+        if (json && textarea) {
+          headers['Content-Type'] = 'application/json';
+          init.body = textarea.value;
+        }
+        send.disabled = true;
+        out.textContent = 'Sending...';
+        const t0 = performance.now();
+        try {
+          const res = await fetch(url, init);
+          const text = await res.text();
+          const ms = Math.round(performance.now() - t0);
+          let shown = text;
+          try { shown = JSON.stringify(JSON.parse(text), null, 2); } catch (e) {}
+          if (shown.length > 20000) shown = `${shown.slice(0, 20000)}\n... truncated (${text.length} bytes)`;
+          const heads = [...res.headers].map(([k, v]) => `${k}: ${v}`).join('\n');
+          out.textContent = `${init.method} ${url}\n${res.status} ${res.statusText} in ${ms} ms\n\n${heads}\n\n${shown}`;
+        } catch (e) {
+          out.textContent = `Request failed: ${e.message}`;
+        } finally {
+          send.disabled = false;
+        }
+      });
+    };
+
+    fetch(root.dataset.spec, { headers: { Accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`spec ${r.status}`))))
+      .then((spec) => {
+        root.textContent = '';
+        const byTag = new Map();
+        for (const [path, item] of Object.entries(spec.paths)) {
+          for (const [method, op] of Object.entries(item)) {
+            const tag = op.tags?.[0] || 'other';
+            if (!byTag.has(tag)) byTag.set(tag, []);
+            byTag.get(tag).push([path, method.toUpperCase(), op]);
+          }
+        }
+        const panel = el('div', 'flex flex-col gap-3');
+        const rows = [];
+        const select = (row, path, method, op) => {
+          for (const r of rows) r.removeAttribute('aria-current');
+          row.setAttribute('aria-current', 'true');
+          runner(panel, path, method, op, root.dataset.collection || '');
+        };
+        const table = el('table', 'w-full border-collapse');
+        const hr = el('tr', 'border-b border-border bg-muted');
+        for (const [c, cls] of [['Method', ''], ['Path', ''], ['Needs', ''], ['Summary', 'hidden md:table-cell']]) hr.append(el('th', `p-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground ${cls}`, c));
+        const thead = el('thead');
+        thead.append(hr);
+        const tbody = el('tbody');
+        for (const t of spec.tags || []) {
+          const ops = byTag.get(t.name);
+          if (!ops) continue;
+          const gr = el('tr', 'border-b border-border bg-muted/50');
+          const gc = el('td', 'px-3 py-1.5 text-xs font-semibold');
+          gc.colSpan = 4;
+          gc.append(t.name);
+          if (t.description) gc.append(el('span', 'font-normal text-muted-foreground hidden md:inline', `  ${t.description}`));
+          gr.append(gc);
+          tbody.append(gr);
+          for (const [path, method, op] of ops) {
+            const tr = el('tr', 'border-b border-border cursor-pointer hover:bg-accent aria-[current=true]:bg-accent');
+            tr.tabIndex = 0;
+            const c1 = el('td', `p-2 text-xs font-semibold ${METHOD[method] || ''}`, method);
+            const c2 = el('td', 'p-2 text-xs');
+            c2.append(el('code', 'break-all', path));
+            const c3 = el('td', 'p-2');
+            c3.append(badge(path, op));
+            tr.append(c1, c2, c3, el('td', 'p-2 text-xs text-muted-foreground hidden md:table-cell', op.summary || ''));
+            tr.addEventListener('click', () => select(tr, path, method, op));
+            tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(tr, path, method, op); } });
+            rows.push(tr);
+            tbody.append(tr);
+          }
+        }
+        table.append(thead, tbody);
+        const tableWrap = el('div', 'border border-border bg-card shadow-xs overflow-x-auto');
+        tableWrap.append(table);
+        const runnerCard = el('div', 'border border-border border-t-2 border-t-primary bg-card text-card-foreground shadow-xs p-4 flex flex-col gap-3');
+        runnerCard.append(el('h2', 'text-sm font-semibold m-0', 'Request runner'), keyRow, panel);
+        root.append(tableWrap, runnerCard);
+        if (rows[0]) rows[0].click();
+      })
+      .catch((e) => {
+        root.textContent = `Could not load the API spec: ${e.message}`;
+      });
+  }
+}

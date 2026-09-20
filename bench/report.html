@@ -1,0 +1,289 @@
+<title>Boring CMS Benchmarks</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --surface:    #f5f4f1;
+    --card:       #fcfcfb;
+    --ink:        #1a1917;
+    --ink-2:      #4a4945;
+    --ink-muted:  #8a8880;
+    --grid:       #e3e2dc;
+    --border:     #d6d5cf;
+    --accent:     #2a78d6;
+    --bar-track:  #eae9e4;
+    --bar-fill:   #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface:    #0e0e0d;
+      --card:       #1a1a19;
+      --ink:        #efeee9;
+      --ink-2:      #b8b7ad;
+      --ink-muted:  #7a796f;
+      --grid:       #2c2c2a;
+      --border:     #333331;
+      --accent:     #3987e5;
+      --bar-track:  #262624;
+      --bar-fill:   #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --surface:    #0e0e0d;
+    --card:       #1a1a19;
+    --ink:        #efeee9;
+    --ink-2:      #b8b7ad;
+    --ink-muted:  #7a796f;
+    --grid:       #2c2c2a;
+    --border:     #333331;
+    --accent:     #3987e5;
+    --bar-track:  #262624;
+    --bar-fill:   #3987e5;
+  }
+
+  body {
+    background: var(--surface);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    padding: 28px 32px 24px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  /* Header: prominent product name */
+  .header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+  }
+  .product-name {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 0;
+    line-height: 1;
+  }
+  .version-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: rgba(42,120,214,0.08);
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.02em;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .version-badge {
+      background: rgba(57,135,229,0.12);
+    }
+  }
+  :root[data-theme="dark"] .version-badge {
+    background: rgba(57,135,229,0.12);
+  }
+
+  .tagline {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-muted);
+    margin-bottom: 20px;
+  }
+
+  /* Hero tiles */
+  .hero-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .hero-tile {
+    background: var(--card);
+    padding: 14px 16px 12px;
+    text-align: center;
+  }
+  .hero-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 4px;
+  }
+  .hero-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 26px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .hero-unit {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-muted);
+    margin-top: 3px;
+  }
+
+  /* Data table layout */
+  .ops-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .ops-table th {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    text-align: left;
+    padding: 0 0 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ops-table th:nth-child(2) { text-align: right; width: 90px; }
+  .ops-table th:nth-child(3) { text-align: right; width: 64px; }
+  .ops-table th:nth-child(4) { text-align: center; width: 180px; }
+
+  .group-row td {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding: 14px 0 4px;
+  }
+
+  .data-row td {
+    padding: 5px 0;
+    border-bottom: 1px solid var(--grid);
+    vertical-align: middle;
+  }
+  .data-row:last-child td {
+    border-bottom: none;
+  }
+  .op-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .rps-cell {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-align: right;
+  }
+  .rps-unit {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--ink-muted);
+  }
+  .latency-cell {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-muted);
+    text-align: right;
+  }
+  .bar-cell {
+    padding-left: 12px !important;
+  }
+  .bar-track {
+    height: 5px;
+    background: var(--bar-track);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--bar-fill);
+    border-radius: 3px;
+  }
+
+  .footnote {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--ink-muted);
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    line-height: 1.5;
+  }
+</style>
+
+<div class="header">
+  <h1 class="product-name">Boring CMS</h1>
+  <span class="version-badge">v0.18.0</span>
+</div>
+<div class="tagline">1 vCPU, Node.js, flat-file storage. Sustained rate under load.</div>
+
+<div class="hero-row">
+  <div class="hero-tile">
+    <div class="hero-label">Reads</div>
+    <div class="hero-value">2,986</div>
+    <div class="hero-unit">ops/sec</div>
+  </div>
+  <div class="hero-tile">
+    <div class="hero-label">Writes</div>
+    <div class="hero-value">1,002</div>
+    <div class="hero-unit">ops/sec</div>
+  </div>
+  <div class="hero-tile">
+    <div class="hero-label">Cached (304)</div>
+    <div class="hero-value">3,753</div>
+    <div class="hero-unit">ops/sec</div>
+  </div>
+</div>
+
+<table class="ops-table" id="table"></table>
+
+<div class="footnote">
+  autocannon, 10s sustained, concurrency 10 (except noted). p99: 99th percentile latency.
+</div>
+
+<script>
+const DATA = [
+  {l:"Read single entry",     g:"Read",        rps:2986, p99:1.54},
+  {l:"Read single (large)",   g:"Read",        rps:2202, p99:0.93},
+  {l:"List entries",           g:"Read",        rps:1570, p99:1.57},
+  {l:"Cached read (304)",     g:"Read",        rps:3753, p99:0.71},
+  {l:"Create entry",          g:"Write",       rps:1002, p99:2.34},
+  {l:"Create (large)",        g:"Write",       rps:660,  p99:6.44},
+  {l:"Update + read back",    g:"Write",       rps:876,  p99:4.02},
+  {l:"Delete entry",          g:"Write",       rps:1541, p99:2.08},
+  {l:"20 concurrent reads",   g:"Concurrency", rps:4143, p99:32.84},
+  {l:"10 concurrent writes",  g:"Concurrency", rps:2361, p99:9.56},
+  {l:"Upload 64KB",           g:"Media",       rps:929,  p99:3.75},
+  {l:"Serve 64KB",            g:"Media",       rps:1360, p99:8.54},
+];
+
+const max = Math.max(...DATA.map(d => d.rps));
+const groups = ["Read","Write","Concurrency","Media"];
+const table = document.getElementById("table");
+
+let html = `<thead><tr>
+  <th>Operation</th><th>ops/sec</th><th>p99</th><th></th>
+</tr></thead><tbody>`;
+
+groups.forEach(g => {
+  html += `<tr class="group-row"><td colspan="4">${g}</td></tr>`;
+  DATA.filter(d => d.g === g).forEach(d => {
+    const pct = (d.rps / max * 100).toFixed(1);
+    html += `<tr class="data-row">
+      <td class="op-name">${d.l}</td>
+      <td class="rps-cell">${d.rps.toLocaleString()}<span class="rps-unit"> /s</span></td>
+      <td class="latency-cell">${d.p99}ms</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div></td>
+    </tr>`;
+  });
+});
+
+html += `</tbody>`;
+table.innerHTML = html;
+</script>

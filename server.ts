@@ -43,6 +43,7 @@ import { signValue, verifySignedValue } from './lib/crypto.ts';
 import { Router, readBody, readFormBody, parseCookies, setCookie, clearCookie } from './lib/router.ts';
 import { handleMcp, callTool, UnknownToolError, ToolScopeError, rateLimitOk, retryAfterSeconds, rateLimitHeaders, ToolError, DEFAULT_RATE_LIMIT, MCP_BODY_LIMIT } from './lib/mcp.ts';
 import { createCounters } from './lib/counters.ts';
+import { buildOpenApi } from './lib/openapi.ts';
 import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
@@ -547,7 +548,9 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       }
       const slug = uniqueSlug(slugify(name), (s) => !!getProjectBySlug(coreDb, s));
       createProject(coreDb, { slug, name });
-      projectDbs.get(slug); // create the project DB file now
+      const newDb = projectDbs.get(slug); // create the project DB file now
+      setMeta(newDb, 'rate_limit_per_min', '0');
+      setMeta(newDb, 'counter_ip_limit_per_min', '0');
       redirect(req, res, '/admin/projects');
     }),
   );
@@ -1639,7 +1642,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   // ---- API keys -----------------------------------------------------------
 
   router.get('/admin/projects/:slug/api-keys', withProject((req, res, params, ctx, db) => {
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: keyRateLimit(db), counterLimit: counterIpLimit(db) }));
   }));
 
   router.post('/admin/projects/:slug/api-keys', withProject(async (req, res, params, ctx, db) => {
@@ -1648,7 +1651,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (!name) return redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
     const mcp = !!form.mcp;
     const createdKey = createApiKey(db, name, form.scope, mcp);
-    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, createdKeyMcp: mcp, collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT }));
+    html(req, res, 200, apiKeysPage({ ...ctx, keys: listApiKeys(db), createdKey, createdKeyMcp: mcp, collections: listCollections(db), origin: requestOrigin(req).origin, rateLimit: keyRateLimit(db), counterLimit: counterIpLimit(db) }));
   }));
 
   router.post('/admin/projects/:slug/api-keys/:keyId/revoke', withProject(async (req, res, params, ctx, db) => {
@@ -1664,8 +1667,10 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
 
   router.post('/admin/projects/:slug/rate-limit', withProject(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
-    const n = Number.parseInt(form.rate_limit_per_min, 10);
-    if (Number.isFinite(n) && n > 0) setMeta(db, 'rate_limit_per_min', String(n));
+    for (const [field, key] of [['rate_limit_per_min', 'rate_limit_per_min'], ['counter_ip_limit_per_min', 'counter_ip_limit_per_min']]) {
+      const n = Number.parseInt(form[field], 10);
+      if (Number.isFinite(n) && n >= 0) setMeta(db, key, String(n));
+    }
     redirect(req, res, `/admin/projects/${ctx.project.slug}/api-keys`);
   }));
 
@@ -1698,9 +1703,19 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     };
   }
 
+  // Per-project limits in requests/min. 0 = disabled. A project with no stored
+  // value (created before limits became configurable) keeps the old defaults.
+  function limitMeta(db, key, legacy) {
+    const v = getMeta(db, key);
+    return v === null || v === '' ? legacy : Number(v) || 0;
+  }
+  const keyRateLimit = (db) => limitMeta(db, 'rate_limit_per_min', DEFAULT_RATE_LIMIT);
+  const counterIpLimit = (db) => limitMeta(db, 'counter_ip_limit_per_min', 120);
+
   // Consume one rate-limit token and set RateLimit-* headers on every
   // response. Returns false after sending the 429 when the bucket is empty.
   function applyRateLimit(req, res, bucketKey, limit) {
+    if (!limit) return true;
     const allowed = rateLimitOk(bucketKey, limit);
     for (const [h, v] of Object.entries(rateLimitHeaders(bucketKey, limit))) res.setHeader(h, v);
     if (allowed) return true;
@@ -1741,6 +1756,41 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     json(req, res, 200, describeFieldTypes());
   });
 
+  // OpenAPI 3.1 description of the whole public surface, per project. Built
+  // lazily on first request and memoized per (origin, rate limit); imports
+  // straight into Postman/Insomnia/Hoppscotch/Swagger UI as a playground.
+  const openapiCache = new Map<string, { body: string; gz?: Buffer }>();
+  function openapiJson(req, project, db) {
+    const origin = requestOrigin(req).origin;
+    const rateLimit = keyRateLimit(db);
+    const counterLimit = counterIpLimit(db);
+    const key = `${project.slug}|${origin}|${rateLimit}|${counterLimit}`;
+    let hit = openapiCache.get(key);
+    if (!hit) {
+      hit = { body: JSON.stringify(buildOpenApi({ origin, project: project.slug, rateLimit, counterLimit })) };
+      if (openapiCache.size > 100) openapiCache.clear();
+      openapiCache.set(key, hit);
+    }
+    return hit;
+  }
+
+  router.get('/api/v1/:project/openapi.json', (req, res, params) => {
+    const ctx = apiProject(req, res, params);
+    if (!ctx) return;
+    const hit = openapiJson(req, ctx.project, ctx.db);
+    send(req, res, 200, hit.body, { 'Content-Type': 'application/json; charset=utf-8' }, hit);
+  });
+
+  // Same document behind the admin session, so the API keys page can link a
+  // plain browser download without a Bearer header.
+  router.get('/admin/projects/:slug/openapi.json', withProject((req, res, params, ctx, db) => {
+    const hit = openapiJson(req, ctx.project, db);
+    send(req, res, 200, hit.body, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${ctx.project.slug}-openapi.json"`,
+    }, hit);
+  }));
+
   // Apply a full schema document, same semantics as the MCP apply_schema
   // tool: match by slug, create or update, replace field lists wholesale.
   // ?delete_missing=1 also deletes collections absent from the document
@@ -1748,7 +1798,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   router.post('/api/v1/:project/schema', async (req, res, params) => {
     const ctx = apiProject(req, res, params, { write: true });
     if (!ctx) return;
-    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    const rateLimit = keyRateLimit(ctx.db);
     if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
     let body;
     try {
@@ -1780,7 +1830,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   router.post('/api/v1/:project/import', async (req, res, params) => {
     const ctx = apiProject(req, res, params, { write: true });
     if (!ctx) return;
-    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    const rateLimit = keyRateLimit(ctx.db);
     if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
     let body;
     try {
@@ -1804,7 +1854,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   router.post('/api/v1/:project/rewrite-refs', async (req, res, params) => {
     const ctx = apiProject(req, res, params, { write: true });
     if (!ctx) return;
-    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    const rateLimit = keyRateLimit(ctx.db);
     if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
     let body;
     try {
@@ -1829,7 +1879,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   router.post('/api/v1/:project/call/:tool', async (req, res, params) => {
     const ctx = apiProject(req, res, params);
     if (!ctx) return;
-    const rateLimit = Number(getMeta(ctx.db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    const rateLimit = keyRateLimit(ctx.db);
     if (!applyRateLimit(req, res, `${ctx.project.slug}:${ctx.apiKey.id}`, rateLimit)) return;
     let args;
     try {
@@ -1884,7 +1934,6 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   // payload, so voting does not touch ETags, revisions or webhooks.
 
   const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Max-Age': '86400' };
-  const COUNTER_IP_LIMIT = 120;
   const collFieldCache = new WeakMap<object, { gen: number; map: Map<string, any> }>();
 
   function counterCollection(db, slug) {
@@ -1929,14 +1978,15 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       if (ctx.apiKey.scope !== 'write') return json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' }, CORS);
     }
     const ip = clientIp(req);
-    if (!isKey && !rateLimitOk(`ctr:${ip}`, COUNTER_IP_LIMIT)) {
-      const retryAfter = retryAfterSeconds(`ctr:${ip}`, COUNTER_IP_LIMIT);
+    const ipLimit = isKey ? 0 : counterIpLimit(ctx.db);
+    if (ipLimit && !rateLimitOk(`ctr:${ip}`, ipLimit)) {
+      const retryAfter = retryAfterSeconds(`ctr:${ip}`, ipLimit);
       return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { ...CORS, 'Retry-After': String(retryAfter) });
     }
     const url = new URL(req.url, 'http://localhost');
     const dir = url.searchParams.get('dir') ?? 'up';
     if (dir !== 'up' && dir !== 'down') return json(req, res, 400, { error: 'bad_request', message: 'dir must be "up" or "down".' }, CORS);
-    const entry = ctx.db.prepare("SELECT id FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'").get(ctx.collection.id, params.entry);
+    const entry = ctx.db.prepare("SELECT id FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')").get(ctx.collection.id, params.entry);
     if (!entry) return json(req, res, 404, { error: 'not_found' }, CORS);
     if (isKey) {
       const by = Math.min(1000, Math.max(1, Number.parseInt(url.searchParams.get('by') ?? '1', 10) || 1));
@@ -1964,14 +2014,14 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (!ctx) return;
     const slugs = (new URL(req.url, 'http://localhost').searchParams.get('slugs') ?? '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 100);
     if (!slugs.length) return json(req, res, 400, { error: 'bad_request', message: 'slugs is required (comma-separated, max 100).' }, CORS);
-    const rows = ctx.db.prepare(`SELECT id, slug FROM entries WHERE collection_id = ? AND status = 'published' AND slug IN (${slugs.map(() => '?').join(',')})`).all(ctx.collection.id, ...slugs);
+    const rows = ctx.db.prepare(`SELECT id, slug FROM entries WHERE collection_id = ? AND status = 'published' AND published_at <= datetime('now') AND slug IN (${slugs.map(() => '?').join(',')})`).all(ctx.collection.id, ...slugs);
     json(req, res, 200, { items: readCounters(ctx, rows) }, { ...CORS, 'Cache-Control': 'no-cache' });
   });
 
   router.get('/api/v1/:project/:collection/:entry/counters', (req, res, params) => {
     const ctx = counterCtx(req, res, params);
     if (!ctx) return;
-    const row = ctx.db.prepare("SELECT id, slug FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'").get(ctx.collection.id, params.entry);
+    const row = ctx.db.prepare("SELECT id, slug FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')").get(ctx.collection.id, params.entry);
     if (!row) return json(req, res, 404, { error: 'not_found' }, CORS);
     json(req, res, 200, readCounters(ctx, [row])[row.slug], { ...CORS, 'Cache-Control': 'no-cache' });
   });
@@ -2006,7 +2056,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
     if (apiKey.scope !== 'write') return json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' });
-    const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    const rateLimit = keyRateLimit(db);
     if (!applyRateLimit(req, res, `${project.slug}:${apiKey.id}`, rateLimit)) return;
     let upload;
     try {
@@ -2042,7 +2092,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const apiKey = verifyApiKey(db, auth.startsWith('Bearer ') ? auth.slice(7) : null);
     if (!apiKey) return json(req, res, 401, { error: 'unauthorized' });
     if (!apiKey.mcp) return json(req, res, 403, { error: 'forbidden', message: 'This API key does not have MCP access enabled.' });
-    const rateLimit = Number(getMeta(db, 'rate_limit_per_min')) || DEFAULT_RATE_LIMIT;
+    const rateLimit = keyRateLimit(db);
     if (!applyRateLimit(req, res, `${project.slug}:${apiKey.id}`, rateLimit)) return;
     let message;
     try {

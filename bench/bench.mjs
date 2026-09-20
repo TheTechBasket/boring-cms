@@ -606,6 +606,46 @@ async function main() {
     expectStatus(await fetch(`${base}/api/v1/${project}/misc/${hot}/counters/stars?by=2`, { method: 'POST', headers: { Authorization: `Bearer ${writeKey}` } }), 200);
   }, { concurrency: 16 });
 
+  // OpenAPI document: built once per (origin, rate limit), then served from memory.
+  await phase('openapi_read', N(500), async () => {
+    expectStatus(await api(`/api/v1/${project}/openapi.json`), 200);
+  }, { concurrency: 8 });
+
+  // Auth gate: every key-gated route must refuse a keyless or read-scope caller.
+  // Counts as one request per probe; any 200 fails the run.
+  const gated = [
+    ['GET', 'schema'], ['GET', 'field-types'], ['GET', 'openapi.json'], ['GET', 'short-posts'], ['GET', `short-posts/${shortSlugs[0]}`],
+    ['POST', 'schema'], ['POST', 'media'], ['POST', 'call/list_collections'], ['POST', 'import'], ['POST', 'rewrite-refs'], ['GET', 'export'],
+    ['POST', `misc/${hot}/counters/stars?by=1`],
+  ];
+  await phase('auth_gate_probes', gated.length * N(20), async (i) => {
+    const [method, path] = gated[i % gated.length];
+    const url = `${base}/api/v1/${project}/${path}`;
+    const none = await fetch(url, { method, body: method === 'POST' ? '{}' : undefined });
+    if (![401, 404].includes(none.status)) throw new Error(`keyless ${method} ${path} returned ${none.status}`);
+    const bad = await fetch(url, { method, headers: { Authorization: 'Bearer yn_wrong' }, body: method === 'POST' ? '{}' : undefined });
+    if (![401, 404].includes(bad.status)) throw new Error(`bad-key ${method} ${path} returned ${bad.status}`);
+    if (method === 'POST' && path !== 'call/list_collections') {
+      const ro = await api(`/api/v1/${project}/${path}`, { method, body: '{}' });
+      if (![403, 404, 400, 401].includes(ro.status)) throw new Error(`read key ${method} ${path} returned ${ro.status}`);
+    }
+  }, { concurrency: 8 });
+  expectStatus(await fetch(`${base}/admin/projects/${project}/openapi.json`, { redirect: 'manual' }), 302, 401, 403);
+  expectStatus(await fetch(`${base}/mcp/${project}`, { method: 'POST', body: '{}' }), 401);
+
+  // Rate limits: off by default (no headers), on when a number is set, 429 past it, restored after.
+  {
+    const call = () => fetch(`${base}/api/v1/${project}/call/list_collections`, { method: 'POST', headers: { Authorization: `Bearer ${readKey}`, 'Content-Type': 'application/json' }, body: '{}' });
+    expectStatus(await form('POST', `/admin/projects/${project}/rate-limit`, { rate_limit_per_min: '0', counter_ip_limit_per_min: '0' }), 302);
+    const off = await call();
+    if (off.headers.get('ratelimit-limit') !== null) throw new Error('limit should be off');
+    expectStatus(await form('POST', `/admin/projects/${project}/rate-limit`, { rate_limit_per_min: '5', counter_ip_limit_per_min: '0' }), 302);
+    let hit429 = 0;
+    await phase('rate_limit_on', 20, async () => { if ((await call()).status === 429) hit429++; });
+    if (!hit429) throw new Error('rate limit never returned 429');
+    expectStatus(await form('POST', `/admin/projects/${project}/rate-limit`, { rate_limit_per_min: '100000000', counter_ip_limit_per_min: '0' }), 302);
+  }
+
   // Deletes.
   await phase('delete_entries', N(200), async (i) => {
     await mcp('delete_entry', { collection: 'short-posts', slug: shortSlugs[i] });
