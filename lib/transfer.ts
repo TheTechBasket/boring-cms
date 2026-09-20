@@ -8,6 +8,8 @@ import {
   createEntry,
   updateEntry,
   publishEntry,
+  futureAt,
+  isoUtc,
   unpublishEntry,
   hasUnpublishedChanges,
   bumpContentVersion,
@@ -23,9 +25,9 @@ export function exportSchema(db) {
 
 export function exportCollection(db, collection) {
   const entries = db
-    .prepare('SELECT slug, status, data FROM entries WHERE collection_id = ? ORDER BY id')
+    .prepare('SELECT slug, status, data, published_at FROM entries WHERE collection_id = ? ORDER BY id')
     .all(collection.id)
-    .map((r) => ({ slug: r.slug, status: r.status, data: JSON.parse(r.data) }));
+    .map((r) => ({ slug: r.slug, status: r.status, ...(r.published_at ? { published_at: isoUtc(r.published_at) } : {}), data: JSON.parse(r.data) }));
   return { collection: { name: collection.name, slug: collection.slug, fields: collection.fields }, entries };
 }
 
@@ -113,12 +115,12 @@ export function restoreProject(db, dump, { deleteMissing = false } = {}) {
       const match = existing.get(e.slug);
       if (match) {
         const after = updateEntry(db, match, { data: e.data ?? {} });
-        if (wantPublished && (match.status !== 'published' || hasUnpublishedChanges(after))) publishEntry(db, match.id);
+        if (wantPublished && (match.status !== 'published' || hasUnpublishedChanges(after))) publishEntry(db, match.id, { at: futureAt(e.published_at) });
         else if (!wantPublished && match.status === 'published') unpublishEntry(db, match.id);
         updated++;
       } else {
         const entry = createEntry(db, collection, { data: e.data ?? {}, slug: e.slug });
-        if (wantPublished) publishEntry(db, entry.id);
+        if (wantPublished) publishEntry(db, entry.id, { at: futureAt(e.published_at) });
         created++;
       }
     }
@@ -168,11 +170,11 @@ export function parseImportFile(filename: string, buffer: Buffer) {
   try { parsed = JSON.parse(text); } catch { throw new Error('File is neither valid JSON nor named .csv.'); }
   let rows;
   if (Array.isArray(parsed)) rows = parsed;
-  else if (Array.isArray(parsed?.entries)) rows = parsed.entries.map((e) => ({ __status: e.status, ...(e.data ?? {}) }));
+  else if (Array.isArray(parsed?.entries)) rows = parsed.entries.map((e) => ({ __status: e.status, __published_at: e.published_at, ...(e.data ?? {}) }));
   else throw new Error('JSON must be an array of objects or a Boring CMS collection export.');
   rows = rows.filter((r) => r && typeof r === 'object' && !Array.isArray(r));
   if (!rows.length) throw new Error('No rows found in the file.');
-  const sourceFields = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => k !== '__status');
+  const sourceFields = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => k !== '__status' && k !== '__published_at');
   return { sourceFields, rows };
 }
 
@@ -266,7 +268,7 @@ export function applyImport(db, collectionSlug: string, rows: any[], mapping: Re
       report.created++;
       if (!dryRun) {
         const entry = createEntry(db, collection, { data });
-        if (row.__status === 'published') publishEntry(db, entry.id);
+        if (row.__status === 'published') publishEntry(db, entry.id, { at: futureAt(row.__published_at) });
         if (uniqueField) existing.push({ id: entry.id, slug: entry.slug, data, status: entry.status });
       }
     }

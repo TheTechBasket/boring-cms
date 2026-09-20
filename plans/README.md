@@ -2,7 +2,7 @@
 
 ## Active
 
-- [bulk-rewrite-refs-perf](bulk-rewrite-refs-perf.md): single-pass fix for `bulk_rewrite_refs` (was O(entries x pairs), 504 on prod). Shipped v0.17.1 (653b419). Prod dry_run 1.3s / 1223 entries: decision resolved to in-request, no background job. Remaining: live prod run awaiting Amit's go, then thetechbasket rebuild.
+- [counter-field](counter-field.md): counter field for polls, views, up/down votes via a POST-only bump endpoint. Idea only, open questions for Amit before any build.
 
 ## Backlog
 
@@ -27,6 +27,7 @@
 
 ## Shipped history
 
+- 2026-09-17 bulk_rewrite_refs single-pass fix (v0.17.1, 653b419): was O(entries x pairs), 504 on prod. Now one regex pass, in-request (no background job). Prod live run 1.9s, 1223 entries, 3254 substitutions, idempotent re-dry touches 0. Downstream thetechbasket rebuild is that site's task.
 - 2026-09-17 npm distribution (v0.18.2/v0.18.3, first npm release): `npx boring-cms` works end to end; prepack tsc type-strip (Node refuses stripping under node_modules, so tarball ships .js only, repo stays raw TS), `~/.boring-cms` home with full first-boot .env template, clean colored banner (startup time, clickable OSC 8 links), sqlite ExperimentalWarning silenced in the launcher; PUBLISHING.md release flow + `pnpm verify:pack` gate (real tarball install/boot + smoke + full bench); README halved and npx-first; broken 0.18.1 unpublished from npm.
 - 2026-09-09 Consumer sync pair (requested by thetechbasket session): REST list endpoint gains updated_since (parity with MCP list_entries, 400 on invalid timestamp), so incremental sync is one request; publish webhooks per project (webhook URL + optional HMAC secret in project settings, POSTs entry.publish / entry.unpublish / entry.delete of published entries from admin and MCP paths, X-Boring-Signature sha256 header, 10s timeout, 2 in-process retries, fire-and-forget). Smoke covers both, README documents both.
 - 2026-09-08 Boring CMS v0.9.0 rebrand + editor/revision ergonomics: product named Boring CMS with version in the sidebar (from package.json); add-field takes an optional explicit field id alongside the label; built-in system fields (slug, updated_at, published_at) shown as non-deletable rows in the fields editor; native entry slug editable as a form field in the editor (create picks a custom slug, edit renames with API URL warning, published snapshot slug follows); revision retention now keep 2 by default, 15 day age cap, per-collection override (off / 5 / 20) for frequently rewritten collections.

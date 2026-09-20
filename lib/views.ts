@@ -1,7 +1,7 @@
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
 import { readFileSync, statSync } from 'node:fs';
-import { entryLabel, isoUtc, REVISIONS_KEEP } from './content.ts';
+import { entryLabel, entryState, isoUtc, REVISIONS_KEEP } from './content.ts';
 
 export const APP_NAME = 'Boring CMS';
 export const APP_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -958,7 +958,7 @@ export function collectionPage({ user, projects, project, collection, entries, p
       (e: any) => `<tr class="border-b border-border">
         <td class="p-3"><a class="text-foreground font-medium no-underline hover:text-link" href="${base}/${e.slug}">${escapeHtml(entryLabel(e, collection))}</a></td>
         <td class="p-3 @max-lg:hidden"><code class="text-xs text-muted-foreground">${escapeHtml(e.slug)}</code></td>
-        <td class="p-3">${statusBadge(e.status)}</td>
+        <td class="p-3">${statusBadge(entryState(e.status, e.published_at))}</td>
         <td class="p-3 text-sm text-muted-foreground @max-lg:hidden">${timeAgo(e.updated_at)}</td>
       </tr>`,
     )
@@ -1077,6 +1077,8 @@ function statusBadge(status: string): string {
   const cls =
     status === 'published'
       ? 'bg-accent text-accent-foreground border-transparent'
+      : status === 'scheduled'
+      ? 'bg-background text-foreground border-foreground'
       : 'bg-muted text-muted-foreground border-border';
   return `<span class="inline-flex items-center border px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(status)}</span>`;
 }
@@ -1344,14 +1346,14 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
         <div class="${CARD_CLASS}">
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium">Status</span>
-            ${statusBadge(entry.status)}
+            ${statusBadge(entryState(entry.status, entry.published_at))}
           </div>
-          <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? `<br>Published: ${timeAgo(entry.published_at)}` : ''}</p>
+          <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? (entryState(entry.status, entry.published_at) === 'scheduled' ? `<br>Goes live: <time data-utc="${escapeHtml(isoUtc(entry.published_at))}">${escapeHtml(isoUtc(entry.published_at))}</time>` : `<br>Published: ${timeAgo(entry.published_at)}`) : ''}</p>
           ${dirty ? '<p class="text-xs font-medium text-primary">Draft has changes that are not live yet. Republish to push them to the API.</p>' : ''}
           <div class="flex gap-2 flex-wrap">
             ${entry.status === 'published'
               ? `${dirty ? `<form method="post" action="${base}/${entry.slug}/publish">${button({ label: 'Republish' })}</form>` : ''}<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
-              : `<form method="post" action="${base}/${entry.slug}/publish">${button({ label: 'Publish' })}</form>`}
+              : `<form method="post" action="${base}/${entry.slug}/publish" class="flex flex-col gap-2"><label class="text-xs text-muted-foreground" for="publish_at">Publish at (your local time, optional). Empty means now; a future time keeps it hidden from the API until then.</label><input type="datetime-local" id="publish_at" name="publish_at" data-local-to-utc class="${INPUT_CLASS}">${button({ label: 'Publish' })}</form>`}
             <form method="post" action="${base}/${entry.slug}/delete" data-confirm="delete-entry">${button({ label: 'Delete', variant: 'destructive' })}</form>
           </div>
         </div>

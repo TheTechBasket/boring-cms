@@ -1016,6 +1016,62 @@ async function main() {
   assert.equal(ptbRowAfter.published_at, ptbRow.published_at, 'batch preserve_timestamps should freeze published_at on republish');
   await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: ptBatchEntry.slug } });
 
+  // Scheduled publishing: future published_at hides the entry from every public
+  // read (REST, MCP), stays visible to write-side tools, ETag flips at go-live.
+  {
+    const tool = async (key: string, name: string, args: any) => {
+      const j: any = await (await rpc(key, 'tools/call', { name, arguments: args })).json();
+      const text = j.result?.content?.[0]?.text;
+      const err = !!j.error || !!j.result?.isError;
+      return { err, out: !err && text ? JSON.parse(text) : (text ?? j.error?.message) };
+    };
+    const rest = (p: string, headers: any = {}) => fetch(`${base}/api/v1/${slug}/blog-posts${p}`, { headers: { Authorization: `Bearer ${apiKey}`, ...headers } });
+    const listEtag = async () => (await rest('')).headers.get('etag');
+    const at = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+    await tool(writeKey, 'create_entry', { collection: 'blog-posts', slug: 'sched-demo', data: { body: 'later' } });
+    assert.ok((await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'sched-demo', at: 'nonsense' })).err, 'publish_entry rejects an invalid at');
+    const before = await listEtag();
+    const sched = await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'sched-demo', at });
+    assert.equal(sched.out.status, 'scheduled', 'future at returns status scheduled');
+    assert.equal(sched.out.publish_at, at, 'publish_at echoes the go-live time in UTC');
+
+    assert.equal((await rest('/sched-demo')).status, 404, 'scheduled entry is a 404 on the public single read');
+    assert.ok(!JSON.stringify(await (await rest('')).json()).includes('sched-demo'), 'scheduled entry is absent from the public list');
+    assert.ok((await tool(apiKey, 'get_entry', { collection: 'blog-posts', slug: 'sched-demo' })).err, 'MCP published read hides a scheduled entry');
+    const draftRead = await tool(apiKey, 'get_entry', { collection: 'blog-posts', slug: 'sched-demo', draft: true });
+    assert.equal(draftRead.out.status, 'scheduled', 'draft read reports scheduled');
+    const listed = await tool(writeKey, 'list_scheduled', { collection: 'blog-posts' });
+    assert.ok(listed.out.some((r: any) => r.slug === 'sched-demo' && r.publish_at === at), 'list_scheduled shows the entry with its time');
+    assert.ok((await tool(apiKey, 'list_scheduled', { collection: 'blog-posts' })).err, 'list_scheduled needs a write key');
+
+    const held = await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'sched-demo' });
+    assert.equal(held.out.status, 'scheduled', 'republish without at keeps the scheduled state');
+    assert.equal((await rest('/sched-demo')).status, 404, 'republish without at does not leak the entry');
+
+    // Admin form: a bad date is a 400 page, not a crash.
+    const badForm = await req('POST', `/admin/projects/${slug}/collections/blog-posts/sched-demo/publish`, { form: { publish_at: 'garbage' } });
+    assert.equal(badForm.status, 400, 'admin publish with an invalid date is 400');
+
+    // Time passes with no write: the ETag must still flip and the entry appear.
+    projectDb.prepare("UPDATE entries SET published_at = datetime('now', '-1 second') WHERE slug = 'sched-demo'").run();
+    const after = await listEtag();
+    assert.notEqual(after, before, 'ETag changes when a scheduled entry goes live');
+    assert.equal((await rest('', { 'If-None-Match': before })).status, 200, 'stale ETag revalidates to 200 after go-live');
+    assert.equal((await rest('/sched-demo')).status, 200, 'entry is served once its time passes');
+    assert.ok((await (await rest('?updated_since=2000-01-01T00:00:00Z')).text()).includes('sched-demo'), 'updated_since returns the entry');
+    assert.equal((await tool(writeKey, 'list_scheduled', { collection: 'blog-posts' })).out.length, 0, 'list_scheduled drops it after go-live');
+    assert.doesNotMatch(String(after), /^"?v?\d+(\.\d+)?"?$/, 'ETag is opaque, not a bare version counter');
+
+    // Export carries the go-live time.
+    await tool(writeKey, 'create_entry', { collection: 'blog-posts', slug: 'sched-rt', data: { body: 'rt' } });
+    await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'sched-rt', at });
+    const exported = JSON.stringify(await (await fetch(`${base}/api/v1/${slug}/export`, { headers: { Authorization: `Bearer ${apiKey}` } })).json());
+    assert.ok(exported.includes('sched-rt') && exported.includes(at), 'export carries published_at for a scheduled entry');
+    await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'sched-rt' });
+    await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'sched-demo' });
+  }
+
   const del: any = await (
     await rpc(writeKey, 'tools/call', { name: 'delete_entry', arguments: { collection: 'blog-posts', slug: 'batch-two' } })
   ).json();

@@ -26,8 +26,15 @@ function applyPragmas(db) {
 // the caller (core db bootstrap) wires this to insert into slow_queries.
 function instrument(db, dbName, onSlowQuery) {
   const rawPrepare = db.prepare.bind(db);
+  // Statements are memoized per SQL text: the hot API path re-prepared the
+  // same handful of queries on every request. Bounded so dynamic SQL cannot
+  // grow it without limit.
+  const cache = new Map();
   db.prepare = (sql) => {
+    const hit = cache.get(sql);
+    if (hit) return hit;
     const stmt = rawPrepare(sql);
+    if (cache.size < 256) cache.set(sql, stmt);
     for (const method of ['run', 'get', 'all']) {
       const raw = stmt[method].bind(stmt);
       stmt[method] = (...args) => {

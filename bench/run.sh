@@ -134,7 +134,7 @@ for rt in "${RT[@]}"; do
       echo "{\"label\":\"$LABEL\",\"runtime\":\"$RTV\",\"failed\":\"server did not start: ${REASON:-no output}\"}" > "$OUT"
       echo "FAILED to start; log tail:"; tail -5 "$OUTDIR/$LABEL.server.log"
     else
-      "$NODE_BIN" bench/bench.mjs --base "http://127.0.0.1:$PORT" --out "$OUT" --label "$LABEL" \
+      "$NODE_BIN" bench/bench.mjs --base "http://127.0.0.1:$PORT" --out "$OUT" --label "$LABEL" $BENCH_ARGS \
         || echo "driver failed for $LABEL"
       # Record peak RSS and runtime metadata into the result JSON.
       PEAK_KB=$(grep VmHWM "/proc/$SERVER_PID/status" 2>/dev/null | awk '{print $2}')

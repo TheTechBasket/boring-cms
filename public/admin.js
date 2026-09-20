@@ -378,3 +378,21 @@ document.querySelectorAll('[data-markdown-field]').forEach((wrap) => {
     }
   });
 });
+
+// Scheduled publishing: the server stores and compares UTC. Show UTC times in
+// the viewer's timezone (UTC stays in the tooltip), and convert the local time
+// typed into the Publish-at input to UTC on submit.
+{
+  for (const t of document.querySelectorAll('time[data-utc]')) {
+    const d = new Date(t.dataset.utc);
+    if (Number.isNaN(d.getTime())) continue;
+    t.title = t.dataset.utc + ' (UTC)';
+    t.textContent = d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+  for (const input of document.querySelectorAll('input[data-local-to-utc]')) {
+    input.form?.addEventListener('submit', () => {
+      const d = new Date(input.value);
+      if (input.value && !Number.isNaN(d.getTime())) input.value = d.toISOString().slice(0, 16);
+    });
+  }
+}

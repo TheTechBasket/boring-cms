@@ -1,7 +1,7 @@
 // Query layer over a project database: collections, entries, publish
 // materialization, field-delta revisions with atomic revert, API keys.
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 
 // Single source of truth for the type system. FIELD_TYPES, FIELD_OPTIONS and
@@ -467,20 +467,29 @@ export function renameEntry(db, entry, requestedSlug) {
   return slug;
 }
 
-export function publishEntry(db, entryId, { preserveTimestamps = false }: { preserveTimestamps?: boolean } = {}) {
+// at: optional go-live time (ISO 8601 or "YYYY-MM-DD HH:MM:SS", UTC). A future
+// value keeps the entry status 'published' but hidden from the API until then;
+// the read path gates on published_at <= now, so no timer or extra status.
+export function publishEntry(db, entryId, { preserveTimestamps = false, at = '' }: { preserveTimestamps?: boolean; at?: string } = {}) {
   const entry = getEntryById(db, entryId);
   if (!entry) return null;
+  if (at && Number.isNaN(new Date(at).getTime())) throw new Error('Invalid publish date.');
   const snapshot = { slug: entry.slug, ...entry.data };
   // A user schema field named "slug" left empty must not wipe the native
   // slug out of the API snapshot; a filled one wins on purpose.
   if (snapshot.slug === '' || snapshot.slug === null || snapshot.slug === undefined) snapshot.slug = entry.slug;
   // ponytail: first-time publish always stamps; preserve only re-publishes
-  const keepTimestamp = preserveTimestamps && entry.published_at;
-  db.prepare(
-    keepTimestamp
-      ? "UPDATE entries SET status = 'published', published_data = ? WHERE id = ?"
-      : "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
-  ).run(JSON.stringify(snapshot), entryId);
+  // A republish must not pull a still-scheduled entry live early.
+  const keepTimestamp = !at && entry.published_at && (preserveTimestamps || entryState('published', entry.published_at) === 'scheduled');
+  if (at) {
+    db.prepare("UPDATE entries SET status = 'published', published_data = ?, published_at = ? WHERE id = ?").run(JSON.stringify(snapshot), sqlUtc(at), entryId);
+  } else {
+    db.prepare(
+      keepTimestamp
+        ? "UPDATE entries SET status = 'published', published_data = ? WHERE id = ?"
+        : "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
+    ).run(JSON.stringify(snapshot), entryId);
+  }
   bumpContentVersion(db);
   return getEntryById(db, entryId);
 }
@@ -580,9 +589,13 @@ export function setApiKeyMcp(db, id, mcp) {
 // Truthy result carries { id, scope, mcp } for scope/MCP checks and rate limiting.
 export function verifyApiKey(db, key) {
   if (!key) return null;
-  const row = db.prepare('SELECT id, scope, mcp FROM api_keys WHERE key_hash = ?').get(hashKey(key));
+  const row = db.prepare('SELECT id, scope, mcp, last_used_at FROM api_keys WHERE key_hash = ?').get(hashKey(key));
   if (!row) return null;
-  db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
+  // last_used_at is informational: write it at most once a minute instead of
+  // a WAL write on every API read.
+  if (!row.last_used_at || row.last_used_at < new Date(Date.now() - Number(process.env.LAST_USED_MS ?? 60000)).toISOString().slice(0, 19).replace('T', ' ')) {
+    db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
+  }
   return row;
 }
 
@@ -607,10 +620,25 @@ function sqlUtc(ts) {
 
 // updatedSince: ISO/SQLite timestamp; only entries touched after it (draft
 // edits count, so incremental pulls see upcoming changes after republish).
+// Entries published with a future go-live time, soonest first. Admin/write-key
+// view: the public read path never returns these.
+export function listScheduled(db, collectionId, { limit = 50 }: any = {}) {
+  return db
+    .prepare(
+      `SELECT slug, published_at, updated_at FROM entries
+       WHERE collection_id = ? AND status = 'published' AND published_at > datetime('now')
+       ORDER BY published_at ASC LIMIT ?`,
+    )
+    .all(collectionId, Math.min(limit, 100))
+    .map((r) => ({ slug: r.slug, publish_at: isoUtc(r.published_at), updated_at: isoUtc(r.updated_at) }));
+}
+
 export function listPublished(db, collectionId, { limit = 50, offset = 0, updatedSince = '' }: any = {}) {
-  const where = ["collection_id = ? AND status = 'published'"];
+  const where = ["collection_id = ? AND status = 'published' AND published_at <= datetime('now')"];
   const args: any[] = [collectionId];
-  if (updatedSince) { where.push('updated_at > ?'); args.push(sqlUtc(updatedSince)); }
+  // published_at counts too: an entry that went live after the cursor was
+  // taken (scheduled) has an old updated_at and would otherwise be skipped.
+  if (updatedSince) { const c = sqlUtc(updatedSince); where.push('(updated_at > ? OR published_at > ?)'); args.push(c, c); }
   return db
     .prepare(
       `SELECT slug, published_data, published_at, updated_at FROM entries
@@ -631,9 +659,66 @@ export function listPublished(db, collectionId, { limit = 50, offset = 0, update
     });
 }
 
+// Entries published with a future date. Folded into the API ETag so a cached
+// list refreshes the moment one goes live (time passing does not bump
+// content_version). Index range scan over future rows only: near-free.
+// slug -> id for the API hot path, valid for one content_version. Every path
+// that adds/removes a collection or swaps its id bumps the version.
+const collIdCache = new WeakMap<object, { v: string; ids: Map<string, number> }>();
+export function collectionIdBySlug(db, slug, ver) {
+  let e = collIdCache.get(db);
+  if (!e || e.v !== ver) collIdCache.set(db, (e = { v: ver, ids: new Map() }));
+  let id = e.ids.get(slug);
+  if (id === undefined) {
+    id = db.prepare('SELECT id FROM collections WHERE slug = ?').get(slug)?.id;
+    if (id === undefined) return null;
+    e.ids.set(slug, id);
+  }
+  return id;
+}
+
+const schedCache = new WeakMap<object, Map<number, { v: string; times: string[]; key: string; tag: string }>>();
+// Opaque API ETag: HMAC of (content_version, still-scheduled count). Version
+// bumps refresh the future timestamps; between bumps only time passing flips
+// the count, so the tag flips exactly when a scheduled entry goes live. The
+// HMAC keeps write frequency and the number of hidden scheduled entries from
+// leaking to read-key holders through the tag. Memoized: per request cost is
+// a compare unless (version, count) moved.
+export function apiEtag(db, collectionId, ver, secret) {
+  let m = schedCache.get(db);
+  if (!m) schedCache.set(db, (m = new Map()));
+  let e = m.get(collectionId);
+  if (!e || e.v !== ver) {
+    const times = db.prepare("SELECT published_at FROM entries WHERE collection_id = ? AND status = 'published' AND published_at > datetime('now')").all(collectionId).map((r) => r.published_at);
+    m.set(collectionId, (e = { v: ver, times, key: '', tag: '' }));
+  }
+  let n = 0;
+  if (e.times.length) {
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    for (const t of e.times) if (t > now) n++;
+  }
+  const key = `${ver}.${n}`;
+  if (e.key !== key) {
+    e.key = key;
+    e.tag = `"${createHmac('sha256', secret).update(`etag:${key}`).digest('base64url').slice(0, 16)}"`;
+  }
+  return e.tag;
+}
+
+// Publish date from an export dump, only when it is still in the future, so a
+// restore or import keeps an entry scheduled instead of publishing it now.
+export function futureAt(ts) {
+  return ts && new Date(ts).getTime() > Date.now() ? String(ts) : '';
+}
+
+// Display state for admin: published with a future date is 'scheduled'.
+export function entryState(status, publishedAt) {
+  return status === 'published' && publishedAt && publishedAt > new Date().toISOString().slice(0, 19).replace('T', ' ') ? 'scheduled' : status;
+}
+
 export function getPublished(db, collectionId, slug) {
   const row = db
-    .prepare("SELECT slug, published_data, published_at, updated_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published'")
+    .prepare("SELECT slug, published_data, published_at, updated_at FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')")
     .get(collectionId, slug);
   if (!row) return null;
   const item = { published_at: isoUtc(row.published_at), ...JSON.parse(row.published_data), updated_at: isoUtc(row.updated_at) };

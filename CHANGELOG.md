@@ -2,7 +2,10 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
-## Unreleased
+## 0.19.0 (2026-09-20)
+
+- Scheduled publishing. Publish an entry with a future date (admin "Publish at" field, UTC, or `publish_entry` with `at`) and it stays hidden from `/api/v1` and the MCP read tools until that time. No timer, no new status, no migration: the read path gates on `published_at <= now`, and the API ETag folds in the count of still-scheduled entries so a cached list refreshes the moment one goes live. `updated_since` also matches entries whose go-live date passed the cursor. Republishing a scheduled entry keeps its date. Admin shows a "scheduled" badge and a "Goes live" line, times display in the viewer's timezone, and the Publish at field takes local time (converted to UTC on submit). New `list_scheduled` MCP tool (write scope, also reachable at `/call/list_scheduled`) lists pending go-lives; `get_entry` with `draft: true` reports `status: "scheduled"`. Note: the `entry.publish` webhook fires when you schedule, not at go-live. The API ETag is now an opaque HMAC, not `v<n>`: clients that echo it are unaffected. Project exports carry `published_at` so restore and import keep a future go-live hidden. An invalid `publish_at` in the admin form returns a 400 page.
+- API read path is faster. Prepared statements are now memoized per database handle instead of re-prepared on every query, `last_used_at` on API keys is written at most once a minute instead of on every read, and the collection id and scheduled-entry count are cached per content version. Against the v0.18.5 baseline (node, 1 CPU): single reads +15% to +16%, 304 revalidation +15%, 20-way concurrent reads +43%.
 
 ## 0.18.5 (2026-09-19)
 

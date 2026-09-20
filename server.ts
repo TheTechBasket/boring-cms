@@ -78,6 +78,8 @@ import {
   setApiKeyMcp,
   verifyApiKey,
   listPublished,
+  apiEtag,
+  collectionIdBySlug,
   getPublished,
   slugify,
   uniqueSlug,
@@ -1589,13 +1591,19 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${slug}`);
   }));
 
-  const entryActions: Array<[string, (db: any, ctx: any) => void, WebhookEvent]> = [
-    ['publish', (db, ctx) => publishEntry(db, ctx.entry.id), 'entry.publish'],
+  const entryActions: Array<[string, (db: any, ctx: any, form: any) => string | void, WebhookEvent]> = [
+    ['publish', (db, ctx, form) => {
+      // datetime-local sends "YYYY-MM-DDTHH:MM" (no zone); the field is labelled UTC.
+      const at = String(form.publish_at || '').trim().replace(/^(\d{4}-\d\d-\d\dT\d\d:\d\d)$/, '$1:00Z');
+      if (at && (!/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d(:\d\d)?(\.\d+)?Z?$/.test(at) || Number.isNaN(new Date(at).getTime()))) return 'Invalid publish date.';
+      publishEntry(db, ctx.entry.id, { at });
+    }, 'entry.publish'],
     ['unpublish', (db, ctx) => unpublishEntry(db, ctx.entry.id), 'entry.unpublish'],
   ];
   for (const [actionName, fn, webhookEvent] of entryActions) {
     router.post(`/admin/projects/:slug/collections/:cslug/:eslug/${actionName}`, withEntry(async (req, res, params, ctx, db) => {
-      fn(db, ctx);
+      const err = fn(db, ctx, await readFormBody(req));
+      if (err) return html(req, res, 400, errorPage({ status: 400, message: err }));
       triggerWebhook(ctx.project, ctx.collection.slug, ctx.entry.slug, webhookEvent);
       redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}/${ctx.entry.slug}`);
     }));
@@ -1669,13 +1677,16 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       const key = auth.startsWith('Bearer ') ? auth.slice(7) : null;
       if (!verifyApiKey(db, key)) return json(req, res, 401, { error: 'unauthorized' });
 
-      // ETag from the project's content version: publish bumps it, so
-      // repeat static-site builds get 304s without touching entries.
-      const etag = `"v${contentVersion(db)}"`;
+      // Opaque ETag over the project's content version: publish bumps it, so
+      // repeat static-site builds get 304s without touching entries. The
+      // scheduled-entry count is folded in so the tag also flips when a
+      // future-dated entry goes live (no version bump happens then).
+      const ver = contentVersion(db);
+      const cid = collectionIdBySlug(db, params.collection, ver);
+      if (cid === null) return json(req, res, 404, { error: 'not_found' });
+      const etag = apiEtag(db, cid, ver, config.masterKey);
       if (req.headers['if-none-match'] === etag) return send(req, res, 304, '', { ETag: etag });
-
-      const collection = getCollection(db, params.collection);
-      if (!collection) return json(req, res, 404, { error: 'not_found' });
+      const collection = { id: cid };
       return handler(req, res, params, { db, collection, etag });
     };
   }

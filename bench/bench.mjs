@@ -27,6 +27,12 @@ const scale = Number(arg('scale', '1')); // multiply op counts, 1 = default
 // instr() scan on the current code, so this is the dimension that blows up in
 // prod (2216 pairs -> 2216 scans -> gateway timeout). Kept small by default so
 // the bench finishes; crank it (and --scale) to approach prod pain locally.
+// --soak SECONDS: sustained mixed read load (single, list, 304) after the
+// seed phases, for throughput drift and memory-over-time. --soak-only skips
+// every other phase; --soak-scheduled seeds future-dated entries first.
+const soakSec = Number(arg('soak', '0'));
+const soakOnly = argv.includes('--soak-only');
+const soakScheduled = argv.includes('--soak-scheduled');
 const rewritePairs = Number(arg('rewrite-pairs', '200'));
 if (!base || !outPath) {
   console.error('usage: node bench/bench.mjs --base URL --out FILE [--label L] [--scale N]');
@@ -253,6 +259,69 @@ async function main() {
   if (!readKey || !writeKey) throw new Error('could not extract API keys');
   const bootstrapMs = Date.now() - t0;
 
+  async function runSoak(slugs) {
+    if (soakScheduled) {
+      const future = new Date(Date.now() + 86400e3).toISOString();
+      for (let i = 0; i < 100; i++) {
+        await mcp('create_entry', { collection: 'short-posts', slug: `soak-sched-${i}`, data: shortData(i) });
+        await mcp('publish_entry', { collection: 'short-posts', slug: `soak-sched-${i}`, at: future });
+      }
+    }
+    const listEtag = (await api(`/api/v1/${project}/short-posts`)).headers.get('etag');
+    const BUCKET_MS = 30000;
+    const buckets = [];
+    const all = [];
+    let errors = 0;
+    let next = 0;
+    const startedEpochMs = Date.now();
+    const endAt = startedEpochMs + soakSec * 1000;
+    async function worker() {
+      while (Date.now() < endAt) {
+        const i = next++;
+        const r = i % 10;
+        const t0 = process.hrtime.bigint();
+        try {
+          if (r < 6) expectStatus(await api(`/api/v1/${project}/short-posts/${slugs[i % slugs.length]}`), 200);
+          else if (r < 8) expectStatus(await api(`/api/v1/${project}/short-posts`), 200);
+          else expectStatus(await api(`/api/v1/${project}/short-posts`, { headers: { 'If-None-Match': listEtag } }), 304, 200);
+        } catch { errors++; }
+        const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+        const b = Math.floor((Date.now() - startedEpochMs) / BUCKET_MS);
+        (buckets[b] ||= []).push(ms);
+        all.push(ms);
+      }
+    }
+    await Promise.all(Array.from({ length: 20 }, worker));
+    const totalMs = Date.now() - startedEpochMs;
+    all.sort((a, b) => a - b);
+    const row = {
+      name: 'soak', count: all.length, concurrency: 20, errors,
+      start_epoch_ms: startedEpochMs, end_epoch_ms: Date.now(), total_ms: totalMs,
+      ops_per_sec: Math.round((all.length / totalMs) * 1000 * 10) / 10,
+      p50_ms: Math.round(percentile(all, 50) * 100) / 100,
+      p95_ms: Math.round(percentile(all, 95) * 100) / 100,
+      p99_ms: Math.round(percentile(all, 99) * 100) / 100,
+      max_ms: Math.round(all[all.length - 1] * 100) / 100,
+      buckets: buckets.map((b) => { b.sort((x, y) => x - y); return { ops_per_sec: Math.round((b.length / (BUCKET_MS / 1000)) * 10) / 10, p95_ms: Math.round(percentile(b, 95) * 100) / 100 }; }),
+    };
+    phases.push(row);
+    console.error(`  soak: ${row.ops_per_sec} ops/s over ${soakSec}s, p95 ${row.p95_ms}ms, errors ${errors}`);
+  }
+
+  function writeResult() {
+    const result = {
+      label, base, scale,
+      started_at: new Date(t0).toISOString(),
+      bootstrap_ms: bootstrapMs,
+      total_wall_ms: Date.now() - t0,
+      driver: `node ${process.version}`,
+      phases,
+    };
+    mkdirSync(path.dirname(outPath), { recursive: true });
+    writeFileSync(outPath, JSON.stringify(result, null, 2) + '\n');
+    console.error(`wrote ${outPath} (${Math.round((Date.now() - t0) / 1000)}s wall)`);
+  }
+
   // Phase: schema apply (REST), both collections in one call, then re-apply
   // with a field change to measure schema mutation, then schema reads.
   await phase('schema_apply', N(10), async (i) => {
@@ -295,6 +364,11 @@ async function main() {
     const entries = Array.from({ length: 200 }, (_, j) => ({ slug: `batch-${b}-${j}`, data: shortData(j) }));
     await mcp('batch_create_entries', { collection: 'short-posts', entries, publish: true });
   });
+
+  if (soakSec > 0) {
+    await runSoak(shortSlugs);
+    if (soakOnly) return writeResult();
+  }
 
   // Reads: list (short list now holds ~900 published entries), single, ETag.
   await phase('read_list_short', N(200), async () => {
@@ -391,24 +465,58 @@ async function main() {
     await mcp('create_entry', { collection: 'short-posts', slug: `conc-${i}`, data: shortData(i), publish: true });
   }, { concurrency: 10 });
 
+  // Scheduled publishing: future-dated entries stay hidden behind the read
+  // gate, then flip live (and the list ETag flips) once their time passes.
+  const schedSlugs = [];
+  const future = new Date(Date.now() + 86400e3).toISOString();
+  await phase('schedule_future', N(100), async (i) => {
+    const slug = `sched-${i}`;
+    await mcp('create_entry', { collection: 'short-posts', slug, data: shortData(i) });
+    await mcp('publish_entry', { collection: 'short-posts', slug, at: future });
+    schedSlugs.push(slug);
+  });
+  await phase('read_list_short_with_scheduled', N(200), async () => {
+    const res = await api(`/api/v1/${project}/short-posts`);
+    expectStatus(res, 200);
+    const items = (await res.json()).items;
+    if (items.some((it) => String(it.slug).startsWith('sched-'))) throw new Error('scheduled entry leaked into list');
+  });
+  await phase('read_single_scheduled_404', N(100), async (i) => {
+    expectStatus(await api(`/api/v1/${project}/short-posts/${schedSlugs[i % schedSlugs.length]}`), 404);
+  });
+  await phase('list_scheduled', N(100), async () => {
+    const rows = await mcp('list_scheduled', { collection: 'short-posts' });
+    if (!rows.length || !rows.every((r) => r.publish_at)) throw new Error('list_scheduled returned no scheduled rows');
+  });
+  await phase('get_entry_draft_scheduled', N(100), async (i) => {
+    const e = await mcp('get_entry', { collection: 'short-posts', slug: schedSlugs[i % schedSlugs.length], draft: true });
+    if (e.status !== 'scheduled') throw new Error(`expected scheduled, got ${e.status}`);
+  });
+  await phase('reschedule_entry', N(100), async (i) => {
+    const r = await mcp('publish_entry', { collection: 'short-posts', slug: schedSlugs[i % schedSlugs.length], at: future });
+    if (r.status !== 'scheduled') throw new Error(`expected scheduled, got ${r.status}`);
+  });
+  const gateEtag = (await api(`/api/v1/${project}/short-posts`)).headers.get('etag');
+  await phase('scheduled_goes_live', 1, async () => {
+    const slug = 'sched-soon';
+    await mcp('create_entry', { collection: 'short-posts', slug, data: shortData(0) });
+    await mcp('publish_entry', { collection: 'short-posts', slug, at: new Date(Date.now() + 2000).toISOString() });
+    const hiddenEtag = (await api(`/api/v1/${project}/short-posts`)).headers.get('etag');
+    expectStatus(await api(`/api/v1/${project}/short-posts/${slug}`), 404);
+    await new Promise((r) => setTimeout(r, 3100));
+    expectStatus(await api(`/api/v1/${project}/short-posts/${slug}`), 200);
+    const liveRes = await api(`/api/v1/${project}/short-posts`, { headers: { 'If-None-Match': hiddenEtag } });
+    expectStatus(liveRes, 200); // ETag flipped without any write
+    if (liveRes.headers.get('etag') === hiddenEtag) throw new Error('etag did not flip when entry went live');
+  });
+  void gateEtag;
+
   // Deletes.
   await phase('delete_entries', N(200), async (i) => {
     await mcp('delete_entry', { collection: 'short-posts', slug: shortSlugs[i] });
   });
 
-  const result = {
-    label,
-    base,
-    scale,
-    started_at: new Date(t0).toISOString(),
-    bootstrap_ms: bootstrapMs,
-    total_wall_ms: Date.now() - t0,
-    driver: `node ${process.version}`,
-    phases,
-  };
-  mkdirSync(path.dirname(outPath), { recursive: true });
-  writeFileSync(outPath, JSON.stringify(result, null, 2) + '\n');
-  console.error(`wrote ${outPath} (${Math.round((Date.now() - t0) / 1000)}s wall)`);
+  writeResult();
 }
 
 main().catch((e) => {

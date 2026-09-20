@@ -15,6 +15,8 @@ import {
   hasUnpublishedChanges,
   validateEntryData,
   listPublished,
+  listScheduled,
+  entryState,
   getPublished,
   slugify,
   createCollection,
@@ -131,6 +133,17 @@ const TOOLS = [
     handler: (db, args, collection) => listPublished(db, collection.id, { limit: args.limit ?? 50, offset: args.offset ?? 0, updatedSince: args.updated_since ?? '' }),
   },
   {
+    name: 'list_scheduled',
+    description: 'List entries scheduled to go live (published with a future time, hidden from the public API until then), soonest first. Read one with get_entry draft: true; change the time with publish_entry at; cancel with unpublish_entry.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: { collection: str('Collection slug'), limit: { type: 'number', description: 'Max entries (default 50, cap 100)' } },
+      required: ['collection'],
+    },
+    handler: (db, args, collection) => listScheduled(db, collection.id, { limit: args.limit ?? 50 }),
+  },
+  {
     name: 'get_entry',
     description: 'Get one published entry by slug. Pass draft: true to get the latest saved (draft) version instead, which also reports has_unpublished_changes: true when a published entry has edits not yet republished.',
     scope: 'read',
@@ -149,7 +162,7 @@ const TOOLS = [
         if (!entry) throw new ToolError('Entry not found.');
         // Same flat shape as the published read, so draft: true is a drop-in;
         // status and has_unpublished_changes are the only extra keys.
-        const out: Record<string, any> = { ...entry.data, slug: entry.slug, status: entry.status, updated_at: isoUtc(entry.updated_at) };
+        const out: Record<string, any> = { ...entry.data, slug: entry.slug, status: entryState(entry.status, entry.published_at), updated_at: isoUtc(entry.updated_at) };
         if (entry.published_at) out.published_at = isoUtc(entry.published_at);
         if (hasUnpublishedChanges(entry)) out.has_unpublished_changes = true;
         return out;
@@ -288,19 +301,20 @@ const TOOLS = [
   },
   {
     name: 'publish_entry',
-    description: 'Publish an entry (or republish after edits).',
+    description: 'Publish an entry (or republish after edits). Pass at (ISO 8601, UTC) to schedule: the entry stays hidden from the API until that time.',
     scope: 'write',
     inputSchema: {
       type: 'object',
-      properties: { collection: str('Collection slug'), slug: str('Entry slug') },
+      properties: { collection: str('Collection slug'), slug: str('Entry slug'), at: str('Optional go-live time, ISO 8601 UTC (e.g. 2026-10-01T09:00:00Z). Omit to publish now.') },
       required: ['collection', 'slug'],
     },
     handler: (db, args, collection, ctx) => {
       const entry = getEntry(db, collection.id, args.slug);
       if (!entry) throw new ToolError('Entry not found.');
-      const published = publishEntry(db, entry.id);
+      if (args.at && Number.isNaN(new Date(args.at).getTime())) throw new ToolError('Invalid at: use ISO 8601 UTC.');
+      const published = publishEntry(db, entry.id, { at: args.at || '' });
       ctx?.onWebhook?.('entry.publish', collection.slug, published.slug);
-      return { slug: published.slug, status: published.status };
+      return { slug: published.slug, status: entryState(published.status, published.published_at), ...(args.at ? { publish_at: isoUtc(published.published_at) } : {}) };
     },
   },
   {
