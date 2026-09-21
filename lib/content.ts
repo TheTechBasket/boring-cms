@@ -415,7 +415,16 @@ export function getEntryById(db, id) {
   return parseEntry(db.prepare('SELECT * FROM entries WHERE id = ?').get(id));
 }
 
+// Counter totals live in the counters table. A counter-named key in written
+// data would otherwise persist and leak into the public snapshot.
+function stripCounters(fields, data) {
+  const out = { ...data };
+  for (const f of fields) if (f.type === 'counter') delete out[f.name];
+  return out;
+}
+
 export function createEntry(db, collection, { data, slug: requestedSlug = undefined }: { data: any; slug?: string }) {
+  data = stripCounters(collection.fields, data);
   const exists = (s) => !!getEntry(db, collection.id, s);
   const slug = requestedSlug ? uniqueSlug(slugify(requestedSlug), exists) : randomUUID();
   const info = db
@@ -427,6 +436,8 @@ export function createEntry(db, collection, { data, slug: requestedSlug = undefi
 // Updates an entry, recording a backward field-level delta as a revision:
 // only fields whose value changed are stored, holding the PREVIOUS value.
 export function updateEntry(db, entry, { data, preserveTimestamps = false }: { data: any; preserveTimestamps?: boolean }) {
+  const col = db.prepare('SELECT fields, revisions_keep FROM collections WHERE id = ?').get(entry.collection_id);
+  data = stripCounters(JSON.parse(col.fields), data);
   const delta: Record<string, any> = {};
   const fieldNames = new Set([...Object.keys(entry.data), ...Object.keys(data)]);
   for (const name of fieldNames) {
@@ -436,7 +447,7 @@ export function updateEntry(db, entry, { data, preserveTimestamps = false }: { d
   }
   if (Object.keys(delta).length === 0) return getEntryById(db, entry.id);
 
-  const keep = db.prepare('SELECT revisions_keep FROM collections WHERE id = ?').get(entry.collection_id)?.revisions_keep ?? REVISIONS_KEEP;
+  const keep = col.revisions_keep ?? REVISIONS_KEEP;
 
   // Savepoint instead of BEGIN so batch callers can hold an outer transaction.
   db.exec('SAVEPOINT update_entry');

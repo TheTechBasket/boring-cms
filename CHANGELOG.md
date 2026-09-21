@@ -2,6 +2,10 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.21.1 (2026-09-21)
+
+- Fix: a counter field's name in written entry data (MCP create, update, batch, import, admin form) was stored and served in the public entry payload. Counter keys are now dropped on every write. Docs: `changed` is only returned for public votes.
+
 ## 0.21.0 (2026-09-21)
 
 - Fix: counter votes and counter reads no longer see scheduled (future-dated) entries. Before, a keyless caller could vote on one or tell it existed from a 200 versus 404; now it is a 404 until go-live, like the content API.

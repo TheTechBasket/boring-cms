@@ -1331,6 +1331,11 @@ async function main() {
     assert.equal(opt.status, 204, 'CORS preflight answers');
     const payload = JSON.stringify(await (await fetch(ep, { headers: { Authorization: `Bearer ${apiKey}` } })).json());
     assert.ok(!payload.includes('likes'), 'counts are not in the entry payload');
+    // Writing a counter-named key must not persist or reach the public payload.
+    await tool(writeKey, 'update_entry', { collection: 'blog-posts', slug: 'ctr-demo', data: { body: 'y', likes: { up: 999 } } });
+    await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: 'ctr-demo' });
+    const injected = JSON.stringify(await (await fetch(ep, { headers: { Authorization: `Bearer ${apiKey}` } })).json());
+    assert.ok(!injected.includes('999') && !injected.includes('likes'), 'counter keys in written data are stripped');
     // A scheduled (future) entry is hidden: no keyless vote, read or existence probe.
     const later = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
     await tool(writeKey, 'create_entry', { collection: 'blog-posts', slug: 'ctr-later', data: { body: 'x' } });

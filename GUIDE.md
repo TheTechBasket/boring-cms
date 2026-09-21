@@ -21,7 +21,7 @@ A collection is a list of fields. There are 10 types; every one accepts the univ
 
 Rules that trip agents up:
 
-- `counter` values are never part of the entry payload. You cannot set them by writing an entry. Read and change them only through the counter endpoints.
+- `counter` values are never part of the entry payload. Counter-named keys in written entry data are dropped. Read and change them only through the counter endpoints.
 - Field names `slug`, `updated_at` and `published_at` are reserved.
 - A relation stores slugs, not embedded entries. Fetch the target collection and join on your side.
 - `unique` and `required` are checked on save, not on publish.
@@ -35,7 +35,7 @@ A counter field keeps two totals per entry, `up` and `down`, outside the entry p
 
 | Endpoint | Auth | What it does |
 | --- | --- | --- |
-| `POST /api/v1/<project>/<collection>/<entry>/counters/<field>?dir=up` | none for public fields, write key for `access: key` | Add a vote. `dir` is `up` (default) or `down`. Returns `{up, down, changed}` |
+| `POST /api/v1/<project>/<collection>/<entry>/counters/<field>?dir=up` | none for public fields, write key for `access: key` | Add a vote. `dir` is `up` (default) or `down`. Returns `{up, down}`, plus `changed` (false when a repeat vote was ignored) for public votes |
 | `GET /api/v1/<project>/<collection>/<entry>/counters` | none for public fields, a key also returns private ones | Totals for every counter field on one entry |
 | `GET /api/v1/<project>/<collection>/counters?slugs=a,b,c` | same | Totals for up to 100 entries at once, for list pages |
 
