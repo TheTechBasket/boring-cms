@@ -8,3 +8,6 @@ data/
 
 # impeccable design-tooling run outputs (local only)
 .impeccable/
+
+# marketing: full demos copy stays local
+/marketing/demos-full/

@@ -1,0 +1,1 @@
+Boring CMS starts in 59ms, idles at 65 MB, has zero runtime dependencies and runs with `npx boring-cms`. Boring on purpose.

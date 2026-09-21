@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><title>og</title>
+<style>
+@font-face{font-family:P;font-weight:500;src:url(fonts/ibm-plex-sans-latin-500-normal.woff2)}
+@font-face{font-family:P;font-weight:600;src:url(fonts/ibm-plex-sans-latin-600-normal.woff2)}
+@font-face{font-family:M;font-weight:500;src:url(fonts/ibm-plex-mono-latin-500-normal.woff2)}
+*{box-sizing:border-box;margin:0}
+body{width:1200px;height:630px;overflow:hidden;position:relative;background:#f4f6f5;font-family:P,sans-serif;color:#1b1c1a;
+background-image:radial-gradient(#cfd5d2 1.2px,transparent 1.2px);background-size:24px 24px}
+.l{position:absolute;left:72px;top:64px;width:520px}
+.brand{font:500 22px M;letter-spacing:.02em;display:flex;align-items:center;gap:10px}
+.brand i{width:14px;height:14px;background:#2f6bff;display:block}
+h1{font-weight:600;font-size:64px;line-height:1.04;margin-top:44px;letter-spacing:-.02em}
+p{font-size:24px;line-height:1.35;color:#4a4d49;margin-top:22px}
+.cmd{position:absolute;left:72px;bottom:64px;background:#1b1c1a;color:#fff;font:500 24px M;padding:16px 24px}
+.cmd b{color:#7aa7ff;font-weight:500}
+.stats{position:absolute;left:72px;bottom:150px;display:flex;gap:28px;font:500 20px M;color:#4a4d49}
+.stats span b{color:#1b1c1a;font-weight:500}
+.shot{position:absolute;left:632px;top:96px;width:484px;height:420px;border:1px solid #1b1c1a;box-shadow:12px 12px 0 #1b1c1a;background:#fff;overflow:hidden}
+.shot img{width:780px;display:block}
+</style>
+<div class="l"><div class="brand"><img src="../logo/logo-light.svg" style="width:34px;height:34px">Boring CMS</div>
+<h1>The headless CMS that stays out of the way.</h1>
+<p>One Node process. SQLite. REST API and MCP for agents.</p></div>
+<div class="stats"><span><b>59 ms</b> cold start</span><span><b>65 MB</b> idle</span><span><b>0</b> deps</span></div>
+<div class="cmd"><b>$</b> npx boring-cms</div>
+<div class="shot"><img src="../screenshots/1-entries-list.png"></div>
