@@ -144,8 +144,8 @@ export function bulkRewriteRefs(db, pairs, { dryRun = false } = {}) {
 
   let entriesTouched = 0;
   const changes = []; // {id, published_data, data} for the live write, changed rows only
-  // ponytail: .iterate() streams so we never hold all entries in memory (the
-  // prod box runs tight); only changed rows are buffered for the write.
+  // ponytail: .iterate() streams so we never hold all entries in memory (small
+  // hosts run tight); only changed rows are buffered for the write.
   for (const row of db.prepare('SELECT id, published_data, data FROM entries').iterate()) {
     const seen = new Set();
     const swap = (m) => { seen.add(m); return map.get(m); };

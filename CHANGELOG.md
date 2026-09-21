@@ -55,7 +55,7 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 - Every MCP tool is now callable over plain REST, so the two write surfaces can no longer drift apart. A new generic endpoint `POST /api/v1/<project>/call/<tool>` dispatches to the exact same tool registry the `/mcp` endpoint serves, with the tool's arguments as a JSON body and a Bearer key for auth (write tools need a write-scope key). This closes a real parity gap: entry-body writes (`create_entry`, `batch_create_entries`, `update_entry`, `publish_entry`, `unpublish_entry`, `delete_entry`) and the schema-editing tools previously existed only on MCP, so a headless client (a CI publisher, a script) that could not speak JSON-RPC, or whose key had API access but not the separate MCP-access grant, had no way to create or update article bodies at all. It can now run the full write lifecycle over REST with an ordinary API key. Because both transports resolve tool names through one shared `callTool` over one `TOOLS` registry, a tool added in the future is reachable on both automatically; a smoke test asserts every registered tool is reachable over REST (a 404 there is a drift regression). The MCP endpoint behaves exactly as before. Error shape on the REST route: unknown tool 404, wrong scope 403, tool-level failure (bad arguments, missing collection) 422. No new migration.
 
-- Performance: `bulk_rewrite_refs` now rewrites in a single pass over the entries, independent of how many URL pairs are in the map. v0.17.0 ran one full-table scan per pair (a substring match cannot use an index), so a large map meant hundreds or thousands of whole-table scans and a Cloudflare 504 on real data (2216 pairs timed out; a single pair already took ~55s on prod). The pass now scans each entry once with a combined literal matcher and writes changed rows by primary key. Behavior is unchanged: same exact-URL swap, same no-op on `updated_at`/`published_at`, same single `content_version` bump, same `dry_run` match counts, same `ref_rewrites` audit. No new migration.
+- Performance: `bulk_rewrite_refs` now rewrites in a single pass over the entries, independent of how many URL pairs are in the map. v0.17.0 ran one full-table scan per pair (a substring match cannot use an index), so a large map meant hundreds or thousands of whole-table scans and a gateway timeout on a large dataset (a map of 2216 pairs timed out; a single pair already took ~55s). The pass now scans each entry once with a combined literal matcher and writes changed rows by primary key. Behavior is unchanged: same exact-URL swap, same no-op on `updated_at`/`published_at`, same single `content_version` bump, same `dry_run` match counts, same `ref_rewrites` audit. No new migration.
 
 ## 0.17.0 (2026-09-11)
 
@@ -138,7 +138,7 @@ Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a r
 
 ## 0.9.0 (2026-09-08, from 0.1.0)
 
-Product named **Boring CMS** (repo stays `yncms`; cookie/settings crypto salts keep the old name on purpose so existing sessions and encrypted settings survive). Version now shows in the admin sidebar.
+Product named **Boring CMS** (cookie/settings crypto salts keep the earlier internal name `yncms` on purpose so existing sessions and encrypted settings survive). Version now shows in the admin sidebar.
 
 ### Editor and schema
 

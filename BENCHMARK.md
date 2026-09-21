@@ -119,8 +119,8 @@ Findings and where they stand now:
 
 ## Verdict
 
-The target is many small projects on one cheap box, WordPress migrations
-first. The numbers back it: sub-millisecond reads with headroom past 3000
+The target is many small projects on one cheap box, including migrations
+from WordPress. The numbers back it: sub-millisecond reads with headroom past 3000
 rps on one core, write lifecycle about 1000 ops/s, bulk import in the tens of
 thousands of entries per second, about 130 MB RSS. Remaining risk is
 operational, not performance: automated backups and local-disk media growth

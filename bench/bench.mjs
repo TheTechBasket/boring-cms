@@ -24,9 +24,9 @@ const outPath = arg('out');
 const label = arg('label', 'unlabeled');
 const scale = Number(arg('scale', '1')); // multiply op counts, 1 = default
 // Size of the bulk cosmetic ref-rewrite pair map. Each pair is a full-table
-// instr() scan on the current code, so this is the dimension that blows up in
-// prod (2216 pairs -> 2216 scans -> gateway timeout). Kept small by default so
-// the bench finishes; crank it (and --scale) to approach prod pain locally.
+// instr() scan on the current code, so this is the dimension that blows up on
+// large datasets (2216 pairs -> 2216 scans -> gateway timeout). Kept small by
+// default so the bench finishes; crank it (and --scale) to approach that locally.
 // --soak SECONDS: sustained mixed read load (single, list, 304) after the
 // seed phases, for throughput drift and memory-over-time. --soak-only skips
 // every other phase; --soak-scheduled seeds future-dated entries first.
@@ -172,7 +172,7 @@ const longBody = ('## Section\n\n' + LOREM.repeat(8) + '\n\n').repeat(6); // ~5.
 // Full https asset URLs that the rewrite phase swaps (.png -> .webp), the real
 // R2 migration shape. Spread across long-article bodies so each pool URL lands
 // in >=1 entry (when the pool fits); any surplus pairs are decoys that match
-// nothing but still cost a full scan, exactly like the prod 2216-pair map.
+// nothing but still cost a full scan, exactly like a 2216-pair map on a large site.
 const ASSETS_PER_BODY = 6;
 const assetPng = (k) => `https://assets.bench.test/media/asset-${k}.png`;
 const assetWebp = (k) => `https://assets.bench.test/media/asset-${k}.webp`;
@@ -399,7 +399,7 @@ async function main() {
     if (got.title !== marker) throw new Error('read-after-update returned stale data');
   });
 
-  // Bulk cosmetic ref rewrite (.png -> .webp across every entry). The prod
+  // Bulk cosmetic ref rewrite (.png -> .webp across every entry). The known
   // pain point: bulkRewriteRefs scans the whole entries table once per pair via
   // instr() (no index possible on a substring), so dry-run time grows linearly
   // with pair count. One pair is the baseline scan cost; the full map exposes

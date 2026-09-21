@@ -1,6 +1,6 @@
-# Boring CMS Architecture (repo: yncms)
+# Boring CMS Architecture
 
-Open-source headless CMS. One deploy, many projects. Light when idle, fast under load. Target: migrate Amit's WordPress sites first, public product second.
+Open-source headless CMS. One deploy, many projects. Light when idle, fast under load.
 
 ## Locked decisions
 
