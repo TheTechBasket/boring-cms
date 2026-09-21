@@ -1,186 +1,138 @@
-# Benchmark: small-VPS stress test (2026-09-09)
+# Benchmarks
 
-How fast is this CMS on the cheapest box it would realistically run on, and
-does load testing break anything. Short version: reads are very fast,
-writes are fast, auth enforcement is correct, neighbor data untouched.
+How fast is Boring CMS on the cheapest box it would realistically run on,
+and does load break anything. Short version: reads are sub-millisecond,
+writes are about 1 ms, auth is enforced identically on every surface, and
+per-project SQLite files keep neighbors untouched.
 
-This was a one-off exploratory run. The repeatable, versioned suite now
-lives in `bench/` (scripts, constraints, per-version results under
-`bench/results/`); run `bash bench/run.sh` after each release.
+Two sources feed this page:
 
-## Analogy used
+- The repeatable suite in `bench/` (run `bash bench/run.sh` after each
+  release). Raw numbers and `summary.md` per version live in
+  `bench/results/v<version>/`. Method and constraints: `bench/README.md`.
+- A one-off stress test on 2026-09-09 against a real data directory
+  (section "Stress test findings" below). Its numbers are superseded by the
+  suite; its findings are kept.
 
-Target machine: a 5-10 USD VPS (1 vCPU, ~1 GB RAM). Simulated on this dev
-machine with:
+## Setup
 
-- `taskset -c 0`: server process pinned to one CPU core (affinity mask `1`,
-  verified). Node is single-threaded for this app anyway; this removes the
-  "12-core dev machine" advantage for event-loop and SQLite work.
-- `node --max-old-space-size=768`: heap capped at 768 MB, leaving room for
-  OS + SQLite page cache inside ~1 GB, like a small VPS.
-- Port 4101, same `./data` directory as real usage (not a tmp dir), so the
-  test proves isolation against real neighbor data instead of assuming it.
-- Load pattern: strictly sequential requests (concurrency 1) with 5 warmup
-  iterations before each measurement. This is the "1 thread" case: one
-  client doing back-to-back requests, no parallelism except one explicit
-  20-parallel probe noted below.
-- S3 storage not tested per scope. Local disk media backend tested
-  (upload + serve). No image variants (sharp not installed here).
+Target box: a 5-10 USD VPS (1 vCPU, about 1 GB RAM). Simulated on a Ryzen 5
+5600X: server pinned to one core with `taskset`, Node heap capped at 768 MB,
+fresh temp data dir per run, one sequential client over loopback
+(concurrency 1, so ops/s is about 1000 / p50), rate limit raised to 10^8/min.
+A real VPS core is slower and shared, so treat every number as an upper
+bound. Read `bench/README.md` before comparing runs.
 
-## Isolation method (no corruption of other collections)
+## Latest: v0.21.0 (2026-09-20, node 24.13, 1 vCPU)
 
-- Full backup first: `data/core.db`, `data/projects/thetechbasket.db`
-  (119 MB, 4025 entries), `data/projects/test.db` copied to
-  `/tmp/yncms-bench-backup`, plus sha256 recorded before the run.
-- All test traffic went to a dedicated project `bench-tmp` /
-  collection `bench-posts` (fields: title:text, body:markdown,
-  views:number), seeded with 200 published entries. No test request ever
-  addressed `thetechbasket` or `test`. API keys created for the bench
-  project only (one `read`, one `write`).
-- After the run: bench project row deleted, its `.db` file destroyed,
-  `data/media/bench-tmp` removed, server stopped.
-- Verification: `sha256sum -c` on both neighbor DBs -> OK,
-  `SELECT slug FROM projects` shows only `test` and `thetechbasket`.
+Peak RSS 127 MB. Zero errors.
 
-## Results (sequential, 1 CPU, 768 MB heap)
+| Operation | ops/s | p50 | p95 |
+|---|---:|---:|---:|
+| Read single entry | 3800 | 0.23 ms | 0.34 ms |
+| Read list (short, 2 fields) | 3648 | 0.25 ms | 0.39 ms |
+| Read list (long, 14 fields, 5.5 KB body) | 2313 | 0.32 ms | 0.64 ms |
+| 304 revalidation (ETag) | 4251 | 0.21 ms | 0.31 ms |
+| 20 parallel readers | 6305 | 2.27 ms | 5.29 ms |
+| Create entry, short | 1333 | 0.66 ms | 1.08 ms |
+| Create entry, long | 876 | 1.03 ms | 1.84 ms |
+| Update then read back | 1076 | 0.83 ms | 1.40 ms |
+| Batch create, 200 per call | 116 batches/s (about 23k entries/s) | 8.6 ms | 8.7 ms |
+| 10 parallel writers | 3262 | 2.24 ms | 5.16 ms |
+| Media upload 64 KB | 795 | 0.84 ms | 2.00 ms |
+| Media serve 64 KB | 1393 | 0.54 ms | 0.94 ms |
+| Schedule future publish | 990 | 0.85 ms | 1.27 ms |
+| Counter votes (public, mixed voters) | 8900 | 3.06 ms | 6.19 ms |
+| Counter votes on one hot entry | 8200 | 6.17 ms | 16.1 ms |
+| OpenAPI spec read (cached) | 5887 | 1.14 ms | 2.29 ms |
+| Bulk ref rewrite, 200 pairs, live | 96 | 10.4 ms | n/a |
 
-Reads (public REST, Bearer key). No rate limit applies to GET reads.
+Rate limiter on (production default path): 2243 ops/s at 0.27 ms p50, so
+enforcement costs little.
 
-| operation | n | p50 | p95 | max | rps |
-|---|---|---|---|---|---|
-| list, limit=50 | 300 | 0.71 ms | 1.69 ms | 6.57 ms | ~1160 |
-| list, limit=10 | 300 | 0.50 ms | 1.02 ms | 3.72 ms | ~1754 |
-| single entry get | 300 | 0.35 ms | 0.72 ms | 2.50 ms | ~2521 |
-| 304 revalidation (If-None-Match) | 100 | 0.68 ms | 1.28 ms | 5.20 ms | ~1283 |
-| schema read | 200 | 0.28 ms | 0.37 ms | 3.23 ms | ~3133 |
-| MCP list_entries, limit=10 | 200 | 0.52 ms | 0.93 ms | 2.54 ms | ~1733 |
+Full 42-phase table: `bench/results/v0.21.0/summary.md`.
 
-Writes (MCP tools, write-scope key, every step asserted OK, 0 failures):
+## Trend across versions (node, 1 vCPU, p50 ms)
 
-| operation | n | p50 | p95 | max | rps |
-|---|---|---|---|---|---|
-| create_entry (draft) | 100 | 1.02 ms | 1.67 ms | 3.47 ms | ~885 |
-| publish_entry | 100 | 1.22 ms | 2.23 ms | 7.70 ms | ~709 |
-| update_entry (revision delta) | 100 | 1.14 ms | 1.63 ms | 16.17 ms | ~759 |
-| delete_entry | 100 | 1.47 ms | 2.55 ms | 6.05 ms | ~619 |
-| batch_create_entries x10, published | 20 | 3.08 ms | 7.55 ms | 7.55 ms | ~312 batches/s (~0.32 ms/entry) |
+| Operation | v0.11 | v0.17 | v0.18.3 | v0.19.1 | v0.20 | v0.21 |
+|---|---:|---:|---:|---:|---:|---:|
+| Read single | 0.31 | 0.30 | 0.29 | 0.22 | 0.18 | 0.23 |
+| Read list, short | 0.45 | 0.61 | 0.57 | 0.25 | 0.21 | 0.25 |
+| Read list, long | 1.69 | 2.47 | 2.47 | 0.35 | 0.27 | 0.32 |
+| 304 revalidation | 0.24 | 0.26 | 0.25 | 0.19 | 0.17 | 0.21 |
+| Create short | 0.95 | 0.92 | 0.89 | 0.67 | 0.47 | 0.66 |
+| Batch x200 | 25.0 | 24.8 | 23.2 | 8.4 | 7.8 | 8.6 |
+| 20 parallel reads | 3.52 | 3.61 | 3.44 | 2.37 | 1.88 | 2.27 |
 
-Local media (REST, write-scope key):
+What moved the numbers:
 
-| operation | n | p50 | p95 | max | rps |
-|---|---|---|---|---|---|
-| upload 4 KB file | 40 | 1.31 ms | 2.54 ms | 3.03 ms | ~720 |
-| serve file back | 100 | 0.73 ms | 1.73 ms | 5.25 ms | ~1163 |
+- v0.14 to v0.17: list reads regressed about 30%, caught only because the
+  same workload ran each release.
+- v0.19.0: memoized prepared statements per database handle, `last_used_at`
+  written at most once a minute instead of on every read, cached collection
+  id and scheduled-entry count, cached list response bodies. Long lists went
+  from 2.4 ms to 0.35 ms, batch create 3x faster.
+- v0.20.0 vs v0.21.0: v0.20 ran on a quieter host. Treat swings of 20-30%
+  between adjacent runs as noise unless a phase moves alone. Compare
+  against the previous run on the same day if a regression is suspected.
 
-Auth and request-flow checks on collections (all matched expected status):
+## Runtimes (v0.11.0, the only run that covered all three)
 
-| operation | n | p50 | note |
-|---|---|---|---|
-| no key -> 401 | 100 | 0.22 ms | 100/100 matched |
-| bad key -> 401 | 200 | 0.25 ms | rejects before any DB read of content |
-| read key on write route -> 403 | 100 | 0.31 ms | scope enforced at every write surface (REST + MCP) |
-| logged-out admin page -> 302 | 200 | 0.19 ms | session guard redirects, no render work |
-| wrong-password login -> 401 page | 50 | 28.3 ms | dominated by password hashing cost (expected) |
-| MCP write tool on read key | 100 | 0.41 ms | refused with read-only error, 0 side effects |
+Node, Bun 1.4.2 and Deno 2.9.6 all run the server unmodified. Differences
+were small: Bun led writes and batch (about 1.15x) and used the least RSS
+(95 MB vs 119 node vs 168 deno); Node led 304 revalidation; Deno was slowest
+on media upload. 2 and 4 vCPU changed almost nothing, as expected: the app
+is single-threaded, extra cores only help the OS and network stack. Node 24
+stays the supported target; Bun single-binary is in the plans backlog.
 
-Overhead and contention probes:
+## Stress test findings (2026-09-09, real data dir)
 
-- In-process `listPublished` (same query, no HTTP): p50 0.13 ms vs 0.71 ms
-  over HTTP. SQLite does the real work in ~0.1 ms; ~0.6 ms is HTTP +
-  key verification + JSON. The DB is not the bottleneck.
-- 20 parallel reads finished in 46 ms total with no errors. Per-project
-  SQLite files plus WAL mean parallel readers do not serialize badly.
-- Server RSS after the full run: ~185 MB (heap cap never approached).
+A one-off run against a live data directory (119 MB, 4025-entry neighbor
+project) with all traffic confined to a throwaway `bench-tmp` project. After
+the run both neighbor DBs verified byte-identical by sha256 and the bench
+project was deleted.
 
-## Rate limiter: what round 1 tripped over
+Held up:
 
-The first measurement round showed mass failures on MCP/media/schema-POST
-calls. Cause: the per-key token bucket (`DEFAULT_RATE_LIMIT = 60`
-requests/minute, `lib/mcp.ts`) correctly returned 429 for everything past
-the burst. REST GET reads are not limited, which is why read numbers were
-clean from the start. For round 2 the bench project's `rate_limit_per_min`
-meta was raised to 100000 (a supported per-project setting), the run
-repeated with strict per-step assertions (0 failures everywhere), and the
-setting died with the bench project DB. Two consequences worth keeping:
+- Auth boundaries: 401 without or with a bad key (0.2 ms, rejected before
+  any content read), 403 for a read key on any write route (REST and MCP
+  alike), 302 for a logged-out admin page. Zero side effects from refused
+  calls.
+- Isolation: per-project SQLite files plus WAL. Hammering one project left
+  the others untouched, and 20 parallel readers did not serialize.
+- The database is not the bottleneck: in-process list query 0.13 ms vs
+  0.71 ms over HTTP. The rest is HTTP, key verification and JSON.
+- Wrong-password login costs about 28 ms by design (password hashing). Keep
+  it; do not "optimize" the hash.
 
-1. Any future load test or bulk importer must raise the limit or bring
-   more keys; otherwise it measures the limiter, not the server.
-2. The 60/min default also throttles legitimate agent/MCP bulk work
-   (the plans backlog already notes per-key request stats; consider
-   documenting the tunable on the API keys page).
+Findings and where they stand now:
 
-## Bugs found
+| Finding (2026-09-09) | Status |
+|---|---|
+| `last_used_at` written on every authenticated read | Fixed in v0.19.0 (at most once a minute per key) |
+| Per-key rate limit (60/min) throttles bulk agent work and any load test | Now editable per project, both limits off by default for new projects (v0.21.0). Benchmarks still raise it, so they measure the server, not the limiter |
+| Rate-limit buckets grow without bound | Pruned at 10k callers (v0.19.1); sweep throttled to every 30 s (v0.20.0) after it slowed many-IP traffic 3x |
+| Round-1 harness counted MCP 429s as successes (JSON-RPC errors return HTTP 200) | Driver asserts on the RPC payload |
+| One global content version per project: publishing anywhere invalidates cached lists for every collection | Still true, by design. Whole-project invalidation is O(1) and never stale. Revisit past about 100k entries or heavy multi-collection polling |
+| In-memory rate buckets reset on restart, no multi-process support | Known boundary of the single-process target |
+| No automated backups while real data lives in `./data` | Open. Nightly per-project SQLite copy plus media manifest is in `plans/README.md` backlog. Whole-project export/import over the API exists as the manual path |
 
-None that corrupt or lose data. The run surfaced observations, not
-defects:
+## Verdict
 
-1. (Harness, not server) Round-1 write timings mixed HTTP 429 responses
-   into "ok" samples because MCP errors still return HTTP 200 with a
-   JSON-RPC error body. Discarded; round 2 asserts on the RPC payload.
-2. Pre-existing type hygiene: `npx tsc --noEmit` scope has 10 implicit-any
-   errors in `server.ts` and 1 in `lib/mcp.ts` (visible in editor
-   diagnostics). Unrelated to performance, but the "full checks before
-   commit" gate (`pnpm css`, `tsc --noEmit`, `pnpm smoke`) should be green.
-3. Coarse ETag: one global `content_version` per project, so publishing
-   any entry invalidates cached lists for every collection. Correct, just
-   coarser than needed; fine at this scale, revisit past ~100k entries or
-   heavy multi-collection polling.
+The target is many small projects on one cheap box, WordPress migrations
+first. The numbers back it: sub-millisecond reads with headroom past 3000
+rps on one core, write lifecycle about 1000 ops/s, bulk import in the tens of
+thousands of entries per second, about 130 MB RSS. Remaining risk is
+operational, not performance: automated backups and local-disk media growth
+on a small VPS disk.
 
-## Where it needs improvement
+## Running it
 
-- `verifyApiKey` writes `last_used_at` on every authenticated request,
-  including reads. A DB write on the read hot path costs WAL traffic and a
-  lock acquisition per request; under parallel load this is the first
-  contention point. Throttle it (update at most once per N minutes per key)
-  or move to an in-memory counter flushed on a timer (same pattern the
-  plans backlog proposes for request stats).
-- Password hashing dominates login (~28 ms). Fine and intentional, but it
-  means the login route is the only cheap DoS amplifier; the existing
-  behavior (401 with generic message, no user enumeration) is correct, keep
-  it and do not "optimize" the hash.
-- In-memory rate-limit buckets reset on restart and do not work across
-  processes. True only if deployment ever goes multi-process; single
-  process on a small VPS is the documented target, so this is a known
-  boundary, not a flaw.
-- No read replicas / Litestream backups (deliberately deferred in
-  ARCHITECTURE.md). The 119 MB neighbor DB shows real sites already live
-  here; the planned nightly per-project SQLite backup (plans backlog)
-  should come before more features.
+```sh
+bash bench/run.sh node 1     # one combo, about 10 s
+bash bench/run.sh            # node, bun, deno x 1, 2, 4 vCPU
+```
 
-## Where it works great
-
-- Read path: 0.3-0.7 ms p50 on one core. Publish-time materialization
-  works as designed; the public API does one row read, no joins.
-- Write path: full create-publish-update-delete lifecycle at ~600-900
-  ops/s sequential; batch import at ~3000 entries/s. More than enough for
-  editorial and migration workloads.
-- Auth boundaries held under load: 401/403/302 all correct, 500/500+
-  matched in strict re-runs, scope separation between read and write keys
-  enforced identically on REST and MCP.
-- Isolation: per-project DB files did their job; hammering `bench-tmp`
-  left `thetechbasket.db` and `test.db` byte-identical.
-- Zero-dependency footprint held: ~185 MB RSS total, no external services
-  touched, S3 code path never loaded.
-
-## Real-world verdict: will this project succeed
-
-Yes, for the target it names in ARCHITECTURE.md: many small projects on
-one cheap box, WordPress-site migration first, public product second. The
-numbers support it directly:
-
-- A $5-10 VPS serving blogs, marketing sites, and small stores through a
-  static-site or cached frontend will see read latencies under 1 ms and
-  headroom past 1000 rps on a single core. Even at 1% of that (10 rps
-  sustained) the box idles.
-- Editorial write volume (dozens of publishes a day, bulk imports of
-  thousands) completes in seconds.
-- The failure modes found are all "at scale" problems (global ETag,
-  last_used_at writes, in-memory buckets, backups) that only bite past
-  ~100k entries or multi-process deploys, each with a documented seam.
-
-What could still kill it is not performance but operations: no automated
-per-project backups yet while real data already lives in `./data`, and
-local-disk media grows silently on a small VPS disk. Ship the nightly
-SQLite backup + media manifest from the plans backlog before onboarding
-sites that cannot afford to lose content, and this project earns its
-"boring" name.
+New endpoint, tool or data operation: add a phase to `bench/bench.mjs`,
+run the suite, commit `bench/results/v<version>/`. Keep phase counts fixed
+(use `--scale`) so versions stay comparable.
