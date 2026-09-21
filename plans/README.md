@@ -2,7 +2,7 @@
 
 ## Active
 
-- None.
+- [promotion.md](promotion.md): directory and community launch waves, sourced from seomade.app.
 
 ## Backlog
 
