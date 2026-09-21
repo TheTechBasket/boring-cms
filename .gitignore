@@ -11,3 +11,6 @@ data/
 
 # marketing: full demos copy stays local
 /marketing/demos-full/
+
+# promotion plan stays local
+/plans/promotion.md

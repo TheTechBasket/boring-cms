@@ -93,3 +93,27 @@ I built a headless CMS that runs as one Node process on SQLite, with no runtime 
 - Awesome lists: awesome-selfhosted, awesome-nodejs, awesome-headless-cms, awesome-mcp-servers
 - Directories: AlternativeTo (vs Strapi, Directus, Payload), Console.dev, Node Weekly, Self-Hosted Weekly, MCP registries (mcp.so, Smithery, the official MCP registry)
 - GitHub: repo description, topics (headless-cms, sqlite, mcp, nodejs, self-hosted), social preview image
+
+## YouTube video
+
+Video: https://youtu.be/dDszrCIEqZY (file `video/brag.mp4`, 23 s). Visibility must be Unlisted or Public before directories can embed it.
+
+Title (A/B test set in YouTube Studio, three variants):
+
+- Boring CMS: headless CMS in one Node process, 59 ms cold start
+- A headless CMS with zero dependencies and a built-in MCP server
+- Headless CMS in one Node process
+
+Description (copy into Studio):
+
+```
+Boring CMS is a headless CMS that runs as a single Node process on SQLite. 59 ms cold start, 65 MB idle memory, 0.23 ms p50 entry read, zero runtime dependencies. Admin UI, REST API with ETag caching, and a built-in MCP server so AI agents can manage content. MIT licensed.
+
+Try it: npx boring-cms (needs Node 24)
+
+npm: https://www.npmjs.com/package/boring-cms
+Site: https://www.thetechbasket.com/boring-cms/
+Source: https://github.com/TheTechBasket/boring-cms
+
+#headlesscms #nodejs #sqlite #selfhosted #mcp #opensource
+```
