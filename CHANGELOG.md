@@ -2,6 +2,10 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## Unreleased
+
+- New logo: the admin sidebar shows the mark next to the name (still visible in the collapsed rail), and the default favicon is the mark, switching light and dark with the browser scheme. Projects with their own icon keep it.
+
 ## 0.21.1 (2026-09-21)
 
 - Fix: a counter field's name in written entry data (MCP create, update, batch, import, admin form) was stored and served in the public entry payload. Counter keys are now dropped on every write. Docs: `changed` is only returned for public votes.

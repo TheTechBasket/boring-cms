@@ -4,6 +4,11 @@ import { readFileSync, statSync } from 'node:fs';
 import { entryLabel, entryState, isoUtc, REVISIONS_KEEP } from './content.ts';
 
 export const APP_NAME = 'Boring CMS';
+
+// Brand mark: 2x2 grid, one blue square. Squares follow the text color; the
+// favicon flips with the browser's color scheme.
+const BRAND_MARK = `<svg class="nav-brand-mark shrink-0" viewBox="4 4 56 56" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M6 6h24v24H6zM34 6h24v24H34zM6 34h24v24H6z"/><path fill="#2f6bff" d="M34 34h24v24H34z"/></svg>`;
+const BRAND_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 56 56"><style>path{fill:#1b1c1a}@media(prefers-color-scheme:dark){path{fill:#f4f6f5}}</style><path d="M6 6h24v24H6zM34 6h24v24H34zM6 34h24v24H6z"/><path d="M34 34h24v24H34z" style="fill:#2f6bff"/></svg>`;
 export const APP_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 // Cache-busting version per static asset: file mtime at process start.
@@ -293,8 +298,9 @@ type LayoutOpts = {
 function favicon(project: LayoutOpts['project']): string {
   const projectIcon = project?.icon;
   if (projectIcon && /^(https?:)?\//.test(projectIcon)) return escapeHtml(projectIcon);
-  const glyph = projectIcon || 'y';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#111113"/><text x="16" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="17" font-weight="700" fill="#fff">${escapeHtml(glyph)}</text></svg>`;
+  const svg = projectIcon
+    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#111113"/><text x="16" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="17" font-weight="700" fill="#fff">${escapeHtml(projectIcon)}</text></svg>`
+    : BRAND_FAVICON;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -379,6 +385,7 @@ function sidebar({ user, projects, project }: {
 
   return `<aside class="admin-sidebar shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col p-3">
     <div class="nav-brand flex items-center gap-2 px-3 py-2">
+      <a class="nav-brand-link text-sidebar-foreground flex" href="/admin/projects" aria-label="${APP_NAME}">${BRAND_MARK}</a>
       <a class="nav-brand-text font-bold font-mono tracking-tight text-sidebar-foreground no-underline" href="/admin/projects">${APP_NAME}</a>
       <button type="button" data-nav-toggle aria-label="Toggle navigation" title="Toggle navigation" class="nav-toggle-btn ml-auto inline-flex size-7 shrink-0 items-center justify-center border-0 bg-transparent text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent cursor-pointer">${icon('sidebar')}</button>
     </div>
