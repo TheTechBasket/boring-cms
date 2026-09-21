@@ -4,6 +4,10 @@ Headless CMS that runs as a single Node process with SQLite. One deploy serves
 multiple projects, each with its own database, API keys, and content model.
 No build step, no framework, zero runtime dependencies.
 
+[![Boring CMS launch video, 22 seconds](https://cdn.thetechbasket.com/2026/09/projects/boring-cms-launch-poster.webp)](https://www.thetechbasket.com/boring-cms/)
+
+Watch the 22 second launch video on thetechbasket.com.
+
 **What you get:**
 
 - Admin UI with collections, custom fields, draft/publish workflow, field-level revisions with revert
