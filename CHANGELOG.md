@@ -2,7 +2,7 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
-## 0.23.0 (unreleased)
+## 0.23.0 (2026-09-22)
 
 - Fix: API list `limit`/`offset` are now coerced, floored and clamped (limit 1 to 100, offset never negative), so a string, negative or huge value from the query string cannot become `LIMIT -5` or an unbounded scan. No migration.
 - Fix: `updated_since` given as bare ISO without a zone (`2026-01-02T03:04:05`) is now read as UTC instead of server-local time, so incremental pulls no longer shift the cursor by the timezone offset. No migration.
