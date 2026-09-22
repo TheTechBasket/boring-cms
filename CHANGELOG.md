@@ -2,8 +2,12 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
-## Unreleased
+## 0.22.0 (2026-09-22)
 
+- Schema changes (add, update, remove, restore field) that would break existing entry data are now blocked with a structured reason, both from the admin form and MCP/REST tools (`add_field`, `update_field`, `restore_field`), unless `force: true` is passed. Forced changes are logged to the server console for later audit.
+- Removing a field now archives it instead of deleting it. Archived fields show on the collection page and can be restored (with the same impact check) via the admin UI or the new `restore_field` MCP/REST tool.
+- New `check_schema_health` MCP/REST tool: scans every field in every collection against live entry data and reports drift, whether from a forced schema change or data edited outside validation.
+- `content_version` (and therefore the API `ETag`) now bumps on every schema field change, not just content edits, so polling consumers notice schema drift.
 - New logo: the admin sidebar shows the mark next to the name (still visible in the collapsed rail), and the default favicon is the mark, switching light and dark with the browser scheme. Projects with their own icon keep it.
 
 ## 0.21.1 (2026-09-21)

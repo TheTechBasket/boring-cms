@@ -606,6 +606,44 @@ async function main() {
     expectStatus(await fetch(`${base}/api/v1/${project}/misc/${hot}/counters/stars?by=2`, { method: 'POST', headers: { Authorization: `Bearer ${writeKey}` } }), 200);
   }, { concurrency: 16 });
 
+  // Schema health scan: full entries-table read per collection with entries
+  // (short-posts, long-articles, misc all seeded by now), field validation run
+  // over every row. The one place check_schema_health's cost is worth watching.
+  await phase('check_schema_health', N(20), async () => {
+    await mcp('check_schema_health', {});
+  });
+
+  // Schema-impact guard cost: previewFieldChange runs a full entries scan on
+  // every guarded write, so this is the perf-sensitive path the guard feature
+  // added on top of existing schema endpoints. One large collection
+  // (short-posts, ~900+ entries by now) and one small (long-articles, ~150)
+  // so per-collection scan cost is visible, not just an aggregate number.
+  await phase('guard_update_field_large', N(50), async () => {
+    await mcp('update_field', { collection: 'short-posts', field: 'title', label: `Title ${Math.random()}` });
+  });
+  await phase('guard_update_field_small', N(50), async () => {
+    await mcp('update_field', { collection: 'long-articles', field: 'title', label: `Title ${Math.random()}` });
+  });
+  await phase('guard_add_field_forced_large', N(20), async (i) => {
+    await mcp('add_field', { collection: 'short-posts', label: `Bench Req ${i}`, type: 'text', required: true, force: true });
+  });
+  await phase('guard_add_field_forced_small', N(20), async (i) => {
+    await mcp('add_field', { collection: 'long-articles', label: `Bench Req ${i}`, type: 'text', required: true, force: true });
+  });
+
+  // remove_field archives, restore_field runs the same guarded scan again on
+  // the way back; full round trip on a throwaway field per iteration.
+  await phase('field_archive_restore_cycle_large', N(20), async (i) => {
+    const added = await mcp('add_field', { collection: 'short-posts', label: `Bench Cycle ${i}`, type: 'text' });
+    await mcp('remove_field', { collection: 'short-posts', field: added.name });
+    await mcp('restore_field', { collection: 'short-posts', field: added.name });
+  });
+  await phase('field_archive_restore_cycle_small', N(20), async (i) => {
+    const added = await mcp('add_field', { collection: 'long-articles', label: `Bench Cycle ${i}`, type: 'text' });
+    await mcp('remove_field', { collection: 'long-articles', field: added.name });
+    await mcp('restore_field', { collection: 'long-articles', field: added.name });
+  });
+
   // OpenAPI document: built once per (origin, rate limit), then served from memory.
   await phase('openapi_read', N(500), async () => {
     expectStatus(await api(`/api/v1/${project}/openapi.json`), 200);

@@ -126,6 +126,18 @@ document.addEventListener('click', (event) => {
   });
 });
 
+// Vote access only applies to counter fields: hide it until that type is picked.
+function syncCounterOnly(form) {
+  const typeSel = form.querySelector('select[name="type"]');
+  const onlyEl = form.querySelector('[data-counter-only]');
+  if (!typeSel || !onlyEl) return;
+  onlyEl.hidden = typeSel.value !== 'counter';
+}
+document.querySelectorAll('form').forEach(syncCounterOnly);
+document.addEventListener('change', (event) => {
+  if (event.target.matches('select[name="type"]')) syncCounterOnly(event.target.closest('form'));
+});
+
 // Field reorder: native HTML5 drag and drop on [data-field] rows. Dropping
 // in a new position submits the hidden reorder form with the new order.
 document.querySelectorAll('[data-field-list]').forEach((list) => {

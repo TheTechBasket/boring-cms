@@ -198,7 +198,87 @@ export function getCollection(db, slug) {
 }
 
 function parseCollection(row) {
-  return { ...row, fields: JSON.parse(row.fields) };
+  return { ...row, fields: JSON.parse(row.fields), archived_fields: JSON.parse(row.archived_fields ?? '[]') };
+}
+
+// Thrown by addCollectionField/updateCollectionField when the change would
+// break existing entry data and the caller did not pass force: true.
+export class SchemaImpactError extends Error {
+  entries_checked: number;
+  entries_failing: number;
+  issues: string[];
+  constructor(result: { entries_checked: number; entries_failing: number; issues: string[] }) {
+    super(`Would break ${result.entries_failing}/${result.entries_checked} existing entries: ${result.issues.join('; ')}`);
+    this.entries_checked = result.entries_checked;
+    this.entries_failing = result.entries_failing;
+    this.issues = result.issues;
+  }
+}
+
+// Validates one field definition against already-parsed entries (shared by
+// previewFieldChange and checkSchemaHealth so an entry is only fetched and
+// JSON.parse'd once per collection, not once per field). An entry counts as
+// failing at most once even when it trips both a validation error and the
+// uniqueness check.
+function checkFieldAgainstEntries(field: Record<string, any>, entries: { slug: string; data: any }[]) {
+  const issues: string[] = [];
+  const failingSlugs = new Set<string>();
+  for (const { slug, data } of entries) {
+    const errs = validateEntryData({ fields: [field] }, data);
+    if (errs.length) {
+      failingSlugs.add(slug);
+      if (issues.length < 5) issues.push(`${slug}: ${errs.join(' ')}`);
+    }
+  }
+  if (field.unique) {
+    const valueSlugs = new Map<any, string[]>();
+    for (const { slug, data } of entries) {
+      const v = data[field.name];
+      if (v === undefined || v === null || v === '') continue;
+      const key = Array.isArray(v) ? JSON.stringify(v) : v;
+      const slugs = valueSlugs.get(key);
+      if (slugs) slugs.push(slug);
+      else valueSlugs.set(key, [slug]);
+    }
+    for (const [v, slugs] of valueSlugs) {
+      if (slugs.length < 2) continue;
+      for (const s of slugs) failingSlugs.add(s);
+      if (issues.length < 5) issues.push(`duplicate value "${v}" used by ${slugs.length} entries`);
+    }
+  }
+  return { ok: failingSlugs.size === 0, entries_failing: failingSlugs.size, issues: issues.slice(0, 5) };
+}
+
+function loadEntryData(db, collectionId): { slug: string; data: any }[] {
+  return db.prepare('SELECT slug, data FROM entries WHERE collection_id = ?').all(collectionId)
+    .map((row: any) => ({ slug: row.slug, data: JSON.parse(row.data) }));
+}
+
+// Checks whether existing entries' data would still be valid under a
+// proposed field definition. Read-only. Used to gate a field write inline,
+// and by checkSchemaHealth to scan the whole live schema on demand.
+export function previewFieldChange(db, collection, nextField: Record<string, any>) {
+  const entries = loadEntryData(db, collection.id);
+  const result = checkFieldAgainstEntries(nextField, entries);
+  return { ...result, entries_checked: entries.length };
+}
+
+// Scans every field in every collection against current live data. Finds
+// drift after the fact (a forced change, or data imported around the
+// schema), independent of when or how it happened.
+export function checkSchemaHealth(db) {
+  const collections = listCollections(db);
+  const results: any[] = [];
+  for (const collection of collections) {
+    const fields = collection.fields.filter((f) => f.type !== 'counter'); // counter data lives outside entries
+    if (!fields.length) continue;
+    const entries = loadEntryData(db, collection.id);
+    for (const field of fields) {
+      const result = checkFieldAgainstEntries(field, entries);
+      if (!result.ok) results.push({ collection: collection.slug, field: field.name, entries_checked: entries.length, ...result });
+    }
+  }
+  return { healthy: results.length === 0, problems: results };
 }
 
 export function createCollection(db, name) {
@@ -213,7 +293,7 @@ export function createCollection(db, name) {
 // the read path defends per name.
 export const RESERVED_FIELD_NAMES = new Set(['slug', 'updated_at', 'published_at']);
 
-export function addCollectionField(db, collectionSlug, { label, type, name: requestedName = '', required = false, unique = false, access = '' }: any) {
+export function addCollectionField(db, collectionSlug, { label, type, name: requestedName = '', required = false, unique = false, access = '', force = false }: any) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
   if (!FIELD_TYPES.includes(type)) throw new Error(`Unknown field type: ${type}`);
@@ -224,9 +304,25 @@ export function addCollectionField(db, collectionSlug, { label, type, name: requ
   if (required) field.required = true;
   if (unique) field.unique = true;
   if (type === 'counter' && access === 'key') field.access = 'key';
+  // A brand-new field can only conflict with existing entries via `required`
+  // (every existing entry is currently "missing" it); anything else about a
+  // new field can't clash with data that predates it.
+  if (required) {
+    const result = previewFieldChange(db, collection, field);
+    if (!result.ok && !force) throw new SchemaImpactError(result);
+    if (!result.ok && force) logForcedSchemaChange(collection.slug, field.name, result);
+  }
   const fields = [...collection.fields, field];
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  bumpContentVersion(db);
   return getCollection(db, collectionSlug);
+}
+
+// ponytail: console.error is the whole audit trail for now, matched to the
+// project having no audit-log table anywhere else. Upgrade to a real table
+// if force-applies become common enough that scrollback isn't enough.
+function logForcedSchemaChange(collectionSlug, fieldName, result: { entries_checked: number; entries_failing: number; issues: string[] }) {
+  console.error(`[schema:force] ${collectionSlug}.${fieldName}: ${result.entries_failing}/${result.entries_checked} entries broken: ${result.issues.join('; ')}`);
 }
 
 // keep: null clears the override (use default), integer >= 0 sets it (0 = off).
@@ -244,30 +340,38 @@ export function reorderCollectionFields(db, collectionSlug, orderedNames) {
   const fields = orderedNames.map((n) => byName.get(n)).filter(Boolean);
   if (fields.length !== collection.fields.length) return collection; // stale client order, ignore
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  bumpContentVersion(db);
   return getCollection(db, collectionSlug);
 }
 
 // Updates a field's label, type and options. The name (data key) is
 // immutable so existing entry data keeps pointing at the same key.
+// force: true applies the change even if it would break existing entry
+// data (see previewFieldChange); the break is still logged.
 export function updateCollectionField(db, collectionSlug, fieldName, props) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
-  const fields = collection.fields.map((f) => {
-    if (f.name !== fieldName) return f;
-    const next: Record<string, any> = {
-      name: f.name,
-      label: (props.label || '').trim() || f.label,
-      type: FIELD_TYPES.includes(props.type) ? props.type : f.type,
-    };
-    for (const k of FIELD_OPTIONS) {
-      const v = props[k];
-      if (v === undefined || v === null || v === '' || v === false) continue;
-      if (k === 'access' && (v === 'public' || next.type !== 'counter')) continue;
-      next[k] = v;
-    }
-    return next;
-  });
+  const existing = collection.fields.find((f) => f.name === fieldName);
+  if (!existing) return collection;
+  const next: Record<string, any> = {
+    name: existing.name,
+    label: (props.label || '').trim() || existing.label,
+    type: FIELD_TYPES.includes(props.type) ? props.type : existing.type,
+  };
+  for (const k of FIELD_OPTIONS) {
+    const v = props[k];
+    if (v === undefined || v === null || v === '' || v === false) continue;
+    if (k === 'access' && (v === 'public' || next.type !== 'counter')) continue;
+    next[k] = v;
+  }
+  if (next.type !== 'counter') {
+    const result = previewFieldChange(db, collection, next);
+    if (!result.ok && !props.force) throw new SchemaImpactError(result);
+    if (!result.ok && props.force) logForcedSchemaChange(collection.slug, next.name, result);
+  }
+  const fields = collection.fields.map((f) => (f.name === fieldName ? next : f));
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  bumpContentVersion(db);
   return getCollection(db, collectionSlug);
 }
 
@@ -329,11 +433,47 @@ export function validateEntryData(collection, data, { db = null, excludeEntryId 
   return errors;
 }
 
+// Archives the field instead of deleting it outright: its exact definition
+// (type, constraints) moves to archived_fields, so restoreCollectionField
+// can bring it back without retyping anything. Entry data for the field was
+// already untouched either way (stays in the entry's JSON blob regardless).
 export function removeCollectionField(db, collectionSlug, fieldName) {
   const collection = getCollection(db, collectionSlug);
   if (!collection) return null;
+  const removed = collection.fields.find((f) => f.name === fieldName);
+  if (!removed) return collection;
   const fields = collection.fields.filter((f) => f.name !== fieldName);
-  db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
+  const archived = [...collection.archived_fields, { ...removed, removed_at: new Date().toISOString() }];
+  db.prepare('UPDATE collections SET fields = ?, archived_fields = ? WHERE id = ?').run(JSON.stringify(fields), JSON.stringify(archived), collection.id);
+  bumpContentVersion(db);
+  return getCollection(db, collectionSlug);
+}
+
+// Restores an archived field to its exact prior definition. Errors if a
+// live field with the same name already exists (re-add manually instead;
+// picking which one wins isn't this function's call to make). Entries
+// created while the field was archived may not satisfy its old constraints
+// (required/unique/etc); same impact-check gate as add/update, force: true
+// overrides it.
+export function restoreCollectionField(db, collectionSlug, fieldName, force = false) {
+  const collection = getCollection(db, collectionSlug);
+  if (!collection) return null;
+  const restored = collection.archived_fields.find((f) => f.name === fieldName);
+  if (!restored) return collection;
+  if (collection.fields.some((f) => f.name === fieldName)) {
+    throw new Error(`A field named "${fieldName}" already exists; remove or rename it before restoring the archived one.`);
+  }
+  const { removed_at, ...field } = restored;
+  if (field.type !== 'counter') {
+    const result = previewFieldChange(db, collection, field);
+    if (!result.ok && !force) throw new SchemaImpactError(result);
+    if (!result.ok && force) logForcedSchemaChange(collection.slug, field.name, result);
+  }
+  const fields = [...collection.fields, field];
+  const archived = collection.archived_fields.filter((f) => f.name !== fieldName);
+  db.prepare('UPDATE collections SET fields = ?, archived_fields = ? WHERE id = ?').run(JSON.stringify(fields), JSON.stringify(archived), collection.id);
+  bumpContentVersion(db);
+  return getCollection(db, collectionSlug);
 }
 
 // How many entries carry a real value for a field, and how unique those

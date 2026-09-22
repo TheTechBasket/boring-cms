@@ -23,6 +23,9 @@ import {
   addCollectionField,
   updateCollectionField,
   removeCollectionField,
+  restoreCollectionField,
+  checkSchemaHealth,
+  SchemaImpactError,
   describeFieldTypes,
   validOptionsFor,
   bulkRewriteRefs,
@@ -113,6 +116,14 @@ function checkFieldOptions(type, options) {
     if (!allowed.has(k)) throw new ToolError(`Option "${k}" does not apply to type "${type}". See describe_field_types.`);
   }
   return options;
+}
+
+// SchemaImpactError carries structured impact data; surface it as an
+// actionable ToolError instead of a bare message so an agent caller knows to
+// retry with force: true.
+function rethrowImpact(err): never {
+  if (!(err instanceof SchemaImpactError)) throw err;
+  throw new ToolError(`${err.message} Retry with force: true if this is intentional.`);
 }
 
 const TOOLS = [
@@ -438,6 +449,7 @@ const TOOLS = [
         required: bool('Reject empty values on save'),
         unique: bool('Value must be unique in the collection'),
         options: { type: 'object', description: 'Extra options keyed by option name, e.g. {"maxlength": 80} (see describe_field_types)' },
+        force: bool('Apply even if it would break existing entry data (default false)'),
       },
       required: ['collection', 'label', 'type'],
     },
@@ -445,18 +457,23 @@ const TOOLS = [
       if (!FIELD_TYPES.includes(args.type)) throw new ToolError(`Unknown field type: ${args.type}. See describe_field_types.`);
       if (typeof args.label !== 'string' || !args.label.trim()) throw new ToolError('label is required.');
       const opts = checkFieldOptions(args.type, args.options);
-      let updated = addCollectionField(db, collection.slug, {
-        label: args.label.trim(),
-        type: args.type,
-        name: args.name ?? '',
-        required: !!args.required,
-        unique: !!args.unique,
-      });
-      const field = updated.fields[updated.fields.length - 1];
-      if (Object.keys(opts).length) {
-        updated = updateCollectionField(db, collection.slug, field.name, { ...field, ...opts });
+      try {
+        let updated = addCollectionField(db, collection.slug, {
+          label: args.label.trim(),
+          type: args.type,
+          name: args.name ?? '',
+          required: !!args.required,
+          unique: !!args.unique,
+          force: !!args.force,
+        });
+        const field = updated.fields[updated.fields.length - 1];
+        if (Object.keys(opts).length) {
+          updated = updateCollectionField(db, collection.slug, field.name, { ...field, ...opts, force: !!args.force });
+        }
+        return updated.fields.find((f) => f.name === field.name);
+      } catch (err) {
+        rethrowImpact(err);
       }
-      return updated.fields.find((f) => f.name === field.name);
     },
   },
   {
@@ -473,6 +490,7 @@ const TOOLS = [
         required: bool('Set or clear required'),
         unique: bool('Set or clear unique'),
         options: { type: 'object', description: 'Options to set, merged into the current ones; null clears an option' },
+        force: bool('Apply even if it would break existing entry data (default false)'),
       },
       required: ['collection', 'field'],
     },
@@ -493,14 +511,19 @@ const TOOLS = [
         ...(args.required === undefined ? {} : { required: args.required }),
         ...(args.unique === undefined ? {} : { unique: args.unique }),
         ...opts,
+        force: !!args.force,
       };
-      const updated = updateCollectionField(db, collection.slug, args.field, props);
-      return updated.fields.find((f) => f.name === args.field);
+      try {
+        const updated = updateCollectionField(db, collection.slug, args.field, props);
+        return updated.fields.find((f) => f.name === args.field);
+      } catch (err) {
+        rethrowImpact(err);
+      }
     },
   },
   {
     name: 'remove_field',
-    description: 'Remove a field from a collection schema. Stored entry values for the field stay in the entry data (re-adding a field with the same name brings them back) and already-published output keeps them until each entry is republished.',
+    description: 'Remove a field from a collection schema; it is archived, not deleted (restore it with restore_field). Stored entry values for the field stay in the entry data (restoring or re-adding a field with the same name brings them back) and already-published output keeps them until each entry is republished.',
     scope: 'write',
     inputSchema: {
       type: 'object',
@@ -512,6 +535,38 @@ const TOOLS = [
       removeCollectionField(db, collection.slug, args.field);
       return { removed: args.field, fields: collection.fields.filter((f) => f.name !== args.field) };
     },
+  },
+  {
+    name: 'restore_field',
+    description: 'Restore a field previously removed with remove_field, with its original type and options. Fails if a field with the same name already exists. Entries created while the field was archived may not satisfy its old constraints (e.g. required); blocked the same way as add_field/update_field unless force: true.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        collection: str('Collection slug'),
+        field: str('Field name (data key)'),
+        force: bool('Apply even if it would break existing entry data (default false)'),
+      },
+      required: ['collection', 'field'],
+    },
+    handler: (db, args, collection) => {
+      if (!collection.archived_fields.some((f) => f.name === args.field)) throw new ToolError(`No archived field named: ${args.field}`);
+      try {
+        const updated = restoreCollectionField(db, collection.slug, args.field, !!args.force);
+        return updated.fields.find((f) => f.name === args.field);
+      } catch (err) {
+        if (err instanceof SchemaImpactError) rethrowImpact(err);
+        if (err instanceof ToolError) throw err;
+        throw new ToolError(err instanceof Error ? err.message : String(err));
+      }
+    },
+  },
+  {
+    name: 'check_schema_health',
+    description: 'Scan every field in every collection against live entry data and report ones that would now fail validation (drift from a forced schema change, or data edited outside validation). Read-only.',
+    scope: 'read',
+    inputSchema: { type: 'object', properties: {} },
+    handler: (db) => checkSchemaHealth(db),
   },
   {
     name: 'apply_schema',

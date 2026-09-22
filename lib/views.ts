@@ -886,13 +886,13 @@ export function collectionPage({ user, projects, project, collection, entries, p
         <label class="flex items-center gap-2 text-xs font-medium text-muted-foreground self-end">
           <input type="checkbox" name="multiple" value="1"${f.multiple ? ' checked' : ''} class="size-3.5 accent-primary"> Allow multiple (relation)
         </label>`;
-    const counterOpts = `<label class="flex flex-col gap-1 text-xs">
-          <span class="font-medium text-muted-foreground">Vote access${f.type === 'counter' ? '' : ' (counter type only)'}</span>
+    const counterOpts = `<label class="flex flex-col gap-1 text-xs"${f.type === 'counter' ? '' : ' hidden'} data-counter-only>
+          <span class="font-medium text-muted-foreground">Vote access</span>
           <select name="access" class="${SELECT_CLASS} h-8">
-            <option value="public"${f.access === 'key' ? '' : ' selected'}>Public (anyone, one vote per visitor)</option>
+            <option value="public"${f.access === 'key' ? '' : ' selected'}>Public (one vote per visitor)</option>
             <option value="key"${f.access === 'key' ? ' selected' : ''}>Private (write API key required)</option>
           </select>
-          ${f.type === 'counter' ? '<span class="font-normal text-muted-foreground">Server-managed totals, never part of the entry payload: votes do not touch ETags, caches or webhooks. Read and vote via the counters endpoints. Public: one vote per visitor per 24h, per-IP rate limit; totals settle within ~5s; a restart lets visitors vote again.</span>' : ''}
+          <span class="font-normal text-muted-foreground">Server-managed totals, not entry data. Public: one vote per visitor per 24h.</span>
         </label>`;
     return `<form method="post" action="${base}/fields/update" class="grid grid-cols-2 gap-3 border-b border-border bg-muted/50 px-4 py-4">
       <input type="hidden" name="field" value="${escapeHtml(f.name)}">
@@ -912,6 +912,9 @@ export function collectionPage({ user, projects, project, collection, entries, p
       </label>
       <label class="col-span-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <input type="checkbox" name="unique" value="1"${f.unique ? ' checked' : ''} class="size-3.5 accent-primary"> Unique (no two entries may share a value; enforced on save, API and MCP writes)
+      </label>
+      <label class="col-span-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <input type="checkbox" name="force" value="1" class="size-3.5 accent-primary"> Apply anyway, even if existing entries would fail validation under this change
       </label>
       <div class="col-span-2">${button({ label: 'Save field', small: true })}</div>
     </form>`;
@@ -948,6 +951,24 @@ export function collectionPage({ user, projects, project, collection, entries, p
         <div data-field-editor hidden>${fieldEditor(f)}</div>
       </div>`;
       },
+    )
+    .join('\n');
+
+  const archivedFieldRows = (collection.archived_fields || [])
+    .map(
+      (f: any) => `<div class="flex items-center gap-3 border-b border-border last:border-b-0 px-3 py-2 text-sm">
+        <span class="font-medium">${escapeHtml(f.label)}</span>
+        <code class="text-muted-foreground">${escapeHtml(f.name)}</code>
+        <span class="text-muted-foreground">${escapeHtml(f.type)}</span>
+        <span class="text-xs text-muted-foreground">removed ${escapeHtml(String(f.removed_at || '').slice(0, 10))}</span>
+        <form method="post" action="${base}/fields/restore" class="ml-auto flex items-center gap-2">
+          <input type="hidden" name="field" value="${escapeHtml(f.name)}">
+          <label class="flex items-center gap-1 text-xs text-muted-foreground">
+            <input type="checkbox" name="force" value="1" class="size-3.5 accent-primary"> apply anyway
+          </label>
+          ${button({ label: 'Restore', variant: 'ghost', small: true })}
+        </form>
+      </div>`,
     )
     .join('\n');
 
@@ -1034,19 +1055,22 @@ export function collectionPage({ user, projects, project, collection, entries, p
               <span class="font-medium text-foreground">Type</span>
               <select name="type" class="${SELECT_CLASS}">${typeOptions}</select>
             </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="font-medium text-foreground">Vote access <span class="font-normal text-muted-foreground">(counter type only)</span></span>
+            <label class="flex flex-col gap-1.5 text-sm" data-counter-only hidden>
+              <span class="font-medium text-foreground">Vote access</span>
               <select name="access" class="${SELECT_CLASS}">
-                <option value="public">Public (anyone, one vote per visitor)</option>
+                <option value="public">Public (one vote per visitor)</option>
                 <option value="key">Private (write API key required)</option>
               </select>
-              <span class="font-normal text-xs text-muted-foreground">A counter is server-managed up/down totals, not entry data: it never appears in the entry API payload, so votes never change ETags, caches or webhooks. Read and vote through the counters endpoints (see API keys page). Public means anyone can vote, one vote per visitor per 24h, rate limited per IP; totals settle within about 5 seconds, and a server restart lets visitors vote again.</span>
+              <span class="font-normal text-xs text-muted-foreground">Server-managed totals, not entry data. Public: one vote per visitor per 24h.</span>
             </label>
             <label class="flex items-center gap-2 text-sm font-medium text-foreground">
               <input type="checkbox" name="required" value="1" class="size-3.5 accent-primary"> Required
             </label>
             <label class="flex items-center gap-2 text-sm font-medium text-foreground">
               <input type="checkbox" name="unique" value="1" class="size-3.5 accent-primary"> Unique
+            </label>
+            <label class="flex items-center gap-2 text-sm font-medium text-foreground">
+              <input type="checkbox" name="force" value="1" class="size-3.5 accent-primary"> Needed only if this is required and existing entries would fail it
             </label>
             ${button({ label: 'Add field' })}
           `,
@@ -1062,6 +1086,10 @@ export function collectionPage({ user, projects, project, collection, entries, p
             <input type="hidden" name="order" value="">
           </form>
         </div>
+        ${archivedFieldRows ? `<details class="border border-border bg-card shadow-xs">
+          <summary class="cursor-pointer px-3 py-2 text-sm text-muted-foreground">Archived fields (${(collection.archived_fields || []).length}), removed but restorable</summary>
+          ${archivedFieldRows}
+        </details>` : ''}
       </div>
 
       <div class="flex flex-col gap-3 mt-10 max-w-2xl">

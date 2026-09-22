@@ -57,6 +57,8 @@ import {
   addCollectionField,
   updateCollectionField,
   removeCollectionField,
+  restoreCollectionField,
+  SchemaImpactError,
   fieldUsage,
   validateEntryData,
   reorderCollectionFields,
@@ -1421,22 +1423,45 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES, collections: listCollections(db), fieldUsage: usage }));
   }));
 
-  router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(async (req, res, params, ctx, db) => {
+  // Impact-check failures (field add/update would break existing entry
+  // data) re-render the collection page with the reasons instead of
+  // redirecting; force: true (a checkbox in the field form) bypasses it.
+  function withFieldGuard(handler) {
+    return async (req, res, params, ctx, db) => {
+      try {
+        await handler(req, res, params, ctx, db);
+      } catch (err) {
+        if (!(err instanceof SchemaImpactError)) throw err;
+        const usage = Object.fromEntries(ctx.collection.fields.map((f) => [f.name, fieldUsage(db, ctx.collection.id, f.name)]));
+        html(req, res, 400, collectionPage({
+          ...ctx,
+          collection: getCollection(db, ctx.collection.slug),
+          entries: listEntries(db, ctx.collection.id),
+          fieldTypes: FIELD_TYPES,
+          collections: listCollections(db),
+          fieldUsage: usage,
+          notice: { type: 'error', message: `${err.message} Tick "Apply anyway" and resubmit if this is intentional.` },
+        }));
+      }
+    };
+  }
+
+  router.post('/admin/projects/:slug/collections/:cslug/fields/add', withCollection(withFieldGuard(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     const label = (form.label || '').trim();
     const type = FIELD_TYPES.includes(form.type) ? form.type : 'text';
-    if (label) addCollectionField(db, ctx.collection.slug, { label, type, name: form.name || '', required: form.required === '1', unique: form.unique === '1', access: form.access || '' });
+    if (label) addCollectionField(db, ctx.collection.slug, { label, type, name: form.name || '', required: form.required === '1', unique: form.unique === '1', access: form.access || '', force: form.force === '1' });
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
-  }));
+  })));
 
-  router.post('/admin/projects/:slug/collections/:cslug/fields/update', withCollection(async (req, res, params, ctx, db) => {
+  router.post('/admin/projects/:slug/collections/:cslug/fields/update', withCollection(withFieldGuard(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
     if (form.field) {
       // Checkboxes send nothing when unchecked, so these map explicitly.
-      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1', unique: form.unique === '1', multiple: form.multiple === '1' });
+      updateCollectionField(db, ctx.collection.slug, form.field, { ...form, required: form.required === '1', unique: form.unique === '1', multiple: form.multiple === '1', force: form.force === '1' });
     }
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
-  }));
+  })));
 
   router.post('/admin/projects/:slug/collections/:cslug/fields/reorder', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);
@@ -1450,6 +1475,12 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (form.field) removeCollectionField(db, ctx.collection.slug, form.field);
     redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
   }));
+
+  router.post('/admin/projects/:slug/collections/:cslug/fields/restore', withCollection(withFieldGuard(async (req, res, params, ctx, db) => {
+    const form = await readFormBody(req);
+    if (form.field) restoreCollectionField(db, ctx.collection.slug, form.field, form.force === '1');
+    redirect(req, res, `/admin/projects/${ctx.project.slug}/collections/${ctx.collection.slug}`);
+  })));
 
   router.post('/admin/projects/:slug/collections/:cslug/revisions', withCollection(async (req, res, params, ctx, db) => {
     const form = await readFormBody(req);

@@ -501,6 +501,76 @@ async function main() {
   const mcpSchema = JSON.parse((await mcpTool(apiKey, 'get_schema')).content[0].text);
   assert.ok(mcpSchema.collections.some((c: any) => c.slug === 'authors' && c.name === 'Writers'), 'get_schema should reflect the applied change');
 
+  // 9c-2. Schema impact guard: a required field add/update that would break
+  // existing entries is blocked with a reason unless force: true is passed;
+  // content_version bumps on the write; removed fields archive (not delete)
+  // and can be restored; check_schema_health reports live drift.
+  {
+    const versionBefore = (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
+
+    const blockedAdd = await mcpTool(upWriteKey, 'add_field', { collection: 'blog-posts', label: 'Category', type: 'text', required: true });
+    assert.ok(blockedAdd.isError, 'required field add on a collection with entries should be blocked without force');
+    assert.ok(blockedAdd.content[0].text.includes('Retry with force: true'), 'blocked add should mention the force retry');
+
+    const forcedAdd = JSON.parse((await mcpTool(upWriteKey, 'add_field', { collection: 'blog-posts', label: 'Category', type: 'text', required: true, force: true })).content[0].text);
+    assert.equal(forcedAdd.required, true, 'forced add should apply despite existing entries failing validation');
+
+    const versionAfterAdd = (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
+    assert.notEqual(versionAfterAdd, versionBefore, 'content_version (ETag) should bump on a schema field add');
+
+    const blockedUpdate = await mcpTool(upWriteKey, 'update_field', { collection: 'blog-posts', field: 'category', type: 'number' });
+    assert.ok(blockedUpdate.isError, 'a field update that still breaks existing entries should be blocked without force');
+    const forcedUpdate = JSON.parse((await mcpTool(upWriteKey, 'update_field', { collection: 'blog-posts', field: 'category', type: 'number', force: true })).content[0].text);
+    assert.equal(forcedUpdate.type, 'number', 'forced update should apply despite existing entries failing validation');
+
+    const versionBeforeRemove = (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
+    const removedCategory = JSON.parse((await mcpTool(upWriteKey, 'remove_field', { collection: 'blog-posts', field: 'category' })).content[0].text);
+    assert.ok(!removedCategory.fields.some((f: any) => f.name === 'category'), 'remove_field should drop category from active fields');
+    const versionAfterRemove = (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
+    assert.notEqual(versionAfterRemove, versionBeforeRemove, 'content_version should bump on field removal');
+
+    const archivedPageHtml = await (await req('GET', `/admin/projects/${slug}/collections/blog-posts`)).text();
+    assert.ok(archivedPageHtml.includes('Archived fields'), 'collection page should list archived fields after a removal');
+
+    const restoreDenied = await mcpTool(upWriteKey, 'restore_field', { collection: 'blog-posts', field: 'no-such-field' });
+    assert.ok(restoreDenied.isError, 'restoring a non-archived field name should be rejected');
+
+    // category archived as required; entries have no value for it, so
+    // restoring it is blocked the same way add/update are, unless forced.
+    const restoreBlocked = await mcpTool(upWriteKey, 'restore_field', { collection: 'blog-posts', field: 'category' });
+    assert.ok(restoreBlocked.isError, 'restoring a required field that existing entries would fail should be blocked without force');
+    const restored = JSON.parse((await mcpTool(upWriteKey, 'restore_field', { collection: 'blog-posts', field: 'category', force: true })).content[0].text);
+    assert.equal(restored.name, 'category', 'forced restore_field should bring the archived field back');
+    assert.equal(restored.type, 'number', 'restored field should keep its last saved definition');
+
+    const health = JSON.parse((await mcpTool(apiKey, 'check_schema_health')).content[0].text);
+    assert.equal(health.healthy, false, 'check_schema_health should catch the still-broken required category field');
+    assert.ok(health.problems.some((p: any) => p.collection === 'blog-posts' && p.field === 'category'), 'health report should name the broken field');
+
+    // Drop the requirement so later steps can create/update blog-posts entries
+    // without supplying category.
+    await mcpTool(upWriteKey, 'update_field', { collection: 'blog-posts', field: 'category', required: false, force: true });
+
+    // HTTP route guard: same block/force behavior through the admin form.
+    const guardBlocked = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, {
+      form: { label: 'Priority', type: 'number', required: '1' },
+    });
+    assert.equal(guardBlocked.status, 400, 'HTTP field add violating existing entries should render 400');
+    assert.ok((await guardBlocked.text()).includes('Apply anyway'), 'blocked HTTP add should offer the force retry');
+    const guardForced = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, {
+      form: { label: 'Priority', type: 'number', required: '1', force: '1' },
+    });
+    assert.equal(guardForced.status, 302, 'HTTP field add with force=1 should succeed');
+    const withPriority = getCollection(projectDb, 'blog-posts');
+    assert.ok(withPriority.fields.some((f) => f.name === 'priority'), 'forced HTTP add should create the field');
+
+    // Drop the requirement so later steps can create/update blog-posts entries
+    // without supplying priority.
+    await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/update`, {
+      form: { field: 'priority', label: 'Priority', type: 'number', force: '1' },
+    });
+  }
+
   // 9b. Draft-vs-published signal: editing a published entry leaves
   // has_unpublished_changes set until it is republished; the flag is
   // authoring-only and never rides on a default (published) read.
@@ -1097,7 +1167,7 @@ async function main() {
   // Unique field option: one-step create with flags from the add popover,
   // duplicate values rejected across dashboard/API/MCP naming the holder,
   // an entry keeps its own value on update.
-  const uniqAdd = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, { form: { label: 'Sku', type: 'text', unique: '1', required: '1' } });
+  const uniqAdd = await req('POST', `/admin/projects/${slug}/collections/blog-posts/fields/add`, { form: { label: 'Sku', type: 'text', unique: '1', required: '1', force: '1' } });
   assert.equal(uniqAdd.status, 302, 'add field with flags should redirect');
   const skuField = getCollection(projectDb, 'blog-posts').fields.find((f) => f.name === 'sku');
   assert.ok(skuField?.unique && skuField?.required, 'add-field popover should persist required and unique in one step');
