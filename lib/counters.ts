@@ -28,6 +28,10 @@ export function createCounters() {
     if (!t) {
       const r = db.prepare('SELECT up, down FROM counters WHERE entry_id = ? AND field = ?').get(entryId, field);
       totals.set(k, (t = { db, entryId, field, up: r?.up ?? 0, down: r?.down ?? 0 }));
+    } else {
+      // Handle may have been closed/reopened (idle close) since first cache:
+      // rebind so flush() writes through the live handle, not a dead one.
+      t.db = db;
     }
     return { k, t };
   }

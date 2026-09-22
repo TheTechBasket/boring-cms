@@ -88,8 +88,18 @@ export function uniqueSlug(base, exists) {
 
 // ---- Content version (ETag source) --------------------------------------
 
+// Read once per write generation instead of once per request: every API hit
+// needs the version, and meta writes bump db.gen (see instrument in db.ts).
+// Uninstrumented handles (db.gen undefined) skip the cache.
+const verCache = new WeakMap<object, { gen: number; ver: string }>();
 export function contentVersion(db) {
-  return db.prepare("SELECT value FROM meta WHERE key = 'content_version'").get()?.value ?? '0';
+  if (db.gen === undefined) return db.prepare("SELECT value FROM meta WHERE key = 'content_version'").get()?.value ?? '0';
+  let e = verCache.get(db);
+  if (!e || e.gen !== db.gen) {
+    const ver = db.prepare("SELECT value FROM meta WHERE key = 'content_version'").get()?.value ?? '0';
+    verCache.set(db, (e = { gen: db.gen, ver }));
+  }
+  return e.ver;
 }
 
 export function bumpContentVersion(db) {
@@ -742,21 +752,46 @@ export function setApiKeyMcp(db, id, mcp) {
 }
 
 // Truthy result carries { id, scope, mcp } for scope/MCP checks and rate limiting.
+// Verified keys are cached per write generation: api_keys writes (create,
+// revoke, last_used_at) bump db.gen, so a revoked key drops out immediately.
+// Only valid keys are cached; misses pay the hash+SELECT like before, so an
+// attacker probing random tokens cannot fill the map.
+const keyCache = new WeakMap<object, { gen: number; map: Map<string, any> }>();
 export function verifyApiKey(db, key) {
   if (!key) return null;
-  const row = db.prepare('SELECT id, scope, mcp, last_used_at FROM api_keys WHERE key_hash = ?').get(hashKey(key));
-  if (!row) return null;
+  let row;
+  let e;
+  if (db.gen !== undefined) {
+    e = keyCache.get(db);
+    if (!e || e.gen !== db.gen) keyCache.set(db, (e = { gen: db.gen, map: new Map() }));
+    row = e.map.get(key);
+  }
+  if (row === undefined) {
+    row = db.prepare('SELECT id, scope, mcp, last_used_at FROM api_keys WHERE key_hash = ?').get(hashKey(key));
+    if (!row) return null;
+    if (e && e.map.size < 256) e.map.set(key, row);
+  }
   // last_used_at is informational: write it at most once a minute instead of
   // a WAL write on every API read.
   if (!row.last_used_at || row.last_used_at < new Date(Date.now() - Number(process.env.LAST_USED_MS ?? 60000)).toISOString().slice(0, 19).replace('T', ' ')) {
     db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
+    // Keep the cached row's clock current so the hit path does not retrigger
+    // the UPDATE on every request until the next generation refresh.
+    row.last_used_at = new Date().toISOString().slice(0, 19).replace('T', ' ');
   }
   return row;
 }
 
 // ---- Published read path (API) -------------------------------------------
 
-// Row clocks are stored as SQLite "YYYY-MM-DD HH:MM:SS" (UTC). Consumers get
+// LIMIT/OFFSET come off the wire as strings, and callers pass raw query
+// params: coerce, floor, and clamp so a negative/NaN/huge value cannot
+// become "LIMIT -5" or an unbounded scan.
+function clampLimit(limit) {
+  const n = Math.floor(Number(limit));
+  return Number.isFinite(n) ? Math.min(100, Math.max(1, n)) : 50;
+}
+
 // ISO 8601 with Z so JS Date never misparses them as local time.
 export function isoUtc(ts) {
   return typeof ts === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(ts) ? ts.replace(' ', 'T') + 'Z' : ts;
@@ -769,6 +804,9 @@ export function isoUtc(ts) {
 function sqlUtc(ts) {
   const s = String(ts);
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  // Bare ISO without zone (2026-01-02T03:04:05) would parse as local time
+  // and shift the cursor; treat as UTC like the SQL-form branch above.
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) return new Date(s.replace(' ', 'T') + 'Z').toISOString().slice(0, 19).replace('T', ' ');
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? s.replace('T', ' ').replace(/Z$/, '') : d.toISOString().slice(0, 19).replace('T', ' ');
 }
@@ -784,7 +822,7 @@ export function listScheduled(db, collectionId, { limit = 50 }: any = {}) {
        WHERE collection_id = ? AND status = 'published' AND published_at > datetime('now')
        ORDER BY published_at ASC LIMIT ?`,
     )
-    .all(collectionId, Math.min(limit, 100))
+    .all(collectionId, clampLimit(limit))
     .map((r) => ({ slug: r.slug, publish_at: isoUtc(r.published_at), updated_at: isoUtc(r.updated_at) }));
 }
 
@@ -800,7 +838,7 @@ export function listPublished(db, collectionId, { limit = 50, offset = 0, update
        WHERE ${where.join(' AND ')}
        ORDER BY published_at DESC LIMIT ? OFFSET ?`,
     )
-    .all(...args, Math.min(limit, 100), offset)
+    .all(...args, clampLimit(limit), Math.max(0, Math.floor(Number(offset) || 0)))
     // published_at here is the entries table's publish-lifecycle clock, kept
     // only as a fallback: a user-defined field of the same name (as ttb's
     // articles schema has) is real entry data and must win, not be shadowed.
@@ -832,7 +870,7 @@ export function collectionIdBySlug(db, slug, ver) {
   return id;
 }
 
-const schedCache = new WeakMap<object, Map<number, { v: string; times: string[]; key: string; tag: string }>>();
+const schedCache = new WeakMap<object, Map<number, { v: string; times: string[]; maxUpd: string; key: string; tag: string }>>();
 // Opaque API ETag: HMAC of (content_version, still-scheduled count). Version
 // bumps refresh the future timestamps; between bumps only time passing flips
 // the count, so the tag flips exactly when a scheduled entry goes live. The
@@ -845,14 +883,18 @@ export function apiEtag(db, collectionId, ver, secret) {
   let e = m.get(collectionId);
   if (!e || e.v !== ver) {
     const times = db.prepare("SELECT published_at FROM entries WHERE collection_id = ? AND status = 'published' AND published_at > datetime('now')").all(collectionId).map((r) => r.published_at);
-    m.set(collectionId, (e = { v: ver, times, key: '', tag: '' }));
+    // Fold the write clock of live published rows into the tag so a republish
+    // (same version, new content) still flips the ETag; version bumps alone
+    // miss content_version-preserving writes like an updated_since cursor run.
+    const maxUpd = db.prepare("SELECT max(updated_at) AS m FROM entries WHERE collection_id = ? AND status = 'published' AND published_at <= datetime('now')").get(collectionId)?.m ?? '';
+    m.set(collectionId, (e = { v: ver, times, maxUpd, key: '', tag: '' }));
   }
   let n = 0;
   if (e.times.length) {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     for (const t of e.times) if (t > now) n++;
   }
-  const key = `${ver}.${n}`;
+  const key = `${ver}.${n}.${e.maxUpd}`;
   if (e.key !== key) {
     e.key = key;
     e.tag = `"${createHmac('sha256', secret).update(`etag:${key}`).digest('base64url').slice(0, 16)}"`;

@@ -1,6 +1,6 @@
 {
   "name": "boring-cms",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Open-source headless CMS. One deploy, many projects.",
   "license": "MIT",
   "repository": {
@@ -34,7 +34,7 @@
   "scripts": {
     "prepack": "tsc -p tsconfig.build.json",
     "postpack": "rm -f server.js lib/*.js",
-    "start": "node server.ts",
+    "start": "MALLOC_MMAP_THRESHOLD_=1048576 node server.ts",
     "smoke": "node scripts/smoke.ts",
     "verify:pack": "node scripts/verify-pack.ts",
     "css": "tailwindcss -i styles/admin.src.css -o public/admin.css --minify",

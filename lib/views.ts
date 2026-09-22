@@ -607,7 +607,7 @@ export function projectListPage({ user, projects, notice: pageNotice }: any): st
   });
 }
 
-export function projectDetailPage({ user, projects, project, settingKeys, globalSettingKeys = [], editKey = '', storages = [], mediaStorage = '', webhookUrl = '', hasWebhookSecret = false, notice: pageNotice }: any): string {
+export function projectDetailPage({ user, projects, project, settingKeys, globalSettingKeys = [], editKey = '', storages = [], mediaStorage = '', mediaFileCount = 0, webhookUrl = '', hasWebhookSecret = false, notice: pageNotice }: any): string {
   const settingsBase = `/admin/projects/${encodeURIComponent(project.slug)}/settings`;
   const editing = editKey && settingKeys.some((s: any) => s.key === editKey);
   return layout({
@@ -703,13 +703,16 @@ export function projectDetailPage({ user, projects, project, settingKeys, global
 
       ${dangerDetails({
         summary: 'Delete project',
-        description: 'This permanently deletes the project database file. This cannot be undone.',
+        description: 'This permanently deletes the project database file. Local media files are kept unless you tick the box. This cannot be undone.',
         children: card({
           action: `/admin/projects/${encodeURIComponent(project.slug)}/delete`,
           extraClass: 'border-destructive/50',
           dataConfirm: 'delete-project',
           children: `
           ${field({ label: 'Type the project slug to confirm', name: 'confirm', required: true, placeholder: project.slug })}
+          ${mediaFileCount > 0
+            ? checkbox({ name: 'delete_media', label: `Also delete this project's ${mediaFileCount} local media file(s) (files still used by other projects are kept)` })
+            : '<p class="text-xs text-muted-foreground m-0">No local media files.</p>'}
           ${button({ label: 'Delete project', variant: 'destructive' })}
         `,
         }),
@@ -1069,8 +1072,8 @@ export function collectionPage({ user, projects, project, collection, entries, p
             <label class="flex items-center gap-2 text-sm font-medium text-foreground">
               <input type="checkbox" name="unique" value="1" class="size-3.5 accent-primary"> Unique
             </label>
-            <label class="flex items-center gap-2 text-sm font-medium text-foreground">
-              <input type="checkbox" name="force" value="1" class="size-3.5 accent-primary"> Needed only if this is required and existing entries would fail it
+            <label class="flex items-center gap-2 text-sm font-medium text-foreground force-reveal">
+              <input type="checkbox" name="force" value="1" class="size-3.5 accent-primary"> Apply anyway, even if existing entries would fail validation under this change
             </label>
             ${button({ label: 'Add field' })}
           `,

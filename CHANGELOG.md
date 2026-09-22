@@ -2,6 +2,21 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.23.0 (unreleased)
+
+- Fix: API list `limit`/`offset` are now coerced, floored and clamped (limit 1 to 100, offset never negative), so a string, negative or huge value from the query string cannot become `LIMIT -5` or an unbounded scan. No migration.
+- Fix: `updated_since` given as bare ISO without a zone (`2026-01-02T03:04:05`) is now read as UTC instead of server-local time, so incremental pulls no longer shift the cursor by the timezone offset. No migration.
+- Fix: the API `ETag` now folds in `max(updated_at)` of the live published rows, so a republish that keeps the same content version still flips the tag and cached list builds refresh. The tag stays an opaque HMAC. No migration.
+- Fix: counter totals cached in memory are rebound to the live database handle on every vote/read, and idle close now flushes then forgets per-project state (project delete flushes too). Before, a handle reopened after idle close left flushes writing through a dead handle and dropped votes. No migration.
+- Fix: every query on a project database now refreshes its idle timer, so a busy project is never closed mid-traffic after 5 quiet minutes on paper. No migration.
+- Password change now revokes every other session for the user and keeps only the current one, from both the forced reset page and the account page. A stolen cookie stops working after a reset. No migration.
+- Login now has a per-IP rate limit (10 attempts/min) checked before the password hash, slowing credential brute force. Failed logins still return the same 401 page. No migration.
+- Add-field form: the "apply anyway" override checkbox is now hidden until Required is ticked, since that is the only add-time rule that can fail existing entries, and its label now matches the edit form's wording. No migration.
+- Performance: hot read paths now cache per content generation (content version, API key lookup, project row by slug, published entry id, single-entry responses), invalidated by any write to content, project or key tables. Single published-entry reads are up ~36% and media re-uploads ~57% on the 1 vCPU benchmark; overall throughput on comparable phases is back level with 0.22.0 despite the new checks. No migration.
+- Performance: the server (npm start and the benchmark harness) sets `MALLOC_MMAP_THRESHOLD_=1048576` so scrypt's 16 MB hashing workspace is returned to the OS after each login instead of being retained by glibc arenas. Peak RSS under a login burst drops by about 60 MB. No migration.
+- Media migration checks destination existence with a cheap `exists` (local `existsSync`, S3 `HEAD`) instead of opening a full download stream per object, so large buckets migrate without pulling every byte or leaking open streams. No migration.
+- Deleting a project now keeps its `data/media/<slug>` files by default, since they may be hotlinked from other projects or wanted for reuse. The delete form shows the local file count and offers an explicit checkbox; only with it ticked are this project's own files removed, and only those no other project references in entry data (still-used files stay on disk and are listed on the server console). S3-backed media was and is untouched. No migration.
+
 ## 0.22.0 (2026-09-22)
 
 - Schema changes (add, update, remove, restore field) that would break existing entry data are now blocked with a structured reason, both from the admin form and MCP/REST tools (`add_field`, `update_field`, `restore_field`), unless `force: true` is passed. Forced changes are logged to the server console for later audit.

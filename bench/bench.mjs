@@ -374,6 +374,14 @@ async function main() {
   await phase('read_list_short', N(200), async () => {
     expectStatus(await api(`/api/v1/${project}/short-posts`), 200);
   });
+  // v0.23.0: limit/offset clamping on the list path (negative/huge cannot break SQL).
+  await phase('read_list_clamped', N(200), async () => {
+    expectStatus(await api(`/api/v1/${project}/short-posts?limit=-5&offset=-10`), 200);
+  });
+  // v0.23.0: bare ISO updated_since without a zone is UTC, not server-local.
+  await phase('read_updated_since_bare', N(200), async () => {
+    expectStatus(await api(`/api/v1/${project}/short-posts?updated_since=2000-01-01T00:00:00`), 200);
+  });
   await phase('read_list_long', N(100), async () => {
     expectStatus(await api(`/api/v1/${project}/long-articles`), 200);
   });
@@ -397,6 +405,20 @@ async function main() {
     await mcp('update_entry', { collection: 'short-posts', slug, data: { title: marker }, publish: true });
     const got = await (await api(`/api/v1/${project}/short-posts/${slug}`)).json();
     if (got.title !== marker) throw new Error('read-after-update returned stale data');
+  });
+  // v0.23.0: list ETag folds max(updated_at); republish must flip it even with preserve_timestamps.
+  await phase('etag_republish_preserve', N(30), async (i) => {
+    const slug = shortSlugs[i % shortSlugs.length];
+    const before = (await api(`/api/v1/${project}/short-posts`)).headers.get('etag');
+    await mcp('update_entry', {
+      collection: 'short-posts',
+      slug,
+      data: { title: `preserve-${i}-${randomBytes(3).toString('hex')}` },
+      publish: true,
+      preserve_timestamps: true,
+    });
+    const after = (await api(`/api/v1/${project}/short-posts`)).headers.get('etag');
+    if (!before || !after || before === after) throw new Error('etag unchanged after preserve_timestamps republish');
   });
 
   // Bulk cosmetic ref rewrite (.png -> .webp across every entry). The known
@@ -687,6 +709,19 @@ async function main() {
   // Deletes.
   await phase('delete_entries', N(200), async (i) => {
     await mcp('delete_entry', { collection: 'short-posts', slug: shortSlugs[i] });
+  });
+
+  // v0.23.0: admin login rate limit (per-IP, checked before password hash).
+  cookie = null;
+  await phase('login_rate_limit', 11, async (i) => {
+    const res = await fetch(`${base}/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email: 'bench@example.com', password: 'wrong-password' }).toString(),
+    });
+    const want = i < 10 ? 401 : 429;
+    if (res.status !== want) throw new Error(`login attempt ${i + 1}: expected ${want}, got ${res.status}`);
   });
 
   writeResult();

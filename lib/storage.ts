@@ -21,6 +21,10 @@ export function localBackend(dir) {
       const p = path.join(dir, key);
       return existsSync(p) ? createReadStream(p) : null;
     },
+    // Cheap existence check for migrate: no stream opened, no bytes read.
+    exists(key) {
+      return existsSync(path.join(dir, key));
+    },
     async remove(key) {
       try {
         await unlink(path.join(dir, key));
@@ -100,6 +104,13 @@ export function s3Backend({ endpoint, bucket, region = 'auto', accessKey, secret
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`S3 GET ${key} failed: ${res.status}`);
       return Readable.fromWeb(res.body as any);
+    },
+    // HEAD, not GET: existence only, no object body pulled over the wire.
+    async exists(key) {
+      const res = await request('HEAD', key);
+      if (res.status === 404) return false;
+      if (!res.ok) throw new Error(`S3 HEAD ${key} failed: ${res.status}`);
+      return true;
     },
     async remove(key) {
       await request('DELETE', key);

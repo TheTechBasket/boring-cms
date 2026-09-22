@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { createReadStream, existsSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync, readdirSync } from 'node:fs';
 import { gzipSync, createGzip } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,7 +126,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   const coreDb = openCoreDb(config.dataDir, migrationsDir);
   const counters = createCounters();
   const projectDbs = new ProjectDbManager(config.dataDir, {
-    beforeClose: (slug) => counters.flush(slug),
+    beforeClose: (slug) => { counters.flush(slug); counters.forget(slug); },
     migrationsDir: path.join(migrationsDir, 'project'),
     onSlowQuery: (dbName, sql, ms) => {
       try {
@@ -188,6 +188,11 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const session = getSession(coreDb, sessionId);
     if (!session) return null;
     return getUserById(coreDb, session.user_id);
+  }
+
+  function currentSessionId(req) {
+    const signed = parseCookies(req)[SESSION_COOKIE];
+    return signed ? verifySignedValue(config.masterKey, signed) : null;
   }
 
   // Origin/rpId per request; behind TRUST_PROXY=1 the forwarded proto
@@ -284,6 +289,12 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (!passwordLoginEnabled()) {
       return html(req, res, 403, loginPage(loginPageProps({ error: 'Password login is disabled. Use a passkey or Google.' })));
     }
+    // Brute-force guard: per-IP bucket checked before the password hash so
+    // attackers cannot hammer credentials at full speed.
+    const ipKey = `login:${clientIp(req)}`;
+    if (!rateLimitOk(ipKey, 10)) {
+      return html(req, res, 429, loginPage(loginPageProps({ error: 'Too many attempts. Try again shortly.' })));
+    }
     const form = await readFormBody(req);
     const email = (form.email || '').trim().toLowerCase();
     const password = form.password || '';
@@ -324,7 +335,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (password !== confirm) {
       return html(req, res, 400, resetPasswordPage({ error: 'Passwords do not match.' }));
     }
-    await setUserPassword(coreDb, user.id, password, { mustResetPassword: false });
+    await setUserPassword(coreDb, user.id, password, { mustResetPassword: false, keepSessionId: currentSessionId(req) });
     redirect(req, res, '/admin/projects');
   });
 
@@ -515,7 +526,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const password = form.password || '';
     if (password.length < 8) return render({ type: 'error', message: 'New password must be at least 8 characters.' });
     if (password !== form.password_confirm) return render({ type: 'error', message: 'Passwords do not match.' });
-    await setUserPassword(coreDb, user.id, password);
+    await setUserPassword(coreDb, user.id, password, { keepSessionId: currentSessionId(req) });
     render({ type: 'success', message: 'Password changed.' });
   }));
 
@@ -578,6 +589,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
         editKey,
         storages: listStorages(),
         mediaStorage,
+        mediaFileCount: localMediaFiles(project.slug).files.length,
         webhookUrl: currentWebhookUrl,
         hasWebhookSecret: !!currentWebhookSecret,
         ...extra,
@@ -721,6 +733,39 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     }),
   );
 
+  // Local media files owned by one project: plain filenames in
+  // data/media/<slug>. Only this directory is ever touched.
+  function localMediaFiles(slug) {
+    const dir = path.join(config.dataDir, 'media', slug);
+    if (!existsSync(dir)) return { dir, files: [] };
+    const files = readdirSync(dir).filter((f) => {
+      try {
+        return statSync(path.join(dir, f)).isFile();
+      } catch {
+        return false;
+      }
+    });
+    return { dir, files };
+  }
+
+  // True when any *other* project references this key in entry data (draft
+  // or published). Plain LIKE scan, same house style as mediaUsage: no
+  // stored relationships, so cross-project hotlinks are caught too.
+  // Returns the using project's slug, or null.
+  function mediaKeyUsedElsewhere(key, excludeSlug) {
+    const esc = `%${key.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    for (const p of listProjects(coreDb)) {
+      if (p.slug === excludeSlug) continue;
+      if (!existsSync(projectDbs.dbPath(p.slug))) continue;
+      const odb = projectDbs.get(p.slug);
+      const hit = odb.prepare(
+        "SELECT 1 FROM entries WHERE data LIKE ? ESCAPE '\\' OR published_data LIKE ? ESCAPE '\\' LIMIT 1",
+      ).get(esc, esc);
+      if (hit) return p.slug;
+    }
+    return null;
+  }
+
   router.post(
     '/admin/projects/:slug/delete',
     requireAdmin(async (req, res, params, user) => {
@@ -737,6 +782,39 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
           400,
         );
       }
+      // Local media is kept by default: files may be hotlinked from other
+      // projects or wanted for reuse. Only with the explicit checkbox do we
+      // remove this project's own files, and only those no other project
+      // references anymore. Anything still used elsewhere stays on disk;
+      // the keep list goes to the server console, not the redirect.
+      if (form.delete_media === '1') {
+        const { dir, files } = localMediaFiles(project.slug);
+        let deleted = 0;
+        const kept = [];
+        for (const f of files) {
+          const usedBy = mediaKeyUsedElsewhere(f, project.slug);
+          if (usedBy) {
+            kept.push(`${f} (still used by ${usedBy})`);
+            continue;
+          }
+          try {
+            unlinkSync(path.join(dir, f));
+            deleted++;
+          } catch {
+            kept.push(`${f} (unreadable)`);
+          }
+        }
+        if (kept.length === 0) {
+          try {
+            rmSync(dir, { recursive: true, force: true });
+          } catch {
+            // keeping leftovers is always safe
+          }
+        } else {
+          console.error(`project delete ${project.slug}: kept ${kept.length} media file(s) still referenced elsewhere: ${kept.join(', ')}; deleted ${deleted}`);
+        }
+      }
+      counters.flush(project.slug);
       counters.forget(project.slug);
       projectDbs.destroy(project.slug);
       deleteProjectRow(coreDb, project.slug);
@@ -1280,7 +1358,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       try {
         for (const key of keys) {
           // No overwrite: if the destination already has the object, keep it.
-          if (await backend.stream(key)) continue;
+          if (await backend.exists(key)) continue;
           const buf = await readSource(m, key);
           if (!buf) throw new Error(`source object missing: ${key}`);
           await backend.put(key, buf, m.mime);
@@ -1711,9 +1789,29 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     send(req, res, status, JSON.stringify(payload), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
   }
 
+  // Project row per write generation: every API/counter/MCP request resolves
+  // the project slug, and projects-table writes bump coreDb.gen (db.ts), so
+  // create/rename/delete invalidate. Misses are cached too (bounded), so
+  // unknown-slug probes stay cheap after the first lookup. Admin routes keep
+  // reading through getProjectBySlug directly.
+  const projectRowCache = { gen: -1, map: new Map() };
+  function apiProjectBySlug(slug) {
+    const gen = coreDb.gen ?? 0;
+    if (projectRowCache.gen !== gen) {
+      projectRowCache.gen = gen;
+      projectRowCache.map.clear();
+    }
+    let p = projectRowCache.map.get(slug);
+    if (p === undefined) {
+      p = getProjectBySlug(coreDb, slug) ?? null;
+      if (projectRowCache.map.size < 1024) projectRowCache.map.set(slug, p);
+    }
+    return p;
+  }
+
   function apiHandler(handler) {
     return (req, res, params) => {
-      const project = getProjectBySlug(coreDb, params.project);
+      const project = apiProjectBySlug(params.project);
       if (!project) return json(req, res, 404, { error: 'not_found' });
       const db = projectDbs.get(project.slug);
       const auth = req.headers.authorization || '';
@@ -1758,7 +1856,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   // Bearer-key project auth without a collection, for the schema routes.
   // Returns null after responding when auth fails.
   function apiProject(req, res, params, { write = false } = {}) {
-    const project = getProjectBySlug(coreDb, params.project);
+    const project = apiProjectBySlug(params.project);
     if (!project) { json(req, res, 404, { error: 'not_found' }); return null; }
     const db = projectDbs.get(project.slug);
     const auth = req.headers.authorization || '';
@@ -1951,11 +2049,12 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     let hit = c.map.get(req.url);
     if (!hit) {
       const payload = make();
-      if (!payload) return;
+      if (!payload) return false;
       hit = { body: JSON.stringify(payload) };
       if (hit.body.length < 1_000_000) c.map.set(req.url, hit);
     }
     send(req, res, 200, hit.body, { 'Content-Type': 'application/json; charset=utf-8', ETag: etag }, hit);
+    return true;
   }
 
   // ---- Counter fields ------------------------------------------------------
@@ -1978,8 +2077,28 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     return c;
   }
 
+  // Published entry id per write generation for the counter hot path. Only
+  // hits are cached: a miss can flip to a hit with no write when a scheduled
+  // entry's publish time passes, so misses always re-query. A hit can only
+  // flip back via a write, which bumps db.gen and drops the map.
+  const entryIdCache = new WeakMap<object, { gen: number; map: Map<string, number> }>();
+  function publishedEntryId(db, collectionId, slug) {
+    if (db.gen === undefined) {
+      return db.prepare("SELECT id FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')").get(collectionId, slug)?.id ?? null;
+    }
+    let e = entryIdCache.get(db);
+    if (!e || e.gen !== db.gen) entryIdCache.set(db, (e = { gen: db.gen, map: new Map() }));
+    const k = `${collectionId}:${slug}`;
+    let id = e.map.get(k);
+    if (id === undefined) {
+      id = db.prepare("SELECT id FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')").get(collectionId, slug)?.id ?? null;
+      if (id !== null && e.map.size < 4096) e.map.set(k, id);
+    }
+    return id;
+  }
+
   function counterCtx(req, res, params) {
-    const project = getProjectBySlug(coreDb, params.project);
+    const project = apiProjectBySlug(params.project);
     if (!project) { json(req, res, 404, { error: 'not_found' }, CORS); return null; }
     const db = projectDbs.get(project.slug);
     const collection = counterCollection(db, params.collection);
@@ -2017,13 +2136,13 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const url = new URL(req.url, 'http://localhost');
     const dir = url.searchParams.get('dir') ?? 'up';
     if (dir !== 'up' && dir !== 'down') return json(req, res, 400, { error: 'bad_request', message: 'dir must be "up" or "down".' }, CORS);
-    const entry = ctx.db.prepare("SELECT id FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')").get(ctx.collection.id, params.entry);
-    if (!entry) return json(req, res, 404, { error: 'not_found' }, CORS);
+    const entryId = publishedEntryId(ctx.db, ctx.collection.id, params.entry);
+    if (entryId === null) return json(req, res, 404, { error: 'not_found' }, CORS);
     if (isKey) {
       const by = Math.min(1000, Math.max(1, Number.parseInt(url.searchParams.get('by') ?? '1', 10) || 1));
-      return json(req, res, 200, counters.add(ctx.project.slug, ctx.db, entry.id, field.name, dir === 'up' ? by : 0, dir === 'down' ? by : 0), CORS);
+      return json(req, res, 200, counters.add(ctx.project.slug, ctx.db, entryId, field.name, dir === 'up' ? by : 0, dir === 'down' ? by : 0), CORS);
     }
-    json(req, res, 200, counters.vote(ctx.project.slug, ctx.db, entry.id, field.name, ip, String(req.headers['user-agent'] ?? ''), dir === 'down'), CORS);
+    json(req, res, 200, counters.vote(ctx.project.slug, ctx.db, entryId, field.name, ip, String(req.headers['user-agent'] ?? ''), dir === 'down'), CORS);
   });
 
   // Counter totals for a set of published entries. Private fields are only
@@ -2052,16 +2171,16 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   router.get('/api/v1/:project/:collection/:entry/counters', (req, res, params) => {
     const ctx = counterCtx(req, res, params);
     if (!ctx) return;
-    const row = ctx.db.prepare("SELECT id, slug FROM entries WHERE collection_id = ? AND slug = ? AND status = 'published' AND published_at <= datetime('now')").get(ctx.collection.id, params.entry);
-    if (!row) return json(req, res, 404, { error: 'not_found' }, CORS);
-    json(req, res, 200, readCounters(ctx, [row])[row.slug], { ...CORS, 'Cache-Control': 'no-cache' });
+    const entryId = publishedEntryId(ctx.db, ctx.collection.id, params.entry);
+    if (entryId === null) return json(req, res, 404, { error: 'not_found' }, CORS);
+    json(req, res, 200, readCounters(ctx, [{ id: entryId, slug: params.entry }])[params.entry], { ...CORS, 'Cache-Control': 'no-cache' });
   });
 
 
   router.get('/api/v1/:project/:collection', apiHandler((req, res, params, { db, collection, etag }) => {
     const url = new URL(req.url, 'http://localhost');
-    const limit = Number.parseInt(url.searchParams.get('limit') ?? '50', 10) || 50;
-    const offset = Number.parseInt(url.searchParams.get('offset') ?? '0', 10) || 0;
+    const limit = url.searchParams.get('limit') ?? '50';
+    const offset = url.searchParams.get('offset') ?? '0';
     const updatedSince = url.searchParams.get('updated_since') ?? '';
     if (updatedSince && Number.isNaN(new Date(updatedSince).getTime())) {
       return json(req, res, 400, { error: 'invalid_updated_since', hint: 'ISO 8601 or "YYYY-MM-DD HH:MM:SS" (UTC)' });
@@ -2070,9 +2189,12 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   }));
 
   router.get('/api/v1/:project/:collection/:entry', apiHandler((req, res, params, { db, collection, etag }) => {
-    const item = getPublished(db, collection.id, params.entry);
-    if (!item) return json(req, res, 404, { error: 'not_found' });
-    json(req, res, 200, item, { ETag: etag });
+    // Same response cache as the list route: repeat single-entry reads skip
+    // the SELECT, JSON.stringify and gzip until a write or ETag flip. A miss
+    // (404) is never cached, so a scheduled entry going live shows up.
+    if (!cachedJson(req, res, db, etag, () => getPublished(db, collection.id, params.entry))) {
+      json(req, res, 404, { error: 'not_found' });
+    }
   }));
 
   // Media upload for headless clients: multipart POST, same Bearer key auth
@@ -2080,7 +2202,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   // before the body is parsed. Fields: file (required), path (optional
   // folder prefix), storage, variants=1.
   router.post('/api/v1/:project/media', async (req, res, params) => {
-    const project = getProjectBySlug(coreDb, params.project);
+    const project = apiProjectBySlug(params.project);
     if (!project) return json(req, res, 404, { error: 'not_found' });
     const db = projectDbs.get(project.slug);
     const auth = req.headers.authorization || '';
@@ -2116,7 +2238,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   // ---- MCP endpoint (per project, Bearer key, JSON-RPC over POST) ---------
 
   router.post('/mcp/:project', async (req, res, params) => {
-    const project = getProjectBySlug(coreDb, params.project);
+    const project = apiProjectBySlug(params.project);
     if (!project) return json(req, res, 404, { error: 'not_found' });
     const db = projectDbs.get(project.slug);
     const auth = req.headers.authorization || '';

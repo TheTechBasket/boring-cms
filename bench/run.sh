@@ -16,7 +16,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-NODE_BIN="${NODE_BIN:-$(command -v node || echo "$HOME/.nvm/versions/node/v24.13.1/bin/node")}"
+# Prefer the pinned nvm install: `command -v node` picks up whatever node the
+# calling shell has in PATH, which silently changed the client runtime between
+# runs (v0.23.0 ran on v24.5.0) and made whole-matrix results incomparable.
+NODE_BIN="${NODE_BIN:-$([ -x "$HOME/.nvm/versions/node/v24.13.1/bin/node" ] && echo "$HOME/.nvm/versions/node/v24.13.1/bin/node" || command -v node)}"
 BUN_BIN="${BUN_BIN:-$HOME/.bun/bin/bun}"
 DENO_BIN="${DENO_BIN:-$HOME/.deno/bin/deno}"
 
@@ -102,7 +105,12 @@ for rt in "${RT[@]}"; do
     MASTER_KEY=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')
     echo "=== $LABEL (port $PORT, data $DATA_DIR, $RTV) ==="
 
-    YNCMS_DATA_DIR="$DATA_DIR" MASTER_KEY="$MASTER_KEY" SECRET_KEY="$MASTER_KEY" PORT="$PORT" TRUST_PROXY=1 \
+    # MALLOC_MMAP_THRESHOLD_: scrypt's 16MB workspace comes from glibc's
+    # sbrk heap by default and is retained forever (one arena per threadpool
+    # thread, ~64MB after a burst of login attempts). Forcing allocations
+    # >=1MB through mmap returns them to the OS on free; the small-alloc hot
+    # path is untouched. Matches the npm start script.
+    YNCMS_DATA_DIR="$DATA_DIR" MASTER_KEY="$MASTER_KEY" SECRET_KEY="$MASTER_KEY" PORT="$PORT" TRUST_PROXY=1 MALLOC_MMAP_THRESHOLD_=1048576 \
       taskset -c "$(cpu_mask "$ncpu")" $CMD >"$OUTDIR/$LABEL.server.log" 2>&1 &
     SERVER_PID=$!
 

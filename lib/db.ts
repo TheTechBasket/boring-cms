@@ -24,7 +24,10 @@ function applyPragmas(db) {
 // Wraps a DatabaseSync so every .run/.get/.all call is timed and slow
 // queries are logged. `onSlowQuery(sql, ms)` is called for slow ones;
 // the caller (core db bootstrap) wires this to insert into slow_queries.
-function instrument(db, dbName, onSlowQuery) {
+function instrument(db, dbName, onSlowQuery, onActivity?) {
+  // Marks the handle as generation-tracked: gen-keyed caches (content.ts,
+  // server.ts) only engage when writes are guaranteed to bump db.gen.
+  db.gen = 0;
   const rawPrepare = db.prepare.bind(db);
   // Statements are memoized per SQL text: the hot API path re-prepared the
   // same handful of queries on every request. Bounded so dynamic SQL cannot
@@ -37,12 +40,15 @@ function instrument(db, dbName, onSlowQuery) {
     if (cache.size < 256) cache.set(sql, stmt);
     // Content generation: bumps on any write that can change API output, so the
     // response cache in server.ts drops itself. Decided once per statement.
-    const touchesContent = /\b(entries|collections|meta)\b/i.test(sql);
+    // projects and api_keys are included so the gen-keyed project-row and
+    // API-key caches drop on create/rename/delete/revoke.
+    const touchesContent = /\b(entries|collections|meta|projects|api_keys)\b/i.test(sql);
     for (const method of ['run', 'get', 'all']) {
       const raw = stmt[method].bind(stmt);
       stmt[method] = (...args) => {
         const start = performance.now();
         const result = raw(...args);
+        if (onActivity) onActivity();
         if (touchesContent && method === 'run') db.gen = (db.gen ?? 0) + 1;
         const ms = performance.now() - start;
         if (ms > SLOW_QUERY_MS && onSlowQuery) {
@@ -139,9 +145,10 @@ export class ProjectDbManager {
       const db = new DatabaseSync(this.dbPath(slug));
       applyPragmas(db);
       if (this.migrationsDir) runMigrations(db, this.migrationsDir);
-      instrument(db, `project:${slug}`, this.onSlowQuery);
+      // entry must exist before instrument() so onActivity can touch it.
       entry = { db, lastUsed: Date.now() };
       this.handles.set(slug, entry);
+      instrument(db, `project:${slug}`, this.onSlowQuery, () => { entry!.lastUsed = Date.now(); });
     } else {
       entry.lastUsed = Date.now();
     }

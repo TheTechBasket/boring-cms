@@ -30,11 +30,19 @@ export async function verifyUserPassword(user, password) {
   return verifyPassword(password, user.password_hash);
 }
 
-export async function setUserPassword(db, userId, password, { mustResetPassword = false } = {}) {
+export async function setUserPassword(db, userId, password, { mustResetPassword = false, keepSessionId = null } = {}) {
   const passwordHash = await hashPassword(password);
   db.prepare(
     "UPDATE users SET password_hash = ?, must_reset_password = ?, updated_at = datetime('now') WHERE id = ?",
   ).run(passwordHash, mustResetPassword ? 1 : 0, userId);
+  // Password change revokes every other session for this user (stolen
+  // cookie mitigation). The caller's own session is kept so the change
+  // does not log them out mid-request.
+  if (keepSessionId) {
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(userId, keepSessionId);
+  } else {
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  }
 }
 
 // ---- Sessions -------------------------------------------------------------

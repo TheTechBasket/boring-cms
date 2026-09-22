@@ -4,7 +4,8 @@
 // Exit 0 on success.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomBytes, createHmac } from 'node:crypto';
@@ -12,7 +13,8 @@ import http from 'node:http';
 
 import { createApp } from '../server.ts';
 import { openCoreDb } from '../lib/db.ts';
-import { getProjectBySlug, getSettingValue } from '../lib/store.ts';
+import { getProjectBySlug, getSettingValue, getUserByEmail, createSession } from '../lib/store.ts';
+import { signValue } from '../lib/crypto.ts';
 import { getCollection, getEntry, listRevisions } from '../lib/content.ts';
 import { toolCatalog } from '../lib/mcp.ts';
 
@@ -63,7 +65,7 @@ async function main() {
 
   // 2. Create the admin account
   const email = 'admin@example.com';
-  const password = 'correct horse battery staple';
+  let password = 'correct horse battery staple';
   const setupRes = await req('POST', '/setup', {
     form: { email, password, password_confirm: password },
   });
@@ -72,6 +74,20 @@ async function main() {
 
   const projectsAfterSetup = await req('GET', '/admin/projects');
   assert.equal(projectsAfterSetup.status, 200, 'should be logged in after setup');
+
+  // 2b. Login rate limit: per-IP bucket checked before the password hash.
+  await req('POST', '/logout');
+  cookie = null;
+  for (let i = 0; i < 10; i++) {
+    const res = await req('POST', '/login', { form: { email, password: 'wrong-password' } });
+    assert.equal(res.status, 401, `failed login attempt ${i + 1} should stay 401`);
+  }
+  const loginLimited = await req('POST', '/login', { form: { email, password: 'wrong-password' } });
+  assert.equal(loginLimited.status, 429, '11th login attempt from the same IP should be rate limited');
+  assert.ok((await loginLimited.text()).includes('Too many attempts'), 'rate limit page should explain the block');
+  const blockedGood = await req('POST', '/login', { form: { email, password } });
+  assert.equal(blockedGood.status, 429, 'correct password should also be blocked while rate limited');
+  await new Promise((r) => setTimeout(r, 6500));
 
   // 3. Log out, log back in
   await req('POST', '/logout');
@@ -367,6 +383,26 @@ async function main() {
   assert.equal(((await sinceFuture.json()) as any).items.length, 0, 'future updated_since should return nothing');
   const sinceBad = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=not-a-date`, { headers: { Authorization: `Bearer ${apiKey}` } });
   assert.equal(sinceBad.status, 400, 'invalid updated_since should be 400');
+
+  // Bare ISO without a zone is UTC, same as an explicit Z suffix.
+  const sinceBare = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2000-01-01T00:00:00`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const sinceZulu = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2000-01-01T00:00:00Z`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await sinceBare.json()) as any).items.length, ((await sinceZulu.json()) as any).items.length, 'bare ISO updated_since should match Zulu form');
+  const rowClock = projectDb.prepare('SELECT updated_at FROM entries WHERE slug = ?').get(entrySlug).updated_at as string;
+  const cursorBare = rowClock.replace(' ', 'T');
+  const cursorZulu = `${cursorBare}Z`;
+  const sinceExactBare = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=${encodeURIComponent(cursorBare)}`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const sinceExactZulu = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=${encodeURIComponent(cursorZulu)}`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await sinceExactBare.json()) as any).items.length, ((await sinceExactZulu.json()) as any).items.length, 'entry updated_at cursor should not shift with bare ISO');
+
+  // limit/offset are clamped: negatives cannot become LIMIT -5 or a negative OFFSET.
+  const clamped = await fetch(`${base}/api/v1/${slug}/blog-posts?limit=-5&offset=-10`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(clamped.status, 200, 'negative limit/offset should not error');
+  assert.equal(((await clamped.json()) as any).items.length, 1, 'clamped limit 1 still returns the single entry');
+  const hugeLimit = await fetch(`${base}/api/v1/${slug}/blog-posts?limit=999999`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await hugeLimit.json()) as any).items.length, 1, 'huge limit should clamp to available rows');
+  const badLimit = await fetch(`${base}/api/v1/${slug}/blog-posts?limit=abc`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(((await badLimit.json()) as any).items.length, 1, 'non-numeric limit should fall back and still return rows');
 
   // 9b. Headless media upload: Bearer key, write scope, {id, key, url} back
   const upKeyPage = await req('POST', `/admin/projects/${slug}/api-keys`, { form: { name: 'smoke-write', scope: 'write', mcp: '1' } });
@@ -1050,6 +1086,17 @@ async function main() {
     await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: '2999-01-01 00:00:00' } })
   ).json();
   assert.equal(JSON.parse(noneSince.result.content[0].text).length, 0, 'future updated_since should return nothing');
+  const mcpSinceBare: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: '2000-01-01T00:00:00' } })
+  ).json();
+  const mcpSinceZulu: any = await (
+    await rpc(apiKey, 'tools/call', { name: 'list_entries', arguments: { collection: 'blog-posts', updated_since: '2000-01-01T00:00:00Z' } })
+  ).json();
+  assert.equal(
+    JSON.parse(mcpSinceBare.result.content[0].text).length,
+    JSON.parse(mcpSinceZulu.result.content[0].text).length,
+    'MCP bare ISO updated_since should match Zulu form',
+  );
 
   // A user data field named updated_at (WP imports) must never shadow the
   // row's write clock, or incremental pulls see stale values.
@@ -1267,6 +1314,26 @@ async function main() {
   const badPw = await req('POST', '/account/password', { form: { current_password: 'wrong', password: 'newpassword1', password_confirm: 'newpassword1' } });
   assert.equal(badPw.status, 400, 'wrong current password should be rejected');
 
+  // Password change revokes every other session; the current one stays valid.
+  {
+    const user = getUserByEmail(app.coreDb, email);
+    const cookieA = `yn_session=${signValue(masterKey, createSession(app.coreDb, user.id))}`;
+    const cookieB = `yn_session=${signValue(masterKey, createSession(app.coreDb, user.id))}`;
+    const changePw = await fetch(`${base}/account/password`, {
+      method: 'POST',
+      headers: { Cookie: cookieA, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ current_password: password, password: 'newpassword9', password_confirm: 'newpassword9' }).toString(),
+    });
+    assert.equal(changePw.status, 200, 'password change should succeed');
+    const revoked = await fetch(`${base}/admin/projects`, { headers: { Cookie: cookieB }, redirect: 'manual' });
+    assert.equal(revoked.status, 302, 'other session should be revoked after password change');
+    assert.equal(revoked.headers.get('location'), '/login');
+    const kept = await fetch(`${base}/admin/projects`, { headers: { Cookie: cookieA }, redirect: 'manual' });
+    assert.equal(kept.status, 200, 'current session should stay valid after password change');
+    password = 'newpassword9';
+    cookie = cookieA;
+  }
+
   // Registration over HTTP: options (challenge cookie) then verify + store.
   const sessionCookie = cookie;
   const regOptRes = await fetch(`${base}/webauthn/register/options`, { method: 'POST', headers: { Cookie: sessionCookie } });
@@ -1431,6 +1498,37 @@ async function main() {
   assert.equal(deleteRes.status, 302, 'confirmed delete should redirect');
   assert.ok(!existsSync(projectDbPath), 'project DB file should be gone after delete');
   assert.equal(getProjectBySlug(app.coreDb, slug), null, 'project row should be gone from core.db');
+  assert.ok(existsSync(path.join(dataDir, 'media', slug)), 'local media files should be kept without explicit confirmation');
+
+  // 16. Opt-in media wipe on project delete: unreferenced local files go,
+  // files another project still references stay.
+  const mkProbe = await req('POST', '/admin/projects', { form: { name: 'Media Probe' } });
+  assert.equal(mkProbe.status, 302, 'probe project creation should redirect');
+  assert.ok(getProjectBySlug(app.coreDb, 'media-probe'), 'probe project should exist');
+  const probeDir = path.join(dataDir, 'media', 'media-probe');
+  mkdirSync(probeDir, { recursive: true });
+  writeFileSync(path.join(probeDir, 'ab12cd34-shared.png'), 'shared');
+  writeFileSync(path.join(probeDir, 'zz99yy88-orphan.png'), 'orphan');
+
+  const mkRef = await req('POST', '/admin/projects', { form: { name: 'Media Referrer' } });
+  assert.equal(mkRef.status, 302, 'referrer project creation should redirect');
+  assert.ok(getProjectBySlug(app.coreDb, 'media-referrer'), 'referrer project should exist');
+  {
+    const rdb: any = new DatabaseSync(path.join(dataDir, 'projects', 'media-referrer.db'));
+    const col: any = rdb.prepare("INSERT INTO collections (slug, name, fields) VALUES ('c', 'C', '[]')").run();
+    rdb.prepare('INSERT INTO entries (collection_id, slug, status, data) VALUES (?, ?, ?, ?)')
+      .run(col.lastInsertRowid, 'e1', 'draft', JSON.stringify({ body: '![pic](/media/media-probe/ab12cd34-shared.png)' }));
+    rdb.close();
+  }
+
+  const probeDelete = await req('POST', '/admin/projects/media-probe/delete', {
+    form: { confirm: 'media-probe', delete_media: '1' },
+  });
+  assert.equal(probeDelete.status, 302, 'opt-in media delete should redirect');
+  assert.ok(!existsSync(path.join(probeDir, 'zz99yy88-orphan.png')), 'unreferenced file should be deleted');
+  assert.ok(existsSync(path.join(probeDir, 'ab12cd34-shared.png')), 'file used by another project should be kept');
+  assert.ok(existsSync(probeDir), 'media dir with kept files should remain');
+  assert.equal(getProjectBySlug(app.coreDb, 'media-probe'), null, 'probe project row should be gone from core.db');
 
   console.log('smoke: all assertions passed');
 }

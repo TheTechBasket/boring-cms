@@ -305,3 +305,13 @@ details[data-popover][open] > .popover-panel {
 		background: rgb(0 0 0 / 0.45);
 	}
 }
+
+/* Add-field form: the force checkbox only matters when Required is on
+   (a new field with no values cannot trip uniqueness), so keep it out
+   of sight until then. No motion: mid-form control reveal, instant. */
+label.force-reveal {
+	display: none;
+}
+form:has(input[name="required"]:checked) label.force-reveal {
+	display: flex;
+}
