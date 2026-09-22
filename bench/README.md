@@ -14,9 +14,14 @@ bash bench/run.sh node,bun 1,2    # subset
 Results: `bench/results/v<version>/<runtime>-<n>cpu.json` (raw per-phase
 numbers with epoch timestamps), `<label>.usage.csv` (~100ms CPU tick + RSS
 samples of the server process), `<label>.server.log` (server stderr),
-`summary.md` (tables), `report.html` (interactive report: throughput bars
-per phase, CPU/RSS timelines with phase bands; self-contained, open in a
-browser). Commit all of it; that is the historical record.
+`summary.md` (tables). Commit all of it; that is the historical record.
+
+Cross-version trend: `node bench/trend.mjs [combo]` (default `node-1cpu`)
+reads every `bench/results/v*/` directory and writes a markdown table for
+one combo plus `bench/results/report.html`, a single self-contained,
+filterable report (runtime, vCPU, counter-phases on/off) covering every
+runtime/vCPU combo and every version, with the changelog inline. Open it
+in a browser. Regenerate after adding a new version's results.
 
 ## What it measures
 
