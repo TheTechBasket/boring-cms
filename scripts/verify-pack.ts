@@ -6,7 +6,7 @@
 // up, smoke fails, or any bench phase errors.
 // Run: pnpm verify:pack
 import { execSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -32,6 +32,10 @@ try {
 
   const appDir = path.join(work, 'app');
   mkdirSync(appDir, { recursive: true });
+  // Without its own package.json, npm walks up looking for one and can
+  // adopt an unrelated ancestor (e.g. a stray /tmp/package.json), installing
+  // there instead of appDir. A stub pins appDir as the install root.
+  writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'verify-pack-sandbox', private: true }));
   execSync(`npm install --no-fund --no-audit ${tarball}`, { cwd: appDir, stdio: 'pipe' });
 
   server = spawn(path.join(appDir, 'node_modules/.bin/boring-cms'), [], {
