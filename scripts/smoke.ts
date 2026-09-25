@@ -1486,6 +1486,77 @@ async function main() {
     await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'ctr-demo' });
   }
 
+  // Countermap fields: named keys per entry, one vote per visitor per key,
+  // "group:option" keys switch within the group, maxKeys caps new keys.
+  {
+    const tool = async (key: string, name: string, args: any) => {
+      const j: any = await (await rpc(key, 'tools/call', { name, arguments: args })).json();
+      return { err: !!j.error || !!j.result?.isError, out: j.result?.content?.[0]?.text };
+    };
+    await tool(writeKey, 'add_field', { collection: 'blog-posts', label: 'Polls', type: 'countermap', name: 'polls' });
+    await tool(writeKey, 'add_field', { collection: 'blog-posts', label: 'Tiny', type: 'countermap', name: 'tiny', options: { maxKeys: 2 } });
+    await tool(writeKey, 'add_field', { collection: 'blog-posts', label: 'Tally', type: 'countermap', name: 'tally', options: { access: 'key' } });
+    for (const s of ['cm-demo', 'cm-empty']) {
+      await tool(writeKey, 'create_entry', { collection: 'blog-posts', slug: s, data: { body: 'x' } });
+      await tool(writeKey, 'publish_entry', { collection: 'blog-posts', slug: s });
+    }
+    const ep = `${base}/api/v1/${slug}/blog-posts/cm-demo`;
+    const vote = (path: string, ua: string, headers: any = {}) =>
+      fetch(`${ep}/counters/${path}`, { method: 'POST', headers: { 'User-Agent': ua, ...headers } });
+    let r: any = await (await vote('polls/like', 'ua-a')).json();
+    assert.deepEqual(r, { key: 'like', count: 1, changed: true }, 'public map vote creates the key');
+    r = await (await vote('polls/like', 'ua-a')).json();
+    assert.deepEqual(r, { key: 'like', count: 1, changed: false }, 'same visitor same key is a no-op');
+    r = await (await vote('polls/like', 'ua-b')).json();
+    assert.equal(r.count, 2, 'plain key counts each visitor once');
+    r = await (await vote('polls/poll:yes', 'ua-a')).json();
+    assert.deepEqual([r.count, r.changed], [1, true], 'group option vote counts');
+    r = await (await vote('polls/poll:no', 'ua-a')).json();
+    assert.deepEqual([r.key, r.count, r.changed], ['poll:no', 1, true], 'another option in the group counts');
+    r = await (await vote('polls/poll:no', 'ua-a')).json();
+    assert.equal(r.changed, false, 'same option again is a no-op');
+    assert.equal((await vote('polls/bad%20key', 'ua-a')).status, 400, 'bad key grammar is 400');
+    assert.equal((await vote(`polls/${'k'.repeat(65)}`, 'ua-a')).status, 400, 'over-long key is 400');
+    assert.equal((await vote('likes/x', 'ua-a')).status, 404, 'counter field with a key segment is 404');
+    assert.equal((await vote('polls', 'ua-a')).status, 404, 'countermap field without a key is 404');
+    assert.equal((await vote('tiny/k1', 'ua-a')).status, 200, 'first key under maxKeys');
+    assert.equal((await vote('tiny/k2', 'ua-a')).status, 200, 'second key under maxKeys');
+    const full = await vote('tiny/k3', 'ua-a');
+    assert.equal(full.status, 409, 'new key past maxKeys is 409');
+    assert.match(String(((await full.json()) as any).message), /Key limit reached/, '409 body names the key limit');
+    r = await (await vote('tiny/k1', 'ua-c')).json();
+    assert.equal(r.count, 2, 'existing keys keep counting at the limit');
+    assert.equal((await vote('tally/x', 'ua-a')).status, 401, 'private map rejects a keyless vote');
+    assert.equal((await vote('tally/x', 'ua-a', { Authorization: `Bearer ${apiKey}` })).status, 403, 'private map rejects a read key');
+    r = await (await vote('tally/x?by=5', 'ua-a', { Authorization: `Bearer ${writeKey}` })).json();
+    assert.deepEqual(r, { key: 'x', count: 5 }, 'private map takes a step from a write key');
+    r = await (await vote('tally/x?by=-9', 'ua-a', { Authorization: `Bearer ${writeKey}` })).json();
+    assert.equal(r.count, 0, 'negative step floors at 0');
+    const pubMap: any = await (await fetch(`${ep}/counters`)).json();
+    const { likes, ...maps } = pubMap;
+    assert.deepEqual(maps, {
+      polls: { like: 2, 'poll:yes': 0, 'poll:no': 1 },
+      tiny: { k1: 2, k2: 1 },
+    }, 'switch moved the group vote; keyless read hides private maps');
+    assert.deepEqual(Object.keys(likes), ['up', 'down'], 'counter field keeps its {up, down} shape beside maps');
+    const privMap: any = await (await fetch(`${ep}/counters`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.deepEqual([privMap.tally, Object.keys(privMap.stars)], [{ x: 0 }, ['up', 'down']], 'keyed read includes private maps and counters');
+    const bulk: any = await (await fetch(`${base}/api/v1/${slug}/blog-posts/counters?slugs=cm-demo,cm-empty`)).json();
+    assert.deepEqual(bulk.items['cm-demo'], pubMap, 'bulk read matches the single read');
+    assert.deepEqual(bulk.items['cm-empty'].polls, {}, 'empty map reads as {}');
+    assert.equal((await fetch(`${ep}/counters/polls/like`, { method: 'OPTIONS' })).status, 204, 'map CORS preflight answers');
+    const cmPayload = JSON.stringify(await (await fetch(ep, { headers: { Authorization: `Bearer ${apiKey}` } })).json());
+    assert.ok(!cmPayload.includes('polls') && !cmPayload.includes('poll:'), 'map counts are not in the entry payload');
+    const clamped = JSON.parse((await tool(writeKey, 'update_field', { collection: 'blog-posts', field: 'tiny', options: { maxKeys: 5000 } })).out);
+    assert.equal(clamped.maxKeys, 1024, 'maxKeys above the cap clamps to 1024');
+    const cmEditor = await (await req('GET', `/admin/projects/${slug}/collections/blog-posts/cm-demo`)).text();
+    assert.ok(cmEditor.includes('Keyed counter map') && cmEditor.includes('up to 64'), 'entry editor shows the server-managed notice');
+    const cmColl = await (await req('GET', `/admin/projects/${slug}/collections/blog-posts`)).text();
+    assert.ok(cmColl.includes('name="maxKeys"') && cmColl.includes('<option value="countermap"'), 'field editor offers countermap and maxKeys');
+    await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'cm-empty' });
+    await tool(writeKey, 'delete_entry', { collection: 'blog-posts', slug: 'cm-demo' });
+  }
+
   const badDelete = await req('POST', `/admin/projects/${slug}/delete`, {
     form: { confirm: 'not-the-slug' },
   });

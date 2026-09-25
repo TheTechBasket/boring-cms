@@ -48,6 +48,8 @@ import { fireWebhook, type WebhookEvent } from './lib/webhooks.ts';
 import {
   FIELD_TYPES,
   describeFieldTypes,
+  isCounterType,
+  mapMaxKeys,
   contentVersion,
   bumpContentVersion,
   bulkRewriteRefs,
@@ -937,7 +939,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const data = {};
     for (const f of collection.fields) {
       const raw = form[`field_${f.name}`];
-      if (f.type === 'counter') continue; // server-managed, not entry data
+      if (isCounterType(f.type)) continue; // server-managed, not entry data
       else if (f.type === 'boolean') data[f.name] = raw === '1';
       else if (f.type === 'number') data[f.name] = raw === '' || raw === undefined ? null : Number(raw);
       else if (f.type === 'json') {
@@ -2113,7 +2115,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     return fwd || req.socket.remoteAddress || '';
   }
 
-  for (const path of ['/api/v1/:project/:collection/:entry/counters/:field', '/api/v1/:project/:collection/:entry/counters', '/api/v1/:project/:collection/counters']) {
+  for (const path of ['/api/v1/:project/:collection/:entry/counters/:field/:key', '/api/v1/:project/:collection/:entry/counters/:field', '/api/v1/:project/:collection/:entry/counters', '/api/v1/:project/:collection/counters']) {
     router.add('OPTIONS', path, (req, res) => send(req, res, 204, '', CORS));
   }
 
@@ -2145,14 +2147,49 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     json(req, res, 200, counters.vote(ctx.project.slug, ctx.db, entryId, field.name, ip, String(req.headers['user-agent'] ?? ''), dir === 'down'), CORS);
   });
 
+  // Counter map vote: same access, rate limit and dedupe as counter votes,
+  // one count per key. "group:option" keys switch within the group.
+  const MAP_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+  router.post('/api/v1/:project/:collection/:entry/counters/:field/:key', (req, res, params) => {
+    const ctx = counterCtx(req, res, params);
+    if (!ctx) return;
+    const field = ctx.collection.fields.find((f) => f.name === params.field && f.type === 'countermap');
+    if (!field) return json(req, res, 404, { error: 'not_found' }, CORS);
+    const isKey = field.access === 'key';
+    if (isKey) {
+      if (!ctx.apiKey) return json(req, res, 401, { error: 'unauthorized' }, CORS);
+      if (ctx.apiKey.scope !== 'write') return json(req, res, 403, { error: 'forbidden', message: 'A write-scope API key is required.' }, CORS);
+    }
+    const ip = clientIp(req);
+    const ipLimit = isKey ? 0 : counterIpLimit(ctx.db);
+    if (ipLimit && !rateLimitOk(`ctr:${ip}`, ipLimit)) {
+      const retryAfter = retryAfterSeconds(`ctr:${ip}`, ipLimit);
+      return json(req, res, 429, { error: 'rate_limited', retry_after: retryAfter }, { ...CORS, 'Retry-After': String(retryAfter) });
+    }
+    const key = params.key;
+    if (!MAP_KEY_RE.test(key)) return json(req, res, 400, { error: 'bad_request', message: 'key must be 1-64 characters of A-Z a-z 0-9 _ . : -' }, CORS);
+    const entryId = publishedEntryId(ctx.db, ctx.collection.id, params.entry);
+    if (entryId === null) return json(req, res, 404, { error: 'not_found' }, CORS);
+    const maxKeys = mapMaxKeys(field);
+    let out;
+    if (isKey) {
+      const n = Number.parseInt(new URL(req.url, 'http://localhost').searchParams.get('by') ?? '1', 10) || 1;
+      out = counters.addKey(ctx.project.slug, ctx.db, entryId, field.name, key, maxKeys, Math.min(1000, Math.max(-1000, n)));
+    } else {
+      out = counters.voteKey(ctx.project.slug, ctx.db, entryId, field.name, key, maxKeys, ip, String(req.headers['user-agent'] ?? ''));
+    }
+    if (!out) return json(req, res, 409, { error: 'key_limit', message: `Key limit reached: this field holds at most ${maxKeys} keys per entry.` }, CORS);
+    json(req, res, 200, out, CORS);
+  });
+
   // Counter totals for a set of published entries. Private fields are only
   // included for callers with a valid key.
   function readCounters(ctx, rows) {
-    const fields = ctx.collection.fields.filter((f) => f.type === 'counter' && (f.access !== 'key' || ctx.apiKey));
+    const fields = ctx.collection.fields.filter((f) => isCounterType(f.type) && (f.access !== 'key' || ctx.apiKey));
     const out = {};
     for (const r of rows) {
       const o = {};
-      for (const f of fields) o[f.name] = counters.read(ctx.project.slug, ctx.db, r.id, f.name);
+      for (const f of fields) o[f.name] = f.type === 'countermap' ? counters.readMap(ctx.project.slug, ctx.db, r.id, f.name) : counters.read(ctx.project.slug, ctx.db, r.id, f.name);
       out[r.slug] = o;
     }
     return out;

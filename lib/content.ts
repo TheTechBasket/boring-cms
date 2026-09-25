@@ -33,10 +33,25 @@ export const FIELD_TYPE_DEFS = {
   json: { value: 'any JSON value', options: {} },
   image: { value: 'string (media path or URL)', options: { ...LENGTH_OPTIONS, accept: 'Accept list for the editor file picker, e.g. "image/*".' } },
   counter: { value: 'object {up, down} (server-managed, never stored in entry data; bump via the counter endpoint)', options: { access: '"public" (default, anyone may vote, one vote per visitor) or "key" (a write API key is required to bump).' } },
+  countermap: { value: 'object {key: count} (server-managed, never stored in entry data; bump via the counters endpoint)', options: { access: '"public" (default, anyone may vote, one vote per visitor per key or "group:" prefix) or "key" (a write API key is required to bump).', maxKeys: 'Most distinct keys per entry (default 64, max 1024). A vote for a new key past it gets 409.' } },
   relation: { value: 'string entry slug, or array of slugs when multiple', options: { collection: 'Target collection slug (required for relations).', multiple: 'Allow multiple related entries (value becomes an array).' } },
 };
 
 export const FIELD_TYPES = Object.keys(FIELD_TYPE_DEFS);
+
+// Types whose values live in the counters table, never in entry data.
+export function isCounterType(type) {
+  return type === 'counter' || type === 'countermap';
+}
+
+// Effective key limit of a countermap field: invalid or absent means 64,
+// anything above 1024 clamps to 1024.
+export const MAP_KEYS_DEFAULT = 64;
+export const MAP_KEYS_MAX = 1024;
+export function mapMaxKeys(field) {
+  const n = Math.floor(Number(field?.maxKeys));
+  return n >= 1 ? Math.min(MAP_KEYS_MAX, n) : MAP_KEYS_DEFAULT;
+}
 
 export const FIELD_OPTIONS = [
   ...new Set([
@@ -280,7 +295,7 @@ export function checkSchemaHealth(db) {
   const collections = listCollections(db);
   const results: any[] = [];
   for (const collection of collections) {
-    const fields = collection.fields.filter((f) => f.type !== 'counter'); // counter data lives outside entries
+    const fields = collection.fields.filter((f) => !isCounterType(f.type)); // counter data lives outside entries
     if (!fields.length) continue;
     const entries = loadEntryData(db, collection.id);
     for (const field of fields) {
@@ -313,7 +328,7 @@ export function addCollectionField(db, collectionSlug, { label, type, name: requ
   const field: Record<string, any> = { name, label, type };
   if (required) field.required = true;
   if (unique) field.unique = true;
-  if (type === 'counter' && access === 'key') field.access = 'key';
+  if (isCounterType(type) && access === 'key') field.access = 'key';
   // A brand-new field can only conflict with existing entries via `required`
   // (every existing entry is currently "missing" it); anything else about a
   // new field can't clash with data that predates it.
@@ -371,10 +386,15 @@ export function updateCollectionField(db, collectionSlug, fieldName, props) {
   for (const k of FIELD_OPTIONS) {
     const v = props[k];
     if (v === undefined || v === null || v === '' || v === false) continue;
-    if (k === 'access' && (v === 'public' || next.type !== 'counter')) continue;
+    if (k === 'access' && (v === 'public' || !isCounterType(next.type))) continue;
+    if (k === 'maxKeys') {
+      // Stored normalized; dropped (default applies) when not a positive number.
+      if (next.type === 'countermap' && Math.floor(Number(v)) >= 1) next[k] = mapMaxKeys({ maxKeys: v });
+      continue;
+    }
     next[k] = v;
   }
-  if (next.type !== 'counter') {
+  if (!isCounterType(next.type)) {
     const result = previewFieldChange(db, collection, next);
     if (!result.ok && !props.force) throw new SchemaImpactError(result);
     if (!result.ok && props.force) logForcedSchemaChange(collection.slug, next.name, result);
@@ -392,7 +412,7 @@ export function updateCollectionField(db, collectionSlug, fieldName, props) {
 export function validateEntryData(collection, data, { db = null, excludeEntryId = 0 }: any = {}) {
   const errors: string[] = [];
   for (const f of collection.fields) {
-    if (f.type === 'counter') continue;
+    if (isCounterType(f.type)) continue;
     const v = data[f.name];
     const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
     if (f.required && (empty || v === false)) {
@@ -474,7 +494,7 @@ export function restoreCollectionField(db, collectionSlug, fieldName, force = fa
     throw new Error(`A field named "${fieldName}" already exists; remove or rename it before restoring the archived one.`);
   }
   const { removed_at, ...field } = restored;
-  if (field.type !== 'counter') {
+  if (!isCounterType(field.type)) {
     const result = previewFieldChange(db, collection, field);
     if (!result.ok && !force) throw new SchemaImpactError(result);
     if (!result.ok && force) logForcedSchemaChange(collection.slug, field.name, result);
@@ -569,7 +589,7 @@ export function getEntryById(db, id) {
 // data would otherwise persist and leak into the public snapshot.
 function stripCounters(fields, data) {
   const out = { ...data };
-  for (const f of fields) if (f.type === 'counter') delete out[f.name];
+  for (const f of fields) if (isCounterType(f.type)) delete out[f.name];
   return out;
 }
 

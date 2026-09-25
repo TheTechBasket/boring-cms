@@ -126,12 +126,12 @@ document.addEventListener('click', (event) => {
   });
 });
 
-// Vote access only applies to counter fields: hide it until that type is picked.
+// Vote access only applies to counter and countermap fields: hide it until one is picked.
 function syncCounterOnly(form) {
   const typeSel = form.querySelector('select[name="type"]');
   const onlyEl = form.querySelector('[data-counter-only]');
   if (!typeSel || !onlyEl) return;
-  onlyEl.hidden = typeSel.value !== 'counter';
+  onlyEl.hidden = typeSel.value !== 'counter' && typeSel.value !== 'countermap';
 }
 document.querySelectorAll('form').forEach(syncCounterOnly);
 document.addEventListener('change', (event) => {

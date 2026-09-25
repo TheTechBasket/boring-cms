@@ -1,7 +1,7 @@
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
 import { readFileSync, statSync } from 'node:fs';
-import { entryLabel, entryState, isoUtc, REVISIONS_KEEP } from './content.ts';
+import { entryLabel, entryState, isoUtc, mapMaxKeys, REVISIONS_KEEP } from './content.ts';
 
 export const APP_NAME = 'Boring CMS';
 
@@ -889,14 +889,14 @@ export function collectionPage({ user, projects, project, collection, entries, p
         <label class="flex items-center gap-2 text-xs font-medium text-muted-foreground self-end">
           <input type="checkbox" name="multiple" value="1"${f.multiple ? ' checked' : ''} class="size-3.5 accent-primary"> Allow multiple (relation)
         </label>`;
-    const counterOpts = `<label class="flex flex-col gap-1 text-xs"${f.type === 'counter' ? '' : ' hidden'} data-counter-only>
+    const counterOpts = `<label class="flex flex-col gap-1 text-xs"${f.type === 'counter' || f.type === 'countermap' ? '' : ' hidden'} data-counter-only>
           <span class="font-medium text-muted-foreground">Vote access</span>
           <select name="access" class="${SELECT_CLASS} h-8">
             <option value="public"${f.access === 'key' ? '' : ' selected'}>Public (one vote per visitor)</option>
             <option value="key"${f.access === 'key' ? ' selected' : ''}>Private (write API key required)</option>
           </select>
           <span class="font-normal text-muted-foreground">Server-managed totals, not entry data. Public: one vote per visitor per 24h.</span>
-        </label>`;
+        </label>${f.type === 'countermap' ? opt(f, 'maxKeys', 'Max keys', { type: 'number', placeholder: '64' }) : ''}`;
     return `<form method="post" action="${base}/fields/update" class="grid grid-cols-2 gap-3 border-b border-border bg-muted/50 px-4 py-4">
       <input type="hidden" name="field" value="${escapeHtml(f.name)}">
       ${opt(f, 'label', 'Label')}
@@ -1226,6 +1226,12 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
       return `<div class="flex flex-col gap-1.5 text-sm">
         <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
         <p class="m-0 text-muted-foreground">Up/down counter, managed by the server (${f.access === 'key' ? 'private, write key' : 'public'}). Totals are read from the API counters endpoint, not edited here.</p>
+        ${help}
+      </div>`;
+    case 'countermap':
+      return `<div class="flex flex-col gap-1.5 text-sm">
+        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        <p class="m-0 text-muted-foreground">Keyed counter map, managed by the server (${f.access === 'key' ? 'private, write key' : 'public'}). Keys are created on first vote, up to ${mapMaxKeys(f)}. Totals are read from the API counters endpoint, not edited here.</p>
         ${help}
       </div>`;
     case 'relation': {

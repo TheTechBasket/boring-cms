@@ -628,6 +628,27 @@ async function main() {
     expectStatus(await fetch(`${base}/api/v1/${project}/misc/${hot}/counters/stars?by=2`, { method: 'POST', headers: { Authorization: `Bearer ${writeKey}` } }), 200);
   }, { concurrency: 16 });
 
+  // Countermap: added after the counter phases so their numbers stay comparable
+  // with earlier versions. Keys: 16 plain reactions plus a 5-option poll group.
+  await mcp('add_field', { collection: 'misc', label: 'Reactions', type: 'countermap', name: 'reactions' });
+  const mapVote = async (slug, voter, key) => {
+    const res = await fetch(`${base}/api/v1/${project}/misc/${slug}/counters/reactions/${key}`, {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': `10.${(voter >> 16) & 255}.${(voter >> 8) & 255}.${voter & 255}`, 'User-Agent': `bench-ua-${voter % 97}` },
+    });
+    expectStatus(res, 200);
+  };
+  const mapKey = () => (Math.random() < 0.5 ? `r${rnd(16)}` : `poll:o${rnd(5)}`);
+  // Hot entry, distinct visitors, mixed plain and group keys.
+  await phase('misc_cmap_hot_votes', N(5000), () => mapVote(hot, rnd(VOTERS), mapKey()), { concurrency: 64 });
+  // Group switch heavy: 200 visitors flipping between poll options (decrement + increment per vote).
+  await phase('misc_cmap_group_switch', N(3000), () => mapVote(hot, rnd(200), `poll:o${rnd(5)}`), { concurrency: 64 });
+  // Map reads: 70% the hot entry, 30% a 20-entry bulk read (cold maps load once each).
+  await phase('misc_cmap_read', N(2000), async (i) => {
+    if (i % 10 < 7) return expectStatus(await fetch(`${base}/api/v1/${project}/misc/${hot}/counters`), 200);
+    return miscCounts();
+  }, { concurrency: 32 });
+
   // Schema health scan: full entries-table read per collection with entries
   // (short-posts, long-articles, misc all seeded by now), field validation run
   // over every row. The one place check_schema_health's cost is worth watching.

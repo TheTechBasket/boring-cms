@@ -2,6 +2,10 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## Unreleased
+
+- New field type `countermap`: one field holding named counters per entry (reactions, poll options, tallies), next to the existing `counter`, which is unchanged. Vote with `POST /api/v1/<project>/<collection>/<entry>/counters/<field>/<key>`; a key is created on its first vote and must match `^[A-Za-z0-9_.:-]{1,64}$` (else 400). Response: `{key, count, changed}` for public votes, `{key, count}` for key-access bumps. A key `group:option` holds one option per visitor per group, so voting another option of the group moves the vote; a key without `:` takes one vote per visitor. Dedupe, 24h window and per-IP limit match counter votes. Key-access fields take `?by=n` (may be negative, floor 0). Option `maxKeys` (default 64, max 1024) caps distinct keys per entry: a new key past it gets 409, existing keys keep counting. The counters read endpoints return countermap fields as `{key: count}` (`{}` when empty) beside counter fields' `{up, down}`. Stored in the existing counters table, no migration.
+
 ## 0.23.0 (2026-09-22)
 
 - Fix: API list `limit`/`offset` are now coerced, floored and clamped (limit 1 to 100, offset never negative), so a string, negative or huge value from the query string cannot become `LIMIT -5` or an unbounded scan. No migration.

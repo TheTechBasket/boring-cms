@@ -30,7 +30,7 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
   const p = (rest: string) => `/api/v1/${project}${rest}`;
 
   const keyLimit = { scope: 'api-key', limit: perKey || 'unlimited', per: 'minute', applies_to: 'every write endpoint and every /call and /mcp tool call (reads are not rate limited)', configurable: 'Admin > API keys > Rate limit' };
-  const ipLimit = { scope: 'client-ip', limit: counterLimit || 'unlimited', per: 'minute', applies_to: 'public counter votes only (POST .../counters/<field> on a public-access field)', note: 'Behind a proxy the server must run with TRUST_PROXY=1 so the visitor IP is read from X-Forwarded-For; otherwise every visitor shares the proxy IP and this limit throttles them together.' };
+  const ipLimit = { scope: 'client-ip', limit: counterLimit || 'unlimited', per: 'minute', applies_to: 'public counter votes only (POST .../counters/<field> or .../counters/<field>/<key> on a public-access field)', note: 'Behind a proxy the server must run with TRUST_PROXY=1 so the visitor IP is read from X-Forwarded-For; otherwise every visitor shares the proxy IP and this limit throttles them together.' };
 
   const paths: Record<string, any> = {
     [p('/{collection}')]: {
@@ -87,6 +87,27 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
         },
       },
     },
+    [p('/{collection}/{entry}/counters/{field}/{key}')]: {
+      post: {
+        tags: ['counters'], summary: 'Vote on a countermap key', 'x-auth-note': 'Public for public-access fields (no key). Private (key-access) fields need a write-scope key.',
+        description: 'Counts one vote for a named key of a countermap field; a new key is created on first vote. Keys match ^[A-Za-z0-9_.:-]{1,64}$. A key "group:option" holds one option per visitor per group: voting another option of the same group moves the vote (old option -1, new +1), the same option again is a no-op. A key without ":" takes one vote per visitor. Dedupe, 24h window and per-IP limit as for counter votes. Private ("key") fields take ?by= (may be negative, no dedupe, floor 0). A new key past the field\'s maxKeys (default 64, max 1024) gets 409; existing keys keep counting. Votes never change entry ETags, revisions, updated_at or webhooks.',
+        'x-rate-limit': ipLimit,
+        parameters: [
+          { name: 'collection', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'entry', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'field', in: 'path', required: true, schema: { type: 'string' }, description: 'Countermap field name.' },
+          { name: 'key', in: 'path', required: true, schema: { type: 'string', pattern: '^[A-Za-z0-9_.:-]{1,64}$' }, description: 'Map key, e.g. "like" or "poll:yes".' },
+          { name: 'by', in: 'query', schema: { type: 'integer', minimum: -1000, maximum: 1000, default: 1 }, description: 'Step size. Private (key-access) fields only; ignored on public fields.' },
+        ],
+        responses: {
+          200: jsonResponse('Count of the key after the vote. changed:false means the visitor already voted this key.', { $ref: '#/components/schemas/CounterKey' }),
+          400: ERR('Bad key.'), 401: ERR('Private field, no key.'), 403: ERR('Private field, key is not write scope.'),
+          404: ERR('Unknown project, collection, entry or countermap field.'),
+          409: ERR('New key past maxKeys.'),
+          429: jsonResponse('Per-IP rate limit hit (public fields).', { $ref: '#/components/schemas/Error' }, { 'Retry-After': { description: 'Seconds to wait.', schema: { type: 'integer' } } }),
+        },
+      },
+    },
     [p('/{collection}/{entry}/counters')]: {
       get: {
         tags: ['counters'], summary: 'Counter totals for one entry', 'x-auth-note': 'Public for public-access fields. Send a key to also see private fields.',
@@ -95,7 +116,7 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
           { name: 'collection', in: 'path', required: true, schema: { type: 'string' } },
           { name: 'entry', in: 'path', required: true, schema: { type: 'string' } },
         ],
-        responses: { 200: jsonResponse('Field name to totals map.', { type: 'object', additionalProperties: { $ref: '#/components/schemas/CounterTotals' } }), 404: ERR('Not found.') },
+        responses: { 200: jsonResponse('Field name to totals map: {up, down} for counter fields, {key: count} for countermap fields ({} when empty).', { type: 'object', additionalProperties: { oneOf: [{ $ref: '#/components/schemas/CounterTotals' }, { $ref: '#/components/schemas/CounterMap' }] } }), 404: ERR('Not found.') },
       },
     },
     [p('/{collection}/counters')]: {
@@ -105,7 +126,7 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
           { name: 'collection', in: 'path', required: true, schema: { type: 'string' } },
           { name: 'slugs', in: 'query', required: true, schema: { type: 'string' }, description: 'Comma-separated entry slugs, max 100.' },
         ],
-        responses: { 200: jsonResponse('items: slug to (field to totals) map.', { type: 'object', properties: { items: { type: 'object' } } }), 400: ERR('slugs missing.'), 404: ERR('Not found.') },
+        responses: { 200: jsonResponse('items: slug to (field to totals) map. Countermap fields return {key: count}.', { type: 'object', properties: { items: { type: 'object' } } }), 400: ERR('slugs missing.'), 404: ERR('Not found.') },
       },
     },
     [p('/schema')]: {
@@ -212,7 +233,7 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
     paths,
     tags: [
       { name: 'content', description: 'Published entries. ETag/304 revalidation, gzip, server-side list cache.' },
-      { name: 'counters', description: 'Up/down votes and totals for counter fields. Separate from entry payloads on purpose: voting never invalidates content caches.' },
+      { name: 'counters', description: 'Up/down votes and totals for counter fields, keyed counts for countermap fields. Separate from entry payloads on purpose: voting never invalidates content caches.' },
       { name: 'schema', description: 'Schema read and apply.' },
       { name: 'transfer', description: 'Export, import, bulk URL rewrite.' },
       { name: 'media', description: 'Media upload.' },
@@ -226,6 +247,8 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
         Error: { type: 'object', properties: { error: { type: 'string' }, message: { type: 'string' } }, required: ['error'] },
         Entry: { type: 'object', description: 'The published snapshot: every schema field, plus slug, published_at and updated_at (ISO 8601 UTC). Counter fields are absent; read them from the counters endpoints.', properties: { slug: { type: 'string' }, published_at: { type: 'string' }, updated_at: { type: 'string' } }, additionalProperties: true },
         CounterTotals: { type: 'object', properties: { up: { type: 'integer' }, down: { type: 'integer' }, changed: { type: 'boolean', description: 'Vote responses only: false when this visitor already voted this way (no-op).' } }, required: ['up', 'down'] },
+        CounterMap: { type: 'object', description: 'Countermap totals: key to count.', additionalProperties: { type: 'integer' } },
+        CounterKey: { type: 'object', properties: { key: { type: 'string' }, count: { type: 'integer' }, changed: { type: 'boolean', description: 'Public votes only: false when this visitor already voted this key (no-op).' } }, required: ['key', 'count'] },
       },
     },
   };
