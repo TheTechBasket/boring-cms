@@ -116,4 +116,5 @@ done
 
 "$NODE_BIN" bench/summarize.mjs "$OUTDIR" > "$OUTDIR/summary.md" || FAILED=1
 echo "summary: $OUTDIR/summary.md"
+"$NODE_BIN" bench/report2.mjs || FAILED=1
 [ "$FAILED" = 0 ] || { echo "bench2 had failures; see $OUTDIR"; exit 1; }

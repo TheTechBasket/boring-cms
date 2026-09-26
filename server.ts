@@ -2343,18 +2343,27 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
 
   // ---- Dispatch -------------------------------------------------------------
 
+  let hasUsers = false;
   const server: any = http.createServer((req: any, res) => {
     req._start = performance.now();
-    const url = new URL(req.url, 'http://localhost');
-    const pathname = url.pathname;
+    // Hot path skips WHATWG URL: the router only needs the raw path, handlers
+    // that want query params parse their own URL. Dot-segments are not
+    // normalized here; serveStatic rejects '..' and no route matches one.
+    const qi = req.url.indexOf('?');
+    const pathname = qi === -1 ? req.url : req.url.slice(0, qi);
 
     if (pathname.startsWith('/public/')) {
       return serveStatic(req, res, pathname);
     }
 
     // First-run gate: no admin user yet, everything (except /setup) goes there.
-    if (userCount(coreDb) === 0 && pathname !== '/setup') {
-      return redirect(req, res, '/setup');
+    // Users are never deleted, so once one exists the COUNT(*) is skipped.
+    if (!hasUsers) {
+      if (userCount(coreDb) === 0) {
+        if (pathname !== '/setup') return redirect(req, res, '/setup');
+      } else {
+        hasUsers = true;
+      }
     }
 
     if (pathname === '/') {

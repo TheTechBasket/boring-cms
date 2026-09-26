@@ -119,3 +119,10 @@ baseline going forward:
 Run: `bash bench/run2.sh` (node, 2 vCPU) or `bash bench/run2.sh node,bun,deno 1,2,4`.
 Results land in `bench/results-v2/<version>/`; same JSON shape as v1, same
 `summarize.mjs`, same constraints as above.
+
+Each run also regenerates `bench/results-v2/report.html` (`node
+bench/report2.mjs`): the whole version history as one page, per-phase ops/s
+across every benchmarked version with deltas and trend sparklines, the
+CHANGELOG entry of each version next to the numbers, and the v1-to-v2
+rationale above. Open it in a browser after a run; commit it with the
+results.

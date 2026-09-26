@@ -2,11 +2,16 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.24.1 (2026-09-26)
+
+- Performance: 21% less server CPU per public API read. Dispatcher splits path from query string instead of building a WHATWG URL per request, routes bucketed per HTTP method, API key verification rebuilds its last-used cutoff string at most once a second, first-run setup gate stops counting users once an admin exists. No behavior change, no migration.
+- Benchmark v2 now writes `bench/results-v2/report.html` (via `bench/report2.mjs`): cross-version per-phase history with deltas, sparklines and changelog context.
+
 ## 0.24.0 (2026-09-26)
 
-- New field type `countermap`: one field holding named counters per entry (reactions, poll options, tallies), next to the existing `counter`, which is unchanged. Vote with `POST /api/v1/<project>/<collection>/<entry>/counters/<field>/<key>`; a key is created on its first vote and must match `^[A-Za-z0-9_.:-]{1,64}$` (else 400). Response: `{key, count, changed}` for public votes, `{key, count}` for key-access bumps. A key `group:option` holds one option per visitor per group, so voting another option of the group moves the vote; a key without `:` takes one vote per visitor. Dedupe, 24h window and per-IP limit match counter votes. Key-access fields take `?by=n` (may be negative, floor 0). Option `maxKeys` (default 64, max 1024) caps distinct keys per entry: a new key past it gets 409, existing keys keep counting. The counters read endpoints return countermap fields as `{key: count}` (`{}` when empty) beside counter fields' `{up, down}`. Stored in the existing counters table, no migration.
-- Benchmark v2 (`bench/bench2.mjs` + `bench/run2.sh`): asks the server for its field types and generates per-type write/read phases plus counter and countermap vote phases automatically, so every new field type is benchmarked with zero driver changes. Results in `bench/results-v2/`, seeded with a node 2 vCPU history from v0.19.1 (one version before the counter field) through v0.24.0. v1 bench and its result history stay frozen for comparability.
-- Admin polish: the collapsed sidebar stacks the brand mark over the toggle (no more overlap in the rail); the entry editor gets required-field markers, width-capped number and date inputs, and a Save changes button in the status card that is enabled only while the form differs from its loaded values.
+- New field type `countermap`: named counters per entry (reactions, polls, tallies). Vote with `POST /api/v1/<project>/<collection>/<entry>/counters/<field>/<key>`; keys are created on first vote (`^[A-Za-z0-9_.:-]{1,64}$`). A `group:option` key holds one option per visitor per group (revoting moves the vote); a plain key takes one vote per visitor. Dedupe, 24h window and per-IP limit match `counter`. Key-access fields take `?by=n`. `maxKeys` option (default 64, max 1024) caps distinct keys (409 past cap). Counters read endpoints return countermap fields as `{key: count}`. Existing `counter` unchanged, no migration.
+- Benchmark v2 (`bench/bench2.mjs` + `bench/run2.sh`): asks the server for its field types and generates per-type phases automatically, so new field types are benchmarked with zero driver changes. History seeded v0.19.1 through v0.24.0 in `bench/results-v2/`; v1 bench stays frozen for comparability.
+- Admin polish: collapsed sidebar no longer overlaps brand mark and toggle; entry editor gets required-field markers, width-capped number/date inputs, and a Save changes button enabled only when the form is dirty.
 
 ## 0.23.0 (2026-09-22)
 

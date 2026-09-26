@@ -777,6 +777,18 @@ export function setApiKeyMcp(db, id, mcp) {
 // Only valid keys are cached; misses pay the hash+SELECT like before, so an
 // attacker probing random tokens cannot fill the map.
 const keyCache = new WeakMap<object, { gen: number; map: Map<string, any> }>();
+// The staleness cutoff string only needs second precision: rebuild it at most
+// once a second instead of Date+toISOString on every request.
+let cutoffAt = 0;
+let cutoffStr = '';
+function lastUsedCutoff() {
+  const now = Date.now();
+  if (now - cutoffAt >= 1000) {
+    cutoffAt = now;
+    cutoffStr = new Date(now - Number(process.env.LAST_USED_MS ?? 60000)).toISOString().slice(0, 19).replace('T', ' ');
+  }
+  return cutoffStr;
+}
 export function verifyApiKey(db, key) {
   if (!key) return null;
   let row;
@@ -793,7 +805,7 @@ export function verifyApiKey(db, key) {
   }
   // last_used_at is informational: write it at most once a minute instead of
   // a WAL write on every API read.
-  if (!row.last_used_at || row.last_used_at < new Date(Date.now() - Number(process.env.LAST_USED_MS ?? 60000)).toISOString().slice(0, 19).replace('T', ' ')) {
+  if (!row.last_used_at || row.last_used_at < lastUsedCutoff()) {
     db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
     // Keep the cached row's clock current so the hit path does not retrigger
     // the UPDATE on every request until the next generation refresh.

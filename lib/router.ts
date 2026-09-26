@@ -1,10 +1,10 @@
 // Tiny hand-written router for node:http. No Express, no dependencies.
 
 export class Router {
-  routes: any[];
+  routes: Map<string, any[]>;
 
   constructor() {
-    this.routes = []; // { method, pattern: RegExp, keys: string[], handler }
+    this.routes = new Map(); // method -> [{ pattern: RegExp, keys: string[], handler }]
   }
 
   add(method, path, handler) {
@@ -23,7 +23,9 @@ export class Router {
           .join('/') +
         '/?$',
     );
-    this.routes.push({ method, pattern, keys, handler });
+    let list = this.routes.get(method);
+    if (!list) this.routes.set(method, (list = []));
+    list.push({ pattern, keys, handler });
   }
 
   get(path, handler) {
@@ -35,8 +37,9 @@ export class Router {
   }
 
   match(method, pathname) {
-    for (const route of this.routes) {
-      if (route.method !== method) continue;
+    const list = this.routes.get(method);
+    if (!list) return null;
+    for (const route of list) {
       const m = route.pattern.exec(pathname);
       if (!m) continue;
       const params = {};
