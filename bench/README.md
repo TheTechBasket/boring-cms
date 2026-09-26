@@ -93,3 +93,29 @@ aborts if more than 5% of its ops error.
 If phase sizes must change, bump the `--scale` flag rather than editing
 counts, or note the change here; cross-version comparison assumes identical
 workloads.
+
+## Benchmark v2 (bench2.mjs + run2.sh)
+
+v1 above is frozen so its result history stays comparable. v2 is the new
+baseline going forward:
+
+- **Automatic field coverage.** The driver asks the running server
+  `GET /api/v1/<project>/field-types` and generates `field_<type>_write` and
+  `field_<type>_read` phases for every reported type, plus vote phases for
+  `counter` (vote, read totals) and `countermap` (vote, group switch, read
+  totals). A new field type gets benchmarked with zero driver changes; only a
+  type whose value cannot default to a string needs one line in `VALUES`.
+- **Per-field isolation.** One single-field collection per type, so a
+  slowdown names the field type instead of hiding in a mixed collection.
+- **Longer phases.** v1 whole runs were about 10s wall, which made single
+  runs swing 10-25% on machine noise (the v0.24.0 dip was exactly this, a
+  noisy session, confirmed by interleaved A/B runs). v2 runs about 20s per
+  combo with 4-6x the samples on hot phases.
+- **Cross-version history.** `run2.sh --src <checkout> --version vX` starts
+  the server from any git worktree but drives it with the current v2 client,
+  so one driver produces a comparable series. Seeded history starts at
+  v0.19.1 (one version before the counter field).
+
+Run: `bash bench/run2.sh` (node, 2 vCPU) or `bash bench/run2.sh node,bun,deno 1,2,4`.
+Results land in `bench/results-v2/<version>/`; same JSON shape as v1, same
+`summarize.mjs`, same constraints as above.

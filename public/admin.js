@@ -47,6 +47,26 @@
   if (scrim) scrim.addEventListener('click', () => set(true));
 }
 
+// Entry editor: the status-card Save button stays disabled until any input
+// differs from its loaded value; reverting an edit disables it again. Compare
+// against a serialized snapshot so the check is exact, not just "was touched".
+{
+  const form = document.getElementById('entry-form');
+  const save = document.querySelector('[data-entry-save]');
+  if (form && save) {
+    const snap = () => new URLSearchParams(new FormData(form)).toString();
+    const initial = snap();
+    const update = () => {
+      const dirty = snap() !== initial;
+      save.disabled = !dirty;
+      if (dirty) save.removeAttribute('title');
+      else save.title = 'No unsaved changes yet';
+    };
+    form.addEventListener('input', update);
+    form.addEventListener('change', update);
+  }
+}
+
 // Confirm destructive forms. Forms with a confirm input (project and
 // collection delete) require the typed slug to match; forms without one
 // (entry delete) just ask.
@@ -227,6 +247,7 @@ document.addEventListener('click', (event) => {
   const input = wrap.querySelector('input[type="text"]');
   const preview = wrap.querySelector('[data-image-preview]');
   input.value = pick.dataset.imageSet;
+  input.dispatchEvent(new Event('input', { bubbles: true })); // dirty tracker listens on the form
   if (preview) {
     preview.src = pick.dataset.imageSet;
     preview.classList.remove('hidden');
@@ -276,6 +297,7 @@ document.addEventListener('change', async (event) => {
     const field = wrap.querySelector('input[type="text"]');
     const preview = wrap.querySelector('[data-image-preview]');
     field.value = url;
+    field.dispatchEvent(new Event('input', { bubbles: true })); // dirty tracker listens on the form
     if (preview) {
       preview.src = url;
       preview.classList.remove('hidden');

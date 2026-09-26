@@ -3,6 +3,7 @@
 ## Active
 
 - [promotion.md](promotion.md): directory and community launch waves, sourced from seomade.app.
+- [backup.md](backup.md): backup/restore design, keeps SECRET_KEY out of routine data backups while giving restore-to-new-box a recovery path.
 
 ## Backlog
 
@@ -12,7 +13,6 @@
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
 - Media alt text + caption fields on the media row, included in the copy-markdown snippet.
 - Human slug option per collection: designate a field as public slug so API URLs read `/blog-posts/my-post` instead of UUID (UUID stays canonical).
-- Nightly per-project SQLite backup (single-file copy, rotate N) plus media manifest.
 - API request stats: per-key/per-day counters (calls, 429s, last endpoint hit) shown on the API keys page. In-memory counters only, flushed to a `request_stats` meta-style table on a timer (not per-request write) so it never adds DB I/O to the hot path; the rate limiter must never throttle its own stats flush or admin reads, only external API traffic.
 - Stage 3 leftovers (manual verify only, code shipped): real image upload with sharp installed; S3 backend against live R2 credentials.
 - Schema mutation over MCP (add_field/remove_field): deferred, schema read already exists via list_collections; revisit if migrations keep needing the dashboard. (Rest of the 2026-09-08 MCP v2 feedback shipped, see history.)

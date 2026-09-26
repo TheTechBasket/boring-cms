@@ -23,6 +23,7 @@ function assetVersion(rel: string): string {
 }
 const ADMIN_CSS_V = assetVersion('admin.css');
 const ADMIN_JS_V = assetVersion('admin.js');
+
 const MARKED_V = assetVersion('vendor/marked.esm.js');
 const MARKED_SRC = `/public/vendor/marked.esm.js?v=${MARKED_V}`;
 
@@ -92,11 +93,11 @@ const BUTTON_VARIANTS: Record<string, string> = {
   'ghost-destructive': 'text-destructive hover:bg-destructive/10',
 };
 
-function button({ label, variant = 'default', type = 'submit', small = false, name, value }: {
-  label: string; variant?: string; type?: string; small?: boolean; name?: string; value?: string;
+function button({ label, variant = 'default', type = 'submit', small = false, name, value, attrs = '' }: {
+  label: string; variant?: string; type?: string; small?: boolean; name?: string; value?: string; attrs?: string;
 }): string {
   const size = small ? 'h-7 px-2.5 text-xs' : '';
-  const extra = (name ? ` name="${name}"` : '') + (value !== undefined ? ` value="${escapeHtml(value)}"` : '');
+  const extra = (name ? ` name="${name}"` : '') + (value !== undefined ? ` value="${escapeHtml(value)}"` : '') + (attrs ? ` ${attrs}` : '');
   return `<button type="${type}"${extra} class="${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} ${size}">${escapeHtml(label)}</button>`;
 }
 
@@ -1151,6 +1152,9 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
   // New entries prefill the field default; existing values win.
   const v = value ?? f.default ?? '';
   const help = f.help ? `<span class="text-xs text-muted-foreground">${escapeHtml(f.help)}</span>` : '';
+  // One label for every branch; required fields carry a quiet marker that
+  // matches the native validation the constraint attributes already trigger.
+  const lab = `<span class="font-medium text-foreground">${escapeHtml(f.label)}${f.required ? '<span class="text-muted-foreground select-none" aria-hidden="true"> *</span>' : ''}</span>`;
   // Native constraint attributes mirror server-side validateEntryData, so
   // most mistakes are caught before the form ever submits.
   const constraintAttrs = [
@@ -1168,7 +1172,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
     case 'markdown':
       return `<div class="flex flex-col gap-1.5 text-sm" data-markdown-field data-marked-src="${MARKED_SRC}">
         <div class="flex items-center justify-between">
-          <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+          ${lab}
           <button type="button" data-preview-toggle class="text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0">Preview</button>
         </div>
         <textarea name="field_${f.name}" class="${TEXTAREA_CLASS}" rows="14" ${constraintAttrs}>${escapeHtml(v)}</textarea>
@@ -1178,13 +1182,13 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
     case 'boolean':
       return `<label class="flex items-center gap-2 text-sm">
         <input type="checkbox" name="field_${f.name}" value="1"${v ? ' checked' : ''} class="size-4 accent-primary">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         ${help}
       </label>`;
     case 'json': {
       const raw = typeof v === 'string' ? v : v === '' ? '' : JSON.stringify(v, null, 2);
       return `<label class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         <textarea name="field_${f.name}" class="${TEXTAREA_CLASS}" rows="10" placeholder="{ }" spellcheck="false"${f.required ? ' required' : ''}>${escapeHtml(raw)}</textarea>
         ${help}
       </label>`;
@@ -1201,7 +1205,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         })
         .join('');
       return `<div class="flex flex-col gap-1.5 text-sm" data-image-field>
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         <div class="flex gap-2">
           <input type="text" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
           ${popover({
@@ -1224,13 +1228,13 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
     }
     case 'counter':
       return `<div class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         <p class="m-0 text-muted-foreground">Up/down counter, managed by the server (${f.access === 'key' ? 'private, write key' : 'public'}). Totals are read from the API counters endpoint, not edited here.</p>
         ${help}
       </div>`;
     case 'countermap':
       return `<div class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         <p class="m-0 text-muted-foreground">Keyed counter map, managed by the server (${f.access === 'key' ? 'private, write key' : 'public'}). Keys are created on first vote, up to ${mapMaxKeys(f)}. Totals are read from the API counters endpoint, not edited here.</p>
         ${help}
       </div>`;
@@ -1241,7 +1245,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
         .map((o: any) => `<option value="${escapeHtml(o.slug)}"${selected.has(o.slug) ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
         .join('');
       return `<label class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         <select name="field_${f.name}"${f.multiple ? ' multiple size="6"' : ''} class="${SELECT_CLASS}${f.multiple ? ' h-auto' : ''}"${f.required ? ' required' : ''}>
           ${f.multiple ? '' : '<option value="">&mdash;</option>'}
           ${optionTags || '<option value="" disabled>No entries in the target collection yet</option>'}
@@ -1251,14 +1255,14 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
     }
     case 'number':
       return `<label class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
-        <input type="number" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
+        ${lab}
+        <input type="number" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS} max-w-56" ${constraintAttrs}>
         ${help}
       </label>`;
     case 'date':
       return `<label class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
-        <input type="date" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
+        ${lab}
+        <input type="date" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS} max-w-56" ${constraintAttrs}>
         ${help}
       </label>`;
     default: {
@@ -1267,7 +1271,7 @@ function fieldInput(f: any, value: unknown, { media = [], projectSlug = '', publ
       // editing an existing entry doesn't require leaving the page to check it.
       const looksLikeImage = typeof v === 'string' && /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(v);
       return `<label class="flex flex-col gap-1.5 text-sm">
-        <span class="font-medium text-foreground">${escapeHtml(f.label)}</span>
+        ${lab}
         <input type="text" name="field_${f.name}" value="${escapeHtml(v)}" class="${INPUT_CLASS}" ${constraintAttrs}>
         ${looksLikeImage ? `<img src="${escapeHtml(v)}" alt="" loading="lazy" class="h-16 w-auto object-cover border border-border">` : ''}
         ${help}
@@ -1419,6 +1423,7 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
           <p class="text-xs text-muted-foreground">ID: <code>${entry.id}</code><br>Updated: ${timeAgo(entry.updated_at)}${entry.published_at ? (entryState(entry.status, entry.published_at) === 'scheduled' ? `<br>Goes live: <time data-utc="${escapeHtml(isoUtc(entry.published_at))}">${escapeHtml(isoUtc(entry.published_at))}</time>` : `<br>Published: ${timeAgo(entry.published_at)}`) : ''}</p>
           ${dirty ? '<p class="text-xs font-medium text-primary">Draft has changes that are not live yet. Republish to push them to the API.</p>' : ''}
           <div class="flex gap-2 flex-wrap">
+            ${button({ label: 'Save changes', attrs: 'form="entry-form" data-entry-save disabled title="No unsaved changes yet"' })}
             ${entry.status === 'published'
               ? `${dirty ? `<form method="post" action="${base}/${entry.slug}/publish">${button({ label: 'Republish' })}</form>` : ''}<form method="post" action="${base}/${entry.slug}/unpublish">${button({ label: 'Unpublish', variant: 'outline' })}</form>`
               : `<form method="post" action="${base}/${entry.slug}/publish" class="flex flex-col gap-2"><label class="text-xs text-muted-foreground" for="publish_at">Publish at (your local time, optional). Empty means now; a future time keeps it hidden from the API until then.</label><input type="datetime-local" id="publish_at" name="publish_at" data-local-to-utc class="${INPUT_CLASS}">${button({ label: 'Publish' })}</form>`}
@@ -1441,14 +1446,14 @@ export function entryEditorPage({ user, projects, project, collection, entry, re
     body: `
       <p class="text-sm"><a class="text-link hover:underline" href="${base}">&larr; ${escapeHtml(collection.name)}</a></p>
       <div class="grid gap-8 @4xl:grid-cols-[minmax(0,1fr)_320px] items-start">
-        <form method="post" action="${action}" class="flex flex-col gap-5 min-w-0">
+        <form id="entry-form" method="post" action="${action}" class="flex flex-col gap-5 min-w-0">
           <label class="flex flex-col gap-1.5 text-sm">
             <span class="font-medium text-foreground">Slug</span>
             <input type="text" name="entry_slug" value="${escapeHtml(entry?.slug ?? '')}" placeholder="auto (random id)" class="${INPUT_CLASS}">
             <span class="text-xs text-muted-foreground">${isNew ? 'Public id in the API URL. Leave empty for a generated id.' : 'Public id in the API URL. Changing it changes this entry’s API URL, so update anything linking to it.'}</span>
           </label>
           ${fieldInputs || '<p class="text-sm text-muted-foreground">This collection has no fields yet. Add fields on the collection page.</p>'}
-          ${button({ label: isNew ? 'Create entry' : 'Save changes' })}
+          ${isNew ? button({ label: 'Create entry' }) : ''}
         </form>
         ${sidePanel}
       </div>

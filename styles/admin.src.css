@@ -247,6 +247,19 @@ details[data-popover][open] > .popover-panel {
 .nav-collapsed .nav-toggle-btn {
 	margin-left: 0;
 }
+/* The rail cannot fit the brand mark and the toggle side by side
+   (they overlap); stack them so the rail header reads mark-over-toggle. */
+.nav-collapsed .nav-brand {
+	flex-direction: column;
+	gap: 0.5rem;
+	padding-block: 0.5rem;
+}
+/* Rail breathing room: the expanded panel's p-3 leaves only ~32px of content
+   inside the rail, which squeezes the project avatar and hover boxes. Slimmer
+   inline padding plus the 4rem rail width below gives controls ~52px. */
+.nav-collapsed .admin-sidebar {
+	padding-inline: 0.375rem;
+}
 
 /* The toggle icon points at the panel; flip it on the rail so it reads as
    "expand". Transition the glyph, not the sidebar width alone. */
@@ -278,7 +291,7 @@ details[data-popover][open] > .popover-panel {
 		height: 100vh;
 	}
 	.nav-collapsed .admin-sidebar {
-		width: 3.5rem;
+		width: 4rem;
 	}
 }
 
@@ -291,11 +304,11 @@ details[data-popover][open] > .popover-panel {
 		box-shadow: 2px 0 12px rgb(0 0 0 / 0.3);
 	}
 	.nav-collapsed .admin-sidebar {
-		width: 3.5rem;
+		width: 4rem;
 		box-shadow: none;
 	}
 	.admin-main {
-		padding-left: 4.5rem;
+		padding-left: 5rem;
 	}
 	html:not(.nav-collapsed) .nav-scrim {
 		display: block;

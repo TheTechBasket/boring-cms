@@ -45,7 +45,7 @@ The entry must be published and past its go-live time, otherwise every counter r
 
 - **Up and down votes**: two buttons, show `up`, `down` or `up - down`.
 - **Page views**: a public field where each page load sends `up`. Read `up` as unique visitors per day, not raw hits (see below).
-- **Poll**: one counter field per option on a single entry (`opt_a`, `opt_b`, `opt_c`). The result of an option is its `up` total.
+- **Poll**: use one countermap field with `group:option` keys instead (see the countermap section below). One counter field per option (`opt_a`, `opt_b`, `opt_c`) still works but needs a schema change for every new option.
 - **Quiz**: a poll with a known right answer. Keep the answer in your page, not the CMS, and count options as in a poll.
 - **Private tally** (`access: key`): a write key adds any step from 1 to 1000 with `?by=`, with no dedupe. Use it for server-side counts such as downloads or purchases. Never expose that key in a browser.
 
@@ -57,6 +57,33 @@ The entry must be published and past its go-live time, otherwise every counter r
 - Totals are flushed to the database every 5 seconds. A hard crash can lose the last 5 seconds of votes.
 - Public votes are rate limited per IP if the project owner sets a vote limit. New projects start with the limit off.
 - Because the server cannot know a person, a browser check in `localStorage` is the friendly guard, and the server dedupe is the backstop. Neither stops someone determined. Treat public counters as soft signals, never as a real election.
+
+## The countermap field
+
+A countermap field holds many named counters in one field: reactions, poll options, tallies. Keys are created by the first vote, so adding a reaction or a poll option never touches the schema. Like the counter field, values live outside the entry payload: voting never changes the entry, its ETag, its revisions or its webhooks.
+
+| Endpoint | Auth | What it does |
+| --- | --- | --- |
+| `POST /api/v1/<project>/<collection>/<entry>/counters/<field>/<key>` | none for public fields, write key for `access: key` | Add a vote to that key. Returns `{key, count}`, plus `changed` for public votes. Key-access fields also take `?by=n` (n may be negative, the count floors at 0) |
+| `GET .../counters` and `GET .../counters?slugs=a,b,c` | same as counter fields | Countermap fields come back as `{key: count}` (`{}` when no key has votes yet) beside counter fields' `{up, down}` |
+
+- A key must match `^[A-Za-z0-9_.:-]{1,64}$`, anything else is a 400.
+- A plain key (`heart`, `laugh`) takes one vote per visitor. Repeat votes are ignored (`changed: false`).
+- A `group:option` key holds one option per visitor per group: voting `poll:b` after `poll:a` moves the vote, `a` drops by 1, `b` rises by 1. That is the whole poll pattern, one field, no schema per option.
+- `maxKeys` (default 64, max 1024) caps distinct keys per entry. A vote for a new key past the cap gets a 409; existing keys keep counting.
+- Dedupe, the 24 hour window, per-IP rate limit, the 5 second flush and the published-entry 404 rule are the same as counter fields.
+
+Poll with three options, no schema beyond one countermap field `poll`:
+
+```js
+const BASE = 'https://cms.example.com/api/v1/blog/posts/my-entry/counters';
+// vote (switching an earlier choice automatically):
+await fetch(`${BASE}/poll/poll:option-b`, { method: 'POST' });
+// read results: {"poll:option-a": 12, "poll:option-b": 31, ...}
+const totals = (await (await fetch(BASE)).json()).poll;
+```
+
+Reactions are the same with plain keys: `POST .../counters/reactions/heart`, one vote per visitor per key.
 
 ## Minimal script (proof of concept)
 
