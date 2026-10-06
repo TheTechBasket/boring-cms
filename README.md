@@ -71,16 +71,24 @@ Create an API key under your project, then fetch content:
 
 ```bash
 # List entries (supports limit, offset, updated_since)
+# Body: { "items": [...], "total": <count for the same filter> }
 curl -H "Authorization: Bearer yn_..." \
   http://localhost:3000/api/v1/<project>/<collection>
+
+# Which collections changed: { "collections": { "<slug>": "<etag>" } }
+curl -H "Authorization: Bearer yn_..." \
+  http://localhost:3000/api/v1/<project>/_version
 
 # Single entry by slug
 curl -H "Authorization: Bearer yn_..." \
   http://localhost:3000/api/v1/<project>/<collection>/<slug>
 ```
 
-Responses carry an `ETag` tied to the project's content version. Send
-`If-None-Match` for cheap `304` responses until the next publish.
+Responses carry an `ETag` per collection. Send `If-None-Match` for cheap
+`304` responses until the next change in that collection. `/_version`
+returns every collection's tag in one call (with its own ETag and `304`),
+so a client can poll once and refetch only the collections that moved.
+`HEAD` works on every route.
 
 Every MCP tool is also callable over REST:
 `POST /api/v1/<project>/call/<tool>` with tool arguments as JSON body

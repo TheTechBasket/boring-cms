@@ -396,6 +396,14 @@ async function main() {
   await phase('read_304_etag', N(300), async () => {
     expectStatus(await api(`/api/v1/${project}/short-posts`, { headers: { 'If-None-Match': etag } }), 304, 200);
   });
+  // v0.25.0: per-collection change map, polled by sync clients.
+  await phase('read_version_map', N(300), async () => {
+    expectStatus(await api(`/api/v1/${project}/_version`), 200);
+  });
+  const verTag = (await api(`/api/v1/${project}/_version`)).headers.get('etag');
+  await phase('read_version_304', N(300), async () => {
+    expectStatus(await api(`/api/v1/${project}/_version`, { headers: { 'If-None-Match': verTag } }), 304, 200);
+  });
 
   // Update then immediately read back through the public API; asserts the
   // republished value is visible (write -> materialize -> read roundtrip).

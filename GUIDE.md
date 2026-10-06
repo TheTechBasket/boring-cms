@@ -260,7 +260,8 @@ Every project has its own base URL, `https://<host>/api/v1/<project>`, its own S
 
 | Need | Call | Key |
 | --- | --- | --- |
-| List published entries | `GET /<collection>?limit=50&offset=0&updated_since=<ISO date>` | read |
+| List published entries | `GET /<collection>?limit=50&offset=0&updated_since=<ISO date>`, returns `{items, total}` | read |
+| Which collections changed | `GET /_version`, returns `{collections: {<slug>: <etag>}}` | read |
 | One entry | `GET /<collection>/<entry>` | read |
 | Schema and field types | `GET /schema`, `GET /field-types` | read |
 | Any MCP tool over plain REST | `POST /call/<tool>` with the tool arguments as a JSON body | read for read tools, write for write tools |
@@ -274,9 +275,11 @@ Every project has its own base URL, `https://<host>/api/v1/<project>`, its own S
 Behaviours worth knowing before you build:
 
 - **Drafts are invisible to the API.** Reads return only published entries. Publish with `publish_entry`. A future `at` keeps the entry hidden, including its counters, until that time.
-- **Caching is built in.** List and entry responses carry an opaque `ETag`. Send it back as `If-None-Match` and an unchanged project answers `304` with no body. Counter reads are `no-cache`, so totals stay fresh.
+- **Caching is built in.** List and entry responses carry an opaque `ETag`, one per collection. Send it back as `If-None-Match` and an unchanged collection answers `304` with no body. A publish in one collection does not change the others' tags; imports, restores, ref rewrites and collection deletes change all of them. Counter reads are `no-cache`, so totals stay fresh. `HEAD` answers like `GET` without a body.
+- **Sync with `/_version` and `total`.** Poll `GET /_version` (one small request, `304` when nothing moved), compare each collection's tag with the one you stored, and refetch only the collections that differ. For an incremental sync, page with `updated_since`; `total` is the count of live published entries for the same filter, independent of `limit` and `offset`, so you can check a paged read is complete before deleting local rows. Pages are stable when timestamps tie.
 - **Rate limits are per project and off for new projects.** The owner can set a write limit per key (covers REST writes, `/call` and `/mcp`) and a vote limit per IP (public counter votes only). Reads and counter totals are never limited. When a limit is on, responses carry `RateLimit-*` headers and a `429` carries `Retry-After`.
 - **Webhooks** can notify your build when an entry is published, so a static site can rebuild on change.
+- **MCP is POST only.** `GET /mcp/<project>` answers `405` with `Allow: POST`. The server also answers `/robots.txt` with `Disallow: /`, so crawlers skip the admin and API.
 
 ### Why it suits agents
 

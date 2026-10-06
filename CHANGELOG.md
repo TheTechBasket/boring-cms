@@ -2,6 +2,16 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.25.0 (unreleased)
+
+- New `GET /api/v1/<project>/_version`: one keyed request returns `{collections: {slug: etag}}` with its own ETag/304. Each tag equals that collection's list ETag. No migration.
+- API ETags are now per collection: a publish, unpublish, delete or schema change in one collection no longer flips every other collection's tag. Ref rewrites, imports, restores and collection deletes still move all tags. No migration (version keys live in `meta`).
+- The public list response now carries `total`: the count of live published entries matching `updated_since`, independent of `limit`/`offset`. A sync client can check that a paged read was complete before deleting local rows. Computed only on a response-cache miss.
+- Fix: list paging is now stable when timestamps tie (`id` tiebreak on the public list and admin/MCP `list_entries`, in index order so no extra sort), so offset pages no longer skip or repeat rows written in the same second.
+- `HEAD` now answers like `GET` on every route (was 404). `GET /mcp/<project>` returns 405 with `Allow: POST` (was 404). The server answers `/robots.txt` with `Disallow: /`.
+- Admin collection page: the field usage panel now reads every field in one table scan instead of two scans per field (930 ms average on a 4,000-entry collection in prod).
+- Fix: the list response cache is now capped at 32 MB of bodies per project (was 500 pages, any size). Paging through a large collection could hold over 1 GB of memory.
+
 ## 0.24.1 (2026-09-26)
 
 - Performance: 21% less server CPU per public API read. Dispatcher splits path from query string instead of building a WHATWG URL per request, routes bucketed per HTTP method, API key verification rebuilds its last-used cutoff string at most once a second, first-run setup gate stops counting users once an admin exists. No behavior change, no migration.

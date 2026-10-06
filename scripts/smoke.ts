@@ -368,6 +368,7 @@ async function main() {
   assert.ok(etag, 'API response should carry an ETag');
   const list: any = await authed.json();
   assert.equal(list.items.length, 1, 'published list should have one item');
+  assert.equal(list.total, 1, 'list should carry the total of matching published entries');
   assert.equal(list.items[0].slug, entrySlug);
   assert.equal(list.items[0].body, '# Second draft', 'published snapshot should carry the field value');
 
@@ -377,10 +378,25 @@ async function main() {
   const cached = await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': etag } });
   assert.equal(cached.status, 304, 'matching If-None-Match should be a 304');
 
+  const head = await fetch(`${base}/api/v1/${slug}/blog-posts`, { method: 'HEAD', headers: { Authorization: `Bearer ${apiKey}` } });
+  assert.equal(head.status, 200, 'HEAD should route like GET');
+  assert.equal(head.headers.get('etag'), etag, 'HEAD should carry the GET ETag');
+  assert.equal((await fetch(`${base}/api/v1/${slug}/blog-posts`, { method: 'HEAD' })).status, 401, 'keyless HEAD should be 401 like GET');
+  assert.equal((await fetch(`${base}/mcp/${slug}`)).status, 405, 'GET on the MCP endpoint should be 405');
+  assert.ok((await (await fetch(`${base}/robots.txt`)).text()).includes('Disallow: /'), 'robots.txt should disallow all');
+
+  const verRes = await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}` } });
+  const verMap: any = await verRes.json();
+  assert.equal(verMap.collections['blog-posts'], etag, '_version should list the same ETag the list route sends');
+  assert.equal((await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': verRes.headers.get('etag') } })).status, 304, '_version should 304 on a matching tag');
+  assert.equal((await fetch(`${base}/api/v1/${slug}/_version`)).status, 401, '_version should need a key');
+
   const sinceOld = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2000-01-01T00:00:00Z`, { headers: { Authorization: `Bearer ${apiKey}` } });
   assert.equal(((await sinceOld.json()) as any).items.length, 1, 'old updated_since should return the entry');
   const sinceFuture = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2099-01-01T00:00:00Z`, { headers: { Authorization: `Bearer ${apiKey}` } });
-  assert.equal(((await sinceFuture.json()) as any).items.length, 0, 'future updated_since should return nothing');
+  const futureBody: any = await sinceFuture.json();
+  assert.equal(futureBody.items.length, 0, 'future updated_since should return nothing');
+  assert.equal(futureBody.total, 0, 'total should follow the updated_since filter');
   const sinceBad = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=not-a-date`, { headers: { Authorization: `Bearer ${apiKey}` } });
   assert.equal(sinceBad.status, 400, 'invalid updated_since should be 400');
 
@@ -543,6 +559,7 @@ async function main() {
   // and can be restored; check_schema_health reports live drift.
   {
     const versionBefore = (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
+    const vmapBefore: any = await (await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
 
     const blockedAdd = await mcpTool(upWriteKey, 'add_field', { collection: 'blog-posts', label: 'Category', type: 'text', required: true });
     assert.ok(blockedAdd.isError, 'required field add on a collection with entries should be blocked without force');
@@ -553,6 +570,14 @@ async function main() {
 
     const versionAfterAdd = (await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
     assert.notEqual(versionAfterAdd, versionBefore, 'content_version (ETag) should bump on a schema field add');
+    const vmap: any = await (await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}` } })).json();
+    assert.equal(vmap.collections['blog-posts'], versionAfterAdd, '_version should track the changed collection');
+    for (const [c, tag] of Object.entries(vmap.collections)) {
+      if (c === 'blog-posts') continue;
+      const own = (await fetch(`${base}/api/v1/${slug}/${c}?limit=1`, { headers: { Authorization: `Bearer ${apiKey}` } })).headers.get('etag');
+      assert.equal(own, tag, `_version tag for ${c} should match its list ETag`);
+      assert.equal(tag, vmapBefore.collections[c], `a blog-posts write should not move the ${c} tag`);
+    }
 
     const blockedUpdate = await mcpTool(upWriteKey, 'update_field', { collection: 'blog-posts', field: 'category', type: 'number' });
     assert.ok(blockedUpdate.isError, 'a field update that still breaks existing entries should be blocked without force');

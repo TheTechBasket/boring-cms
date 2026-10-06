@@ -45,7 +45,7 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
           { name: 'If-None-Match', in: 'header', schema: { type: 'string' }, description: 'ETag from a previous response; a match returns an empty 304.' },
         ],
         responses: {
-          200: jsonResponse('Entry list.', { type: 'object', properties: { items: { type: 'array', items: { $ref: '#/components/schemas/Entry' } } } }, ETAG_HEADER),
+          200: jsonResponse('Entry list. total counts every live published entry matching updated_since, independent of limit/offset.', { type: 'object', properties: { items: { type: 'array', items: { $ref: '#/components/schemas/Entry' } }, total: { type: 'integer' } } }, ETAG_HEADER),
           304: { description: 'Not modified (If-None-Match matched).', headers: ETAG_HEADER },
           401: ERR('Missing or invalid API key.'), 404: ERR('Unknown project or collection.'),
         },
@@ -142,6 +142,14 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
         responses: { 200: jsonResponse('Apply report.', { type: 'object' }, RATE_HEADERS), 400: ERR('Invalid document.'), 401: ERR('Unauthorized.'), 403: ERR('Read-scope key.'), 429: ERR('Rate limited.') },
       },
     },
+    [p('/_version')]: {
+      get: {
+        tags: ['content'], summary: 'Per-collection change tags', security: BEARER,
+        description: 'collections: slug to the same ETag that collection\'s list route sends. A write to one collection moves only its tag (ref rewrites, imports and collection deletes move all). Poll this with If-None-Match and refetch only the collections whose tag changed.',
+        parameters: [{ name: 'If-None-Match', in: 'header', schema: { type: 'string' }, description: 'ETag of a previous response; a match returns an empty 304.' }],
+        responses: { 200: jsonResponse('Change map.', { type: 'object', properties: { collections: { type: 'object', additionalProperties: { type: 'string' } } } }, ETAG_HEADER), 304: { description: 'Nothing changed.' }, 401: ERR('Unauthorized.') },
+      },
+    },
     [p('/field-types')]: {
       get: { tags: ['schema'], summary: 'Field type introspection', security: BEARER, responses: { 200: jsonResponse('Value shape and accepted options per field type.'), 401: ERR('Unauthorized.') } },
     },
@@ -220,7 +228,7 @@ export function buildOpenApi({ origin, project, rateLimit = 0, counterLimit = 0 
           'X-Forwarded-For': 'Read as the client IP only when the server runs with TRUST_PROXY=1 (set it when behind a proxy).',
         },
         response: {
-          ETag: 'On content reads. Changes when anything published changes, including scheduled go-lives.',
+          ETag: 'On content reads. Per collection: changes when that collection\'s published content or schema changes, including scheduled go-lives.',
           'RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset': 'On every rate-limited endpoint (writes, /call, /mcp, public votes).',
           'Retry-After': 'On 429 responses.',
           'Cache-Control': 'no-cache on counter reads; media files are immutable for one year.',

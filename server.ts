@@ -86,6 +86,7 @@ import {
   listPublished,
   apiEtag,
   collectionIdBySlug,
+  countPublished,
   getPublished,
   slugify,
   uniqueSlug,
@@ -1499,7 +1500,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const filter = { q, status };
     const total = countEntries(db, ctx.collection.id, filter);
     const entries = listEntries(db, ctx.collection.id, { limit, offset: (page - 1) * limit, ...filter });
-    const usage = Object.fromEntries(ctx.collection.fields.map((f) => [f.name, fieldUsage(db, ctx.collection.id, f.name)]));
+    const usage = fieldUsage(db, ctx.collection.id, ctx.collection.fields.map((f) => f.name));
     html(req, res, 200, collectionPage({ ...ctx, entries, page, totalPages: Math.max(1, Math.ceil(total / limit)), q, status, fieldTypes: FIELD_TYPES, collections: listCollections(db), fieldUsage: usage }));
   }));
 
@@ -1512,7 +1513,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
         await handler(req, res, params, ctx, db);
       } catch (err) {
         if (!(err instanceof SchemaImpactError)) throw err;
-        const usage = Object.fromEntries(ctx.collection.fields.map((f) => [f.name, fieldUsage(db, ctx.collection.id, f.name)]));
+        const usage = fieldUsage(db, ctx.collection.id, ctx.collection.fields.map((f) => f.name));
         html(req, res, 400, collectionPage({
           ...ctx,
           collection: getCollection(db, ctx.collection.slug),
@@ -1827,7 +1828,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       const ver = contentVersion(db);
       const cid = collectionIdBySlug(db, params.collection, ver);
       if (cid === null) return json(req, res, 404, { error: 'not_found' });
-      const etag = apiEtag(db, cid, ver, config.masterKey);
+      const etag = apiEtag(db, cid, config.masterKey);
       if (req.headers['if-none-match'] === etag) return send(req, res, 304, '', { ETag: etag });
       const collection = { id: cid };
       return handler(req, res, params, { db, collection, etag });
@@ -1880,6 +1881,20 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     const ctx = apiProject(req, res, params);
     if (!ctx) return;
     json(req, res, 200, exportSchema(ctx.db));
+  });
+
+  // One request tells a client which collections changed: each value is the
+  // same ETag the collection's list route sends, so a sync compares tags and
+  // refetches only the moved ones. The whole map carries its own ETag too.
+  router.get('/api/v1/:project/_version', (req, res, params) => {
+    const ctx = apiProject(req, res, params);
+    if (!ctx) return;
+    const collections = {};
+    for (const c of ctx.db.prepare('SELECT id, slug FROM collections ORDER BY slug').all()) collections[c.slug] = apiEtag(ctx.db, c.id, config.masterKey);
+    const body = JSON.stringify({ collections });
+    const etag = `"${createHash('sha256').update(body).digest('base64url').slice(0, 16)}"`;
+    if (req.headers['if-none-match'] === etag) return send(req, res, 304, '', { ETag: etag });
+    send(req, res, 200, body, { 'Content-Type': 'application/json; charset=utf-8', ETag: etag });
   });
 
   router.get('/api/v1/:project/field-types', (req, res, params) => {
@@ -2044,16 +2059,18 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   // one (etag, db.gen) pair: etag covers publish and scheduled go-live, gen
   // covers every other write that can change output (draft edits move
   // updated_at). Any write drops the lot, so it can never serve stale data.
-  const respCache = new WeakMap<object, { etag: string; gen: number; map: Map<string, { body: string; gz?: Buffer }> }>();
+  const respCache = new WeakMap<object, { etag: string; gen: number; bytes: number; map: Map<string, { body: string; gz?: Buffer }> }>();
+  // ponytail: whole-map reset on overflow, LRU if hot pages keep getting evicted
+  const RESP_CACHE_BYTES = 32 * 1024 * 1024; // per db: unbounded pages held 1.2 GB on prod
   function cachedJson(req, res, db, etag, make: () => any) {
     let c = respCache.get(db);
-    if (!c || c.etag !== etag || c.gen !== (db.gen ?? 0) || c.map.size > 500) respCache.set(db, (c = { etag, gen: db.gen ?? 0, map: new Map() }));
+    if (!c || c.etag !== etag || c.gen !== (db.gen ?? 0) || c.map.size > 500 || c.bytes > RESP_CACHE_BYTES) respCache.set(db, (c = { etag, gen: db.gen ?? 0, bytes: 0, map: new Map() }));
     let hit = c.map.get(req.url);
     if (!hit) {
       const payload = make();
       if (!payload) return false;
       hit = { body: JSON.stringify(payload) };
-      if (hit.body.length < 1_000_000) c.map.set(req.url, hit);
+      if (hit.body.length < 1_000_000) { c.map.set(req.url, hit); c.bytes += hit.body.length; }
     }
     send(req, res, 200, hit.body, { 'Content-Type': 'application/json; charset=utf-8', ETag: etag }, hit);
     return true;
@@ -2222,7 +2239,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (updatedSince && Number.isNaN(new Date(updatedSince).getTime())) {
       return json(req, res, 400, { error: 'invalid_updated_since', hint: 'ISO 8601 or "YYYY-MM-DD HH:MM:SS" (UTC)' });
     }
-    cachedJson(req, res, db, etag, () => ({ items: listPublished(db, collection.id, { limit, offset, updatedSince }) }));
+    cachedJson(req, res, db, etag, () => ({ items: listPublished(db, collection.id, { limit, offset, updatedSince }), total: countPublished(db, collection.id, updatedSince) }));
   }));
 
   router.get('/api/v1/:project/:collection/:entry', apiHandler((req, res, params, { db, collection, etag }) => {
@@ -2273,6 +2290,10 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   });
 
   // ---- MCP endpoint (per project, Bearer key, JSON-RPC over POST) ---------
+
+  // Streamable HTTP clients probe GET for an SSE stream; 405 tells them this
+  // server is POST-only (the spec's answer) instead of a misleading 404.
+  router.get('/mcp/:project', (req, res) => json(req, res, 405, { error: 'method_not_allowed' }, { Allow: 'POST' }));
 
   router.post('/mcp/:project', async (req, res, params) => {
     const project = apiProjectBySlug(params.project);
@@ -2365,6 +2386,9 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
         hasUsers = true;
       }
     }
+
+    // Admin UI and keyed API only: nothing here is for crawlers.
+    if (pathname === '/robots.txt') return send(req, res, 200, 'User-agent: *\nDisallow: /\n', { 'Content-Type': 'text/plain; charset=utf-8' });
 
     if (pathname === '/') {
       return redirect(req, res, '/admin/projects');

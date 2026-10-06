@@ -36,8 +36,9 @@ export class Router {
     this.add('POST', path, handler);
   }
 
+  // HEAD runs the GET handler; node:http drops the body and keeps headers.
   match(method, pathname) {
-    const list = this.routes.get(method);
+    const list = this.routes.get(method === 'HEAD' ? 'GET' : method);
     if (!list) return null;
     for (const route of list) {
       const m = route.pattern.exec(pathname);

@@ -3,12 +3,14 @@
 ## Active
 
 - [promotion.md](promotion.md): directory and community launch waves, sourced from seomade.app.
+- [ops-2026-10.md](ops-2026-10.md): follow-ups from the 2026-10-06 Cloudflare and server log review (deploy v0.25.0, nginx localhost fix, 1.2 GB RSS, WAF rule draft).
 - [backup.md](backup.md): backup/restore design, keeps SECRET_KEY out of routine data backups while giving restore-to-new-box a recovery path.
 
 ## Backlog
 
 - Packaging/distribution, later candidates (npm path shipped 2026-09-17, see history): (1) single binary via `deno compile` (deno 2.6.8 runs the server unmodified, verified in bench v0.11.0); (2) `bun build --compile` single binary: viable since bun 1.4.2 added `node:sqlite` (1.3.14 failed at import; 1.4.2 passes the full bench and posts the best numbers and lowest RSS). Keep sharp optional in all of them.
 - Webhook debounce/coalesce window per project ("fire at most once per N minutes, batched events") so batch pushes (hundreds of entries) do not queue a build per entry. Not needed yet: a consumer site triggers its deploy hook once at the end of a publishing run instead. Build when a consumer actually wants per-entry webhooks as a build trigger.
+- SUGGESTION from the quotedtale-com session (2026-10-01), not a boring-cms decision, nothing agreed or scheduled: make the webhook usable as a scheduled-post build trigger. Finding: the webhook fires when `publish_entry` is called (with or without `at`), never at go-live, so a consumer building on it sees the post still hidden. Ideas, each optional: (1) go-live event: a timer scans `published_at` between the last tick and now and fires `entry.live`; persist the last-fired mark so a restart neither drops nor repeats events. (2) Coalescing: the debounce item above, one POST per window with a `changed` count instead of one per entry. (3) Per-project event filter (for example `entry.live` only). (4) Durable retries: small outbox table instead of in-memory retries (the `ponytail:` note in `lib/webhooks.ts`). (5) Small `GET /api/_version` returning a combined opaque ETag across collections, so a consumer can poll one cheap URL (shipped in v0.25.0 as `GET /api/v1/<project>/_version`, per-collection tags). `apiEtag` (`lib/content.ts`) already flips on go-live, publish, unpublish, delete and edits of live entries. The quotedtale-com plan currently favors polling that ETag and compares it with the ETag recorded in the last deployed build, so only (5) would be needed there.
 - Relation field API expansion on `?include=`: the relation field type itself is shipped (picker, target collection, multiple, one-save type switch from text); only the API-side expansion of referenced entries remains, build when a consumer needs it.
 - API list filtering/sorting: `?field=value`, `?sort=-date` on the read API, driven by the collection schema. Pairs with stage 5 types.
 - Media alt text + caption fields on the media row, included in the copy-markdown snippet.

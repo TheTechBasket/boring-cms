@@ -117,8 +117,23 @@ export function contentVersion(db) {
   return e.ver;
 }
 
-export function bumpContentVersion(db) {
-  db.prepare("UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'content_version'").run();
+// collectionId scopes the change for the per-collection ETags (cv:<id>);
+// without one the change can touch any collection (ref rewrite, import,
+// collection delete), so the shared cv:* epoch moves every collection's tag.
+export function bumpContentVersion(db, collectionId = null) {
+  // One statement, so one commit: a second autocommit cost ~20% on publish.
+  db.prepare("INSERT INTO meta (key, value) VALUES ('content_version', '1'), (?, '1') ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1").run(collectionId == null ? 'cv:*' : `cv:${collectionId}`);
+}
+
+// "<epoch>.<own>" for one collection, from one meta scan per write generation.
+const cvCache = new WeakMap<object, { gen: number; m: Map<string, string> }>();
+export function collectionVersion(db, collectionId) {
+  let e = cvCache.get(db);
+  if (!e || db.gen === undefined || e.gen !== db.gen) {
+    const m = new Map<string, string>(db.prepare("SELECT key, value FROM meta WHERE key LIKE 'cv:%'").all().map((r: any) => [r.key, r.value] as [string, string]));
+    cvCache.set(db, (e = { gen: db.gen, m }));
+  }
+  return `${e.m.get('cv:*') ?? '0'}.${e.m.get(`cv:${collectionId}`) ?? '0'}`;
 }
 
 // ---- Bulk cosmetic ref rewrite -------------------------------------------
@@ -339,7 +354,7 @@ export function addCollectionField(db, collectionSlug, { label, type, name: requ
   }
   const fields = [...collection.fields, field];
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
-  bumpContentVersion(db);
+  bumpContentVersion(db, collection.id);
   return getCollection(db, collectionSlug);
 }
 
@@ -365,7 +380,7 @@ export function reorderCollectionFields(db, collectionSlug, orderedNames) {
   const fields = orderedNames.map((n) => byName.get(n)).filter(Boolean);
   if (fields.length !== collection.fields.length) return collection; // stale client order, ignore
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
-  bumpContentVersion(db);
+  bumpContentVersion(db, collection.id);
   return getCollection(db, collectionSlug);
 }
 
@@ -401,7 +416,7 @@ export function updateCollectionField(db, collectionSlug, fieldName, props) {
   }
   const fields = collection.fields.map((f) => (f.name === fieldName ? next : f));
   db.prepare('UPDATE collections SET fields = ? WHERE id = ?').run(JSON.stringify(fields), collection.id);
-  bumpContentVersion(db);
+  bumpContentVersion(db, collection.id);
   return getCollection(db, collectionSlug);
 }
 
@@ -475,7 +490,7 @@ export function removeCollectionField(db, collectionSlug, fieldName) {
   const fields = collection.fields.filter((f) => f.name !== fieldName);
   const archived = [...collection.archived_fields, { ...removed, removed_at: new Date().toISOString() }];
   db.prepare('UPDATE collections SET fields = ?, archived_fields = ? WHERE id = ?').run(JSON.stringify(fields), JSON.stringify(archived), collection.id);
-  bumpContentVersion(db);
+  bumpContentVersion(db, collection.id);
   return getCollection(db, collectionSlug);
 }
 
@@ -502,25 +517,18 @@ export function restoreCollectionField(db, collectionSlug, fieldName, force = fa
   const fields = [...collection.fields, field];
   const archived = collection.archived_fields.filter((f) => f.name !== fieldName);
   db.prepare('UPDATE collections SET fields = ?, archived_fields = ? WHERE id = ?').run(JSON.stringify(fields), JSON.stringify(archived), collection.id);
-  bumpContentVersion(db);
+  bumpContentVersion(db, collection.id);
   return getCollection(db, collectionSlug);
 }
 
-// How many entries carry a real value for a field, and how unique those
-// values are. Shown before a field delete so its impact is visible.
-export function fieldUsage(db, collectionId, fieldName) {
-  const path = `$.${fieldName}`;
-  const total = db.prepare('SELECT COUNT(*) AS n FROM entries WHERE collection_id = ?').get(collectionId).n;
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS filled, COUNT(DISTINCT json_extract(data, ?)) AS distinct_
-         FROM entries
-        WHERE collection_id = ?
-          AND json_extract(data, ?) IS NOT NULL
-          AND json_extract(data, ?) != ''`,
-    )
-    .get(path, collectionId, path, path);
-  return { total, filled: row.filled, distinct: row.distinct_ };
+// How many entries carry a real value per field, and how unique those values
+// are. Shown before a field delete so its impact is visible. One table scan
+// for every field: per-field queries cost 2 scans each (930ms on prod articles).
+export function fieldUsage(db, collectionId, fieldNames) {
+  if (!fieldNames.length) return {};
+  const cols = fieldNames.map((_, i) => `COUNT(NULLIF(json_extract(data, ?${i + 2}), '')) AS f${i}, COUNT(DISTINCT NULLIF(json_extract(data, ?${i + 2}), '')) AS d${i}`).join(', ');
+  const row = db.prepare(`SELECT COUNT(*) AS total, ${cols} FROM entries WHERE collection_id = ?1`).get(collectionId, ...fieldNames.map((n) => `$.${n}`));
+  return Object.fromEntries(fieldNames.map((n, i) => [n, { total: row.total, filled: row[`f${i}`], distinct: row[`d${i}`] }]));
 }
 
 export function deleteCollection(db, slug) {
@@ -547,7 +555,7 @@ export function listEntries(db, collectionId, { limit = 50, offset = 0, q = '', 
   if (q) { where.push('(data LIKE ? ESCAPE \'\\\' OR slug LIKE ? ESCAPE \'\\\')'); const like = `%${likeEscape(q)}%`; args.push(like, like); }
   if (status) { where.push('status = ?'); args.push(status); }
   return db
-    .prepare(`SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE ${where.join(' AND ')} ORDER BY updated_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT id, slug, status, data, updated_at, published_at FROM entries WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
     .all(...args, limit, offset)
     .map((r) => ({ ...r, data: JSON.parse(r.data) }));
 }
@@ -648,7 +656,7 @@ export function renameEntry(db, entry, requestedSlug) {
   if (entry.published_data && entry.published_data.slug === entry.slug) {
     db.prepare("UPDATE entries SET published_data = json_set(published_data, '$.slug', ?) WHERE id = ?").run(slug, entry.id);
   }
-  if (entry.status === 'published') bumpContentVersion(db); // API URL changed
+  if (entry.status === 'published') bumpContentVersion(db, entry.collection_id); // API URL changed
   return slug;
 }
 
@@ -675,7 +683,7 @@ export function publishEntry(db, entryId, { preserveTimestamps = false, at = '' 
         : "UPDATE entries SET status = 'published', published_data = ?, published_at = datetime('now') WHERE id = ?",
     ).run(JSON.stringify(snapshot), entryId);
   }
-  bumpContentVersion(db);
+  bumpContentVersion(db, entry.collection_id);
   return getEntryById(db, entryId);
 }
 
@@ -690,13 +698,13 @@ export function hasUnpublishedChanges(entry) {
 }
 
 export function unpublishEntry(db, entryId) {
-  db.prepare("UPDATE entries SET status = 'draft', published_data = NULL, published_at = NULL WHERE id = ?").run(entryId);
-  bumpContentVersion(db);
+  const r = db.prepare("UPDATE entries SET status = 'draft', published_data = NULL, published_at = NULL WHERE id = ? RETURNING collection_id").get(entryId);
+  if (r) bumpContentVersion(db, r.collection_id);
 }
 
 export function deleteEntry(db, entryId) {
-  db.prepare('DELETE FROM entries WHERE id = ?').run(entryId);
-  bumpContentVersion(db);
+  const r = db.prepare('DELETE FROM entries WHERE id = ? RETURNING collection_id').get(entryId);
+  if (r) bumpContentVersion(db, r.collection_id);
 }
 
 // ---- Revisions -----------------------------------------------------------
@@ -858,17 +866,29 @@ export function listScheduled(db, collectionId, { limit = 50 }: any = {}) {
     .map((r) => ({ slug: r.slug, publish_at: isoUtc(r.published_at), updated_at: isoUtc(r.updated_at) }));
 }
 
-export function listPublished(db, collectionId, { limit = 50, offset = 0, updatedSince = '' }: any = {}) {
+function publishedWhere(collectionId, updatedSince) {
   const where = ["collection_id = ? AND status = 'published' AND published_at <= datetime('now')"];
   const args: any[] = [collectionId];
   // published_at counts too: an entry that went live after the cursor was
   // taken (scheduled) has an old updated_at and would otherwise be skipped.
   if (updatedSince) { const c = sqlUtc(updatedSince); where.push('(updated_at > ? OR published_at > ?)'); args.push(c, c); }
+  return { where, args };
+}
+
+// Live published rows matching the same filter as listPublished, so a sync
+// client can tell a complete paged read from a short one.
+export function countPublished(db, collectionId, updatedSince = '') {
+  const { where, args } = publishedWhere(collectionId, updatedSince);
+  return db.prepare(`SELECT COUNT(*) AS n FROM entries WHERE ${where.join(' AND ')}`).get(...args).n;
+}
+
+export function listPublished(db, collectionId, { limit = 50, offset = 0, updatedSince = '' }: any = {}) {
+  const { where, args } = publishedWhere(collectionId, updatedSince);
   return db
     .prepare(
       `SELECT slug, published_data, published_at, updated_at FROM entries
        WHERE ${where.join(' AND ')}
-       ORDER BY published_at DESC LIMIT ? OFFSET ?`,
+       ORDER BY published_at DESC, id LIMIT ? OFFSET ?`,
     )
     .all(...args, clampLimit(limit), Math.max(0, Math.floor(Number(offset) || 0)))
     // published_at here is the entries table's publish-lifecycle clock, kept
@@ -909,7 +929,8 @@ const schedCache = new WeakMap<object, Map<number, { v: string; times: string[];
 // HMAC keeps write frequency and the number of hidden scheduled entries from
 // leaking to read-key holders through the tag. Memoized: per request cost is
 // a compare unless (version, count) moved.
-export function apiEtag(db, collectionId, ver, secret) {
+export function apiEtag(db, collectionId, secret) {
+  const ver = collectionVersion(db, collectionId);
   let m = schedCache.get(db);
   if (!m) schedCache.set(db, (m = new Map()));
   let e = m.get(collectionId);
