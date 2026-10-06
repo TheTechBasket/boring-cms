@@ -2,8 +2,8 @@
 
 ## Active
 
-- [promotion.md](promotion.md): directory and community launch waves, sourced from seomade.app.
-- [ops-2026-10.md](ops-2026-10.md): follow-ups from the 2026-10-06 Cloudflare and server log review (deploy v0.25.0, nginx localhost fix, 1.2 GB RSS, WAF rule draft).
+- [promotion.md](promotion.md) (local only): directory and community launch waves, sourced from seomade.app.
+- [ops-2026-10.md](ops-2026-10.md) (local only): hosted instance ops follow-ups from the 2026-10-06 log review.
 - [backup.md](backup.md): backup/restore design, keeps SECRET_KEY out of routine data backups while giving restore-to-new-box a recovery path.
 
 ## Backlog
