@@ -2,6 +2,11 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
+## 0.25.1 (unreleased)
+
+- Fix: `If-None-Match` now uses weak comparison (RFC 9110 13.1.2) on the list, single-entry and `_version` routes. A tag echoed back as `W/"..."` (Cloudflare and nginx gzip weaken tags), a comma list, or `*` now gets the 304. Before, only the exact strong tag matched, so clients behind a proxy always got a 200.
+- `/robots.txt` now sends `Cache-Control: public, max-age=86400` and `X-Robots-Tag: noindex` next to `text/plain`.
+
 ## 0.25.0 (unreleased)
 
 - New `GET /api/v1/<project>/_version`: one keyed request returns `{collections: {slug: etag}}` with its own ETag/304. Each tag equals that collection's list ETag. No migration.

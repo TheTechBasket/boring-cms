@@ -377,18 +377,28 @@ async function main() {
 
   const cached = await fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': etag } });
   assert.equal(cached.status, 304, 'matching If-None-Match should be a 304');
+  const inm = (v) => fetch(`${base}/api/v1/${slug}/blog-posts`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': v } }).then((r) => r.status);
+  assert.equal(await inm(`W/${etag}`), 304, 'weak W/ form of the tag should 304 (RFC 9110 weak comparison)');
+  assert.equal(await inm(`"nope", W/${etag}`), 304, 'a comma list containing the tag should 304');
+  assert.equal(await inm('*'), 304, 'If-None-Match: * should 304');
+  assert.equal(await inm('W/"nope"'), 200, 'a non-matching weak tag should be a 200');
 
   const head = await fetch(`${base}/api/v1/${slug}/blog-posts`, { method: 'HEAD', headers: { Authorization: `Bearer ${apiKey}` } });
   assert.equal(head.status, 200, 'HEAD should route like GET');
   assert.equal(head.headers.get('etag'), etag, 'HEAD should carry the GET ETag');
   assert.equal((await fetch(`${base}/api/v1/${slug}/blog-posts`, { method: 'HEAD' })).status, 401, 'keyless HEAD should be 401 like GET');
   assert.equal((await fetch(`${base}/mcp/${slug}`)).status, 405, 'GET on the MCP endpoint should be 405');
-  assert.ok((await (await fetch(`${base}/robots.txt`)).text()).includes('Disallow: /'), 'robots.txt should disallow all');
+  const robots = await fetch(`${base}/robots.txt`);
+  assert.ok((await robots.text()).includes('Disallow: /'), 'robots.txt should disallow all');
+  assert.match(robots.headers.get('content-type') ?? '', /^text\/plain/, 'robots.txt should be text/plain');
+  assert.equal(robots.headers.get('cache-control'), 'public, max-age=86400', 'robots.txt should be cacheable for a day');
+  assert.equal(robots.headers.get('x-robots-tag'), 'noindex', 'robots.txt itself should not be indexed');
 
   const verRes = await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}` } });
   const verMap: any = await verRes.json();
   assert.equal(verMap.collections['blog-posts'], etag, '_version should list the same ETag the list route sends');
   assert.equal((await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': verRes.headers.get('etag') } })).status, 304, '_version should 304 on a matching tag');
+  assert.equal((await fetch(`${base}/api/v1/${slug}/_version`, { headers: { Authorization: `Bearer ${apiKey}`, 'If-None-Match': `W/${verRes.headers.get('etag')}` } })).status, 304, '_version should 304 on the weak W/ form');
   assert.equal((await fetch(`${base}/api/v1/${slug}/_version`)).status, 401, '_version should need a key');
 
   const sinceOld = await fetch(`${base}/api/v1/${slug}/blog-posts?updated_since=2000-01-01T00:00:00Z`, { headers: { Authorization: `Bearer ${apiKey}` } });

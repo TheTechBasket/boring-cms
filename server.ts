@@ -147,6 +147,11 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   const router = new Router();
   const publicDir = path.join(__dirname, 'public');
 
+  // RFC 9110 13.1.2: If-None-Match uses weak comparison. Proxies (Cloudflare,
+  // nginx gzip) weaken our tags to W/"..." and clients echo that form back.
+  const inmMatch = (h: string | undefined, etag: string) =>
+    !!h && (h.trim() === '*' || h.split(',').some((t) => t.trim().replace(/^W\//, '') === etag));
+
   // `memo` lets a caller keep the gzipped body next to a cached response.
   function send(req, res, status, body, headers = {}, memo?: { gz?: Buffer }) {
     const ms = performance.now() - req._start;
@@ -1829,7 +1834,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       const cid = collectionIdBySlug(db, params.collection, ver);
       if (cid === null) return json(req, res, 404, { error: 'not_found' });
       const etag = apiEtag(db, cid, config.masterKey);
-      if (req.headers['if-none-match'] === etag) return send(req, res, 304, '', { ETag: etag });
+      if (inmMatch(req.headers['if-none-match'], etag)) return send(req, res, 304, '', { ETag: etag });
       const collection = { id: cid };
       return handler(req, res, params, { db, collection, etag });
     };
@@ -1893,7 +1898,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     for (const c of ctx.db.prepare('SELECT id, slug FROM collections ORDER BY slug').all()) collections[c.slug] = apiEtag(ctx.db, c.id, config.masterKey);
     const body = JSON.stringify({ collections });
     const etag = `"${createHash('sha256').update(body).digest('base64url').slice(0, 16)}"`;
-    if (req.headers['if-none-match'] === etag) return send(req, res, 304, '', { ETag: etag });
+    if (inmMatch(req.headers['if-none-match'], etag)) return send(req, res, 304, '', { ETag: etag });
     send(req, res, 200, body, { 'Content-Type': 'application/json; charset=utf-8', ETag: etag });
   });
 
@@ -2388,7 +2393,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     }
 
     // Admin UI and keyed API only: nothing here is for crawlers.
-    if (pathname === '/robots.txt') return send(req, res, 200, 'User-agent: *\nDisallow: /\n', { 'Content-Type': 'text/plain; charset=utf-8' });
+    if (pathname === '/robots.txt') return send(req, res, 200, 'User-agent: *\nDisallow: /\n', { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400', 'X-Robots-Tag': 'noindex' });
 
     if (pathname === '/') {
       return redirect(req, res, '/admin/projects');
