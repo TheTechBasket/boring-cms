@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync, readdirSync } from 'node:fs';
 import { gzipSync, createGzip } from 'node:zlib';
 import path from 'node:path';
@@ -93,7 +93,7 @@ import {
   getMeta,
   setMeta,
 } from './lib/content.ts';
-import {
+import { ADMIN_CSP,
   setupPage,
   loginPage,
   resetPasswordPage,
@@ -179,8 +179,16 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     res.end(body);
   }
 
+  const HTML_HEADERS = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': ADMIN_CSP,
+  };
+
   function html(req, res, status, body) {
-    send(req, res, status, body, { 'Content-Type': 'text/html; charset=utf-8' });
+    send(req, res, status, body, HTML_HEADERS);
   }
 
   function redirect(req, res, location) {
@@ -264,22 +272,39 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
 
   // ---- Auth / setup routes ----------------------------------------------
 
+  // First-run claim guard: on a public address the first visitor would become
+  // admin, and scanners find /setup fast. Anything but a direct local connection
+  // must give the token printed in the server log.
+  // ponytail: a proxy that sends no X-Forwarded-For with TRUST_PROXY=0 looks local.
+  const setupToken = randomBytes(18).toString('base64url');
+  const setupIsLocal = (req) =>
+    !config.trustProxy && !req.headers['x-forwarded-for'] && /^(127\.|::1$|::ffff:127\.)/.test(req.socket.remoteAddress || '');
+  const setupTokenOk = (given) => {
+    const a = Buffer.from(String(given || ''));
+    const b = Buffer.from(setupToken);
+    return a.length === b.length && timingSafeEqual(a, b);
+  };
+
   router.get('/setup', (req, res) => {
     if (userCount(coreDb) > 0) return redirect(req, res, '/login');
-    html(req, res, 200, setupPage());
+    html(req, res, 200, setupPage({ needsToken: !setupIsLocal(req) }));
   });
 
   router.post('/setup', async (req, res) => {
     if (userCount(coreDb) > 0) return redirect(req, res, '/login');
     const form = await readFormBody(req);
+    const needsToken = !setupIsLocal(req);
+    if (needsToken && !setupTokenOk(form.setup_token)) {
+      return html(req, res, 403, setupPage({ needsToken, error: 'Wrong setup token. Find it in the server log.' }));
+    }
     const email = (form.email || '').trim().toLowerCase();
     const password = form.password || '';
     const confirm = form.password_confirm || '';
     if (!email || password.length < 8) {
-      return html(req, res, 400, setupPage({ error: 'Enter an email and a password of at least 8 characters.' }));
+      return html(req, res, 400, setupPage({ needsToken, error: 'Enter an email and a password of at least 8 characters.' }));
     }
     if (password !== confirm) {
-      return html(req, res, 400, setupPage({ error: 'Passwords do not match.' }));
+      return html(req, res, 400, setupPage({ needsToken, error: 'Passwords do not match.' }));
     }
     const user = await createUser(coreDb, { email, password });
     loginUser(req, res, user.id);
@@ -1480,10 +1505,19 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
     if (publicUrl) return redirect(req, res, publicUrl);
     const stream = await backend.stream(params.key);
     if (!stream) return send(req, res, 404, 'Not found');
-    res.writeHead(200, {
-      'Content-Type': found.media.mime,
+    // Uploads share an origin with the admin session, so a key with upload scope
+    // must not be able to plant a page or script. Passive types render, the rest
+    // download, SVG renders with scripts off.
+    const mime = found.media.mime;
+    const passive = /^(image\/|video\/|audio\/|font\/|text\/plain|application\/pdf)/.test(mime);
+    const headers: Record<string, string> = {
+      'Content-Type': passive ? mime : 'application/octet-stream',
+      'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'public, max-age=31536000, immutable',
-    });
+    };
+    if (!passive) headers['Content-Disposition'] = 'attachment';
+    if (/svg/i.test(mime)) headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox";
+    res.writeHead(200, headers);
     stream.pipe(res);
   });
 
@@ -2133,7 +2167,8 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   }
 
   function clientIp(req) {
-    const fwd = config.trustProxy ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+    // Last hop: the only entry the nearest proxy wrote. Earlier ones are client-supplied.
+    const fwd = config.trustProxy ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1).trim() : '';
     return fwd || req.socket.remoteAddress || '';
   }
 
@@ -2404,7 +2439,8 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
       return html(req, res, 404, errorPage({ status: 404, message: 'Not found.' }));
     }
 
-    Promise.resolve(match.handler(req, res, match.params)).catch((err) => {
+    // new Promise also catches a synchronous throw, which would otherwise end the process.
+    new Promise((resolve) => resolve(match.handler(req, res, match.params))).catch((err) => {
       console.error(err);
       if (!res.headersSent) {
         html(req, res, 500, errorPage({ status: 500, message: 'Something went wrong.' }));
@@ -2415,6 +2451,7 @@ export function createApp(configOverrides: { baseDir?: string; [key: string]: an
   server.coreDb = coreDb;
   server.projectDbs = projectDbs;
   server.appConfig = config;
+  server.setupToken = userCount(coreDb) === 0 ? setupToken : null;
 
   server.closeAll = () => {
     counters.stop();
@@ -2436,5 +2473,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   });
   app.listen(port, () => {
     console.log(`Boring CMS listening on http://localhost:${port}`);
+    if (app.setupToken) console.log(`Setup token (not needed on localhost): ${app.setupToken}`);
   });
 }

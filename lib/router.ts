@@ -44,9 +44,13 @@ export class Router {
       const m = route.pattern.exec(pathname);
       if (!m) continue;
       const params = {};
-      route.keys.forEach((key, i) => {
-        params[key] = decodeURIComponent(m[i + 1]);
-      });
+      try {
+        route.keys.forEach((key, i) => {
+          params[key] = decodeURIComponent(m[i + 1]);
+        });
+      } catch {
+        return null; // Malformed percent-encoding is a client error, not a crash.
+      }
       return { handler: route.handler, params };
     }
     return null;
@@ -88,7 +92,12 @@ export function parseCookies(req) {
     if (eq === -1) continue;
     const key = part.slice(0, eq).trim();
     const value = part.slice(eq + 1).trim();
-    if (key) out[key] = decodeURIComponent(value);
+    if (!key) continue;
+    try {
+      out[key] = decodeURIComponent(value);
+    } catch {
+      out[key] = value; // Malformed cookie: keep raw, signature checks reject it.
+    }
   }
   return out;
 }

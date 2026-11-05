@@ -58,4 +58,5 @@ app.listen(port, () => {
   console.log(`${bold(`Boring CMS v${version}`)} ${dim('ready in')} ${green(took)}`);
   console.log(`  ${dim('Admin:')} ${cyan(link(adminUrl, adminUrl))}`);
   console.log(`  ${dim('Data:')}  ${link(baseDir, `file://${baseDir}`)}`);
+  if (app.setupToken) console.log(`  ${dim('Setup token (not needed on localhost):')} ${app.setupToken}`);
 });

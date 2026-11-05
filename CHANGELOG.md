@@ -2,12 +2,22 @@
 
 Version to version upgrade notes. Newest first. Upgrades are `git pull` plus a restart; per-project SQLite migrations apply automatically on the next open of each project database.
 
-## 0.25.1 (unreleased)
+## 0.26.0 (2026-11-05)
+
+Upgrade recommended: the first fix below stops an unauthenticated crash. No migration.
+
+- Fix: a request path with malformed percent-encoding threw an uncaught error and ended the process. It now gets a 404. Synchronous handler errors and malformed cookies are also handled.
+- New: first-run setup from anywhere but a direct localhost connection needs a setup token, printed in the server log at startup. A scanner can no longer claim a new install on a public address. Local `npx boring-cms` is unchanged, and existing installs are not affected.
+- Security: uploads served from `/media/` on local storage can no longer run on the admin origin. HTML, JS and other active types download, SVG renders with scripts off, and every response sends `nosniff`. Images, video, audio, fonts, PDF and plain text render as before.
+- Security: admin HTML sends `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and a script CSP, so these no longer depend on the reverse proxy. Injected markup in the markdown preview cannot run scripts.
+- Security: with `TRUST_PROXY=1`, the client IP is now the last `X-Forwarded-For` entry, not the first. A client can no longer spoof its way past the login limit or counter dedupe.
+
+## 0.25.1 (2026-10-06)
 
 - Fix: `If-None-Match` now uses weak comparison (RFC 9110 13.1.2) on the list, single-entry and `_version` routes. A tag echoed back as `W/"..."` (Cloudflare and nginx gzip weaken tags), a comma list, or `*` now gets the 304. Before, only the exact strong tag matched, so clients behind a proxy always got a 200.
 - `/robots.txt` now sends `Cache-Control: public, max-age=86400` and `X-Robots-Tag: noindex` next to `text/plain`.
 
-## 0.25.0 (unreleased)
+## 0.25.0 (2026-10-06)
 
 - New `GET /api/v1/<project>/_version`: one keyed request returns `{collections: {slug: etag}}` with its own ETag/304. Each tag equals that collection's list ETag. No migration.
 - API ETags are now per collection: a publish, unpublish, delete or schema change in one collection no longer flips every other collection's tag. Ref rewrites, imports, restores and collection deletes still move all tags. No migration (version keys live in `meta`).

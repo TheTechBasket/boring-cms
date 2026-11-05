@@ -63,6 +63,26 @@ async function main() {
   const setupPage = await req('GET', '/setup');
   assert.equal(setupPage.status, 200, 'GET /setup should render');
 
+  // Security defaults: a remote first-run setup needs the token from the log.
+  const remote = { 'X-Forwarded-For': '203.0.113.9', 'Content-Type': 'application/x-www-form-urlencoded' };
+  const claim = (t, target = base) => fetch(`${target}/setup`, {
+    method: 'POST', redirect: 'manual', headers: remote,
+    body: new URLSearchParams({ email: 'x@example.com', password: 'password123', password_confirm: 'password123', setup_token: t }),
+  });
+  assert.ok((await (await fetch(`${base}/setup`, { headers: remote })).text()).includes('name="setup_token"'), 'remote setup should ask for the token');
+  assert.equal((await claim('wrong')).status, 403, 'remote setup with a wrong token must be refused');
+  assert.equal((await fetch(`${base}/setup`, { redirect: 'manual' })).status, 200, 'a refused claim must not create the admin');
+  const claimDir = mkdtempSync(path.join(tmpdir(), 'boring-cms-claim-'));
+  const claimApp: any = createApp({ dataDir: claimDir, masterKey, port: 0 });
+  await new Promise<void>((resolve) => claimApp.listen(0, () => resolve()));
+  assert.equal((await claim(claimApp.setupToken, `http://127.0.0.1:${claimApp.address().port}`)).status, 302, 'the logged token must allow remote setup');
+  claimApp.closeAll();
+  await new Promise((resolve) => claimApp.close(resolve));
+  rmSync(claimDir, { recursive: true, force: true });
+
+  assert.equal((await fetch(`${base}/setup`)).headers.get('x-frame-options'), 'SAMEORIGIN', 'HTML should send frame protection');
+  assert.ok(((await fetch(`${base}/setup`)).headers.get('content-security-policy') || '').includes("script-src 'self' 'sha256-"), 'HTML should send a script CSP');
+
   // 2. Create the admin account
   const email = 'admin@example.com';
   let password = 'correct horse battery staple';
@@ -762,6 +782,27 @@ async function main() {
   assert.equal(served.status, 200, 'media serve route should return the file');
   assert.equal(await served.text(), fileData, 'served bytes should match the upload');
   assert.ok((served.headers.get('cache-control') || '').includes('immutable'), 'media should be cached as immutable');
+  assert.equal(served.headers.get('x-content-type-options'), 'nosniff', 'media should send nosniff');
+
+  // An upload must not run as a page on the admin origin.
+  for (const [name, type, check] of [
+    ['evil.html', 'text/html', (r) => r.headers.get('content-type') === 'application/octet-stream' && r.headers.get('content-disposition') === 'attachment'],
+    ['evil.svg', 'image/svg+xml', (r) => r.headers.get('content-type') === 'image/svg+xml' && (r.headers.get('content-security-policy') || '').includes('sandbox')],
+  ] as [string, string, (r: any) => boolean][]) {
+    const form = new FormData();
+    form.append('file', new Blob(['<script>alert(1)</script>'], { type }), name);
+    await fetch(`${base}/admin/projects/${slug}/media`, { method: 'POST', redirect: 'manual', headers: withCookie(), body: form });
+    const listed = await (await req('GET', `/admin/projects/${slug}/media`)).text();
+    const key = (listed.match(new RegExp(`/media/demo-project/([a-z0-9-]+${name.replace('.', '\\.')})`)) || [])[1];
+    assert.ok(key, `${name} should be listed`);
+    assert.ok(check(await fetch(`${base}/media/${slug}/${key}`)), `${name} should be served inert`);
+  }
+
+  // Malformed percent-encoding and cookies must get an answer, not end the process.
+  for (const bad of ['/media/%E0%A4%A/x', '/api/v1/%E0%A4%A/x', '/mcp/%E0%A4%A', '/admin/projects/%E0%A4%A']) {
+    assert.equal((await fetch(base + bad, { redirect: 'manual' })).status, 404, `${bad} should be a 404`);
+  }
+  assert.ok((await fetch(`${base}/admin/projects`, { redirect: 'manual', headers: { Cookie: 'a=%E0%A4%A' } })).status < 500, 'a malformed cookie should not be a server error');
 
   const mediaId = (mediaHtml.match(/media\/(\d+)\/delete/) || [])[1];
   assert.ok(mediaId, 'media card should include a delete form');

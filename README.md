@@ -176,6 +176,8 @@ against the library.
 Google OAuth and passkeys are alternative login methods for existing
 accounts only. They never create new users. The first account is created
 at `/setup`; no one else can sign in unless you create their account first.
+Set up from anywhere but localhost and the page asks for the setup token the
+server printed in its log, so a scanner cannot claim a new install first.
 
 Once a passkey or Google is set up, password login can be turned off from
 Account. It re-enables itself if both alternatives disappear.

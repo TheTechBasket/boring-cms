@@ -1,7 +1,13 @@
+import { createHash } from 'node:crypto';
 // Server-rendered HTML, as plain template strings. No framework, no build step.
 
 import { readFileSync, statSync } from 'node:fs';
 import { entryLabel, entryState, isoUtc, mapMaxKeys, REVISIONS_KEEP } from './content.ts';
+
+// Runs before first paint. Its hash is the only inline script the CSP allows, so
+// HTML injected through stored content (markdown preview) cannot execute.
+const THEME_SCRIPT = `try{var d=document.documentElement;if(localStorage.theme==='dark')d.classList.add('dark');var c=localStorage.nav==='collapsed';if(innerWidth<768)c=true;if(c)d.classList.add('nav-collapsed')}catch(e){}`;
+export const ADMIN_CSP = `script-src 'self' 'sha256-${createHash('sha256').update(THEME_SCRIPT).digest('base64')}'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'`;
 
 export const APP_NAME = 'Boring CMS';
 
@@ -330,7 +336,7 @@ function layout({ title, body, user = null, projects = [], project = null, notic
   <title>${escapeHtml(title)} · ${APP_NAME}</title>
   <link rel="icon" href="${favicon(project)}">
   <link rel="stylesheet" href="/public/admin.css?v=${ADMIN_CSS_V}">
-  <script>try{var d=document.documentElement;if(localStorage.theme==='dark')d.classList.add('dark');var c=localStorage.nav==='collapsed';if(innerWidth<768)c=true;if(c)d.classList.add('nav-collapsed')}catch(e){}</script>
+  <script>${THEME_SCRIPT}</script>
 </head>
 <body class="min-h-screen bg-background text-foreground">
   ${shell}
@@ -412,7 +418,7 @@ function sidebar({ user, projects, project }: {
 
 // ---- Auth pages -----------------------------------------------------------
 
-export function setupPage({ error }: { error?: string } = {}): string {
+export function setupPage({ error, needsToken = false }: { error?: string; needsToken?: boolean } = {}): string {
   return layout({
     title: `Set up ${APP_NAME}`,
     bare: true,
@@ -423,7 +429,9 @@ export function setupPage({ error }: { error?: string } = {}): string {
       ${card({
         action: '/setup',
         children: `
-        ${field({ label: 'Email', name: 'email', type: 'email', required: true, autofocus: true })}
+        ${needsToken ? `${field({ label: 'Setup token', name: 'setup_token', required: true })}
+        <p class="text-sm text-muted-foreground">The server printed this token in its log at startup. It proves you run this server.</p>` : ''}
+        ${field({ label: 'Email', name: 'email', type: 'email', required: true, autofocus: !needsToken })}
         ${field({ label: 'Password', name: 'password', type: 'password', required: true, minlength: 8 })}
         ${field({ label: 'Confirm password', name: 'password_confirm', type: 'password', required: true, minlength: 8 })}
         ${button({ label: 'Create admin account' })}
